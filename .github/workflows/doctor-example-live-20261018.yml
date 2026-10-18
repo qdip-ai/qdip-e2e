@@ -1,0 +1,46 @@
+name: Doctor example real-browser UI release check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-example-real-browser-ui
+  cancel-in-progress: false
+jobs:
+  real-example:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify test credential bindings
+        env:
+          QA_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QA_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$QA_LOGIN"
+          test -n "$QA_PASSWORD"
+      - name: Install isolated Chromium browser
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-example-qualify
+          cp scripts/doctor_example_selection_live.mjs /tmp/doctor-example-qualify/
+          cd /tmp/doctor-example-qualify
+          node --check doctor_example_selection_live.mjs
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real UI select, role gate, Zitadel and verified repair
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          cd /tmp/doctor-example-qualify
+          node doctor_example_selection_live.mjs
