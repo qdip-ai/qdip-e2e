@@ -203,7 +203,8 @@ async function main() {
         waitUntil: 'domcontentloaded', timeout: 30000,
       });
       check(revision?.status() === 200, 'PINNED_DEV_ALIAS_NOT_AVAILABLE');
-      const html = await page.content();
+      // Read the original response: hydration can remove the deployment marker from DOM.
+      const html = await revision.text();
       check(html.includes('data-dpl-id="' + FRONT_DEPLOYMENT + '"'),
         'DEV_ALIAS_MOVED_TO_UNVERIFIED_DEPLOYMENT');
     } finally {
