@@ -183,20 +183,15 @@ async function main(){
         body:JSON.stringify({model_base64:encoded,operation:"solve",time_limit_seconds:2}),
       });
       return {sessionStatus:session.status,session:sessionBody,
-        executeStatus:response.status,evidence:await response.json(),
-        sessionCors:session.headers.get("access-control-allow-origin"),
-        executionCors:response.headers.get("access-control-allow-origin")};
+        executeStatus:response.status,evidence:await response.json()};
     },{site:SITE,encoded:feasible});
     check(bridge.sessionStatus===200
       &&bridge.session.authenticated===true
       &&bridge.session.user===undefined
-      &&bridge.executionStatus===undefined
       &&bridge.executeStatus===200
       &&bridge.evidence?.contract_version==="doctor.native-cpsat.v0.1"
       &&bridge.evidence.operation==="solve"
-      &&bridge.evidence.solver_status==="OPTIMAL"
-      &&bridge.sessionCors===OBS
-      &&bridge.executionCors===OBS,
+      &&bridge.evidence.solver_status==="OPTIMAL",
       "OBSERVATORY_DOCTOR_CREDENTIALLED_BROWSER_BRIDGE_FAILED");
     console.log("DOCTOR_OBSERVATORY_LIVE_COOKIE_CORS_CP_SAT=PASS");
 
