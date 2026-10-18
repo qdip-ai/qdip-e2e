@@ -180,7 +180,7 @@ async function login(browser, actor) {
           pagePreview.waitForEvent('download', { timeout: 12000 }),
           downloadButton.click(),
         ]);
-        assert(/^dzvin-diary-\\d{4}-\\d{2}-\\d{2}\\.json$/.test(download.suggestedFilename()),
+        assert(/^dzvin-diary-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()),
           actor.label + '_EXPORT_FILENAME_INVALID');
         const stream = await download.createReadStream();
         const bytes = [];
@@ -188,8 +188,12 @@ async function login(browser, actor) {
         const exported = JSON.parse(Buffer.concat(bytes).toString('utf8'));
         assert(exported?.format === 'dzvin-diary' && exported.version === 1 &&
           Array.isArray(exported.entries), actor.label + '_EXPORT_SCHEMA_INVALID');
-        const downloadedIds = new Set(exported.entries.map(x => x.id));
-        assert(owned.every(id => downloadedIds.has(id)), actor.label + '_EXPORT_MISSING_OWNED_ENTRY');
+        const downloadedIds = exported.entries.map(x => x.id);
+        const expectedIds = new Set(owned);
+        assert(downloadedIds.length === expectedIds.size &&
+          new Set(downloadedIds).size === expectedIds.size &&
+          downloadedIds.every(id => expectedIds.has(id)),
+          actor.label + '_EXPORT_OWNERSHIP_OR_COMPLETENESS_MISMATCH');
       } else {
         assert(await downloadButton.isDisabled(), actor.label + '_EMPTY_EXPORT_SHOULD_DISABLE');
       }
