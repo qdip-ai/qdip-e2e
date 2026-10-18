@@ -207,6 +207,22 @@ async function main(){
     await page.locator('[data-testid="doctor-result"]')
       .getByText("OPTIMAL",{exact:true}).waitFor({state:"visible",timeout:20000});
     console.log("DOCTOR_OBSERVATORY_LIVE_UI_UPLOAD_RESULT=PASS");
+    await page.locator('[data-testid="doctor-file"]').setInputFiles({
+      name:"assumption-conflict.cpmodel",
+      mimeType:"application/octet-stream",
+      buffer:Buffer.from(conflict,"base64"),
+    });
+    await page.locator("#doctor-operation").selectOption("propose_repair");
+    await page.getByRole("button",{name:"Виконати в Doctor"}).click();
+    const rendered=page.locator('[data-testid="doctor-result"]')
+      .getByText("INDEPENDENT_CP_SAT_SOLVE",{exact:false}).filter({visible:true});
+    await rendered.first().waitFor({state:"visible",timeout:20000});
+    check(await rendered.count()===2,
+      "DOCTOR_OBSERVATORY_UI_VERIFIED_REPAIR_ALTERNATIVES_NOT_DISPLAYED");
+    check(await page.getByText("Доказ не пройшов перевірку",{exact:false}).count()===0,
+      "DOCTOR_OBSERVATORY_UI_REPAIR_PROOF_REJECTED");
+    console.log("DOCTOR_OBSERVATORY_LIVE_UI_TWO_VERIFIED_REPAIRS=PASS");
+
 
 
     const csrf=await context.request.post(SITE+"/api/doctor",{
