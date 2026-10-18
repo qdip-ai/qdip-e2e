@@ -1,0 +1,48 @@
+name: Dzvin B2C real Zitadel QA gate
+# Manual-only: use existing encrypted qdip-e2e test-user credentials.
+# Pinned to approved dev deployment; no automatic costly E2E on every push.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-existing-zitadel-one-time-20261018
+  cancel-in-progress: false
+jobs:
+  verified-test-email:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    env:
+      CI: 'true'
+      QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check source
+        run: node --check scripts/dzvin_b2c_existing_zitadel_20261018.mjs
+      - name: Install isolated Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dzvin-b2c-existing-user
+          cp scripts/dzvin_b2c_existing_zitadel_20261018.mjs /tmp/dzvin-b2c-existing-user/
+          cd /tmp/dzvin-b2c-existing-user
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Verify existing test-email OIDC login and read-only B2C isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/dzvin-b2c-existing-user
+          node dzvin_b2c_existing_zitadel_20261018.mjs
