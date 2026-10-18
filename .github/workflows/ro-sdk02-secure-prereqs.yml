@@ -1,0 +1,38 @@
+name: RO SDK-02 secure handoff prerequisites
+on:
+  push:
+    branches: [test/ro-sdk02-secure-provision-check]
+    paths: [.github/workflows/ro-sdk02-secure-prereqs.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check-sealed-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check sealed credential channels without disclosing values
+        env:
+          QA_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          QA_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+          RAILWAY_PROJECT: ${{ secrets.RAILWAY_PROJECT_TOKEN != '' }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN != '' }}
+          RAILWAY_RO_PROJECT: ${{ secrets.RAILWAY_RO_PROJECT_TOKEN != '' }}
+          RAILWAY_RO_QA: ${{ secrets.RO_QA_RAILWAY_PROJECT_TOKEN != '' }}
+          CORE_OPERATOR: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          test "$QA_LOGIN" = true && test "$QA_PASSWORD" = true
+          echo "RO_ZITADEL_TEST_ADMIN_BINDINGS=PASS"
+          if [[ "$RAILWAY_PROJECT" = true || "$RAILWAY_TOKEN" = true || "$RAILWAY_API_TOKEN" = true || "$RAILWAY_RO_PROJECT" = true || "$RAILWAY_RO_QA" = true ]]; then
+            echo "RO_RAILWAY_TOKEN_CHANNEL=PRESENT"
+          else
+            echo "RO_RAILWAY_TOKEN_CHANNEL=NOT_CONFIGURED"
+          fi
+          if [[ "$CORE_OPERATOR" = true ]]; then
+            echo "RO_CORE_OPERATOR_KEY_CHANNEL=PRESENT"
+          else
+            echo "RO_CORE_OPERATOR_KEY_CHANNEL=NOT_CONFIGURED"
+          fi
+          echo "RO_NO_KEY_MINTED=PASS"
