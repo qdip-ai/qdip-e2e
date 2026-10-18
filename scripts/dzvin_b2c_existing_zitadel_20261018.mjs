@@ -58,8 +58,11 @@ async function login(browser, identity) {
         if (u.pathname.endsWith('/oauth/v2/authorize')) authRequests.push(u);
       } catch { /* don't log */ }
     });
-    await page.goto(SITE + '/en/auth', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const initialResponse = await page.goto(SITE + '/en/auth', {
+      waitUntil: 'domcontentloaded', timeout: 30000,
+    });
     await page.waitForURL(u => u.origin !== SITE, { timeout: 20000 });
+    console.log(identity.label + '_ZITADEL_PAGE_HTTP=' + (initialResponse?.status() ?? 'UNKNOWN'));
     check(authRequests.length > 0, identity.label + '_OIDC_AUTHORIZE_MISSING');
     const a = authRequests[0];
     check(a.searchParams.get('code_challenge_method') === 'S256', identity.label + '_PKCE_INVALID');
@@ -77,6 +80,27 @@ async function login(browser, identity) {
       'input[name="loginname"]', 'input[name="username"]',
       'input[name="email"]', 'input[type="email"]', 'input[type="text"]',
     ]);
+    if (!username) {
+      // Nothing entered yet. Log only whitelisted structure and error categories;
+      // never record full URLs, form content, credentials, OAuth state or cookies.
+      const shape = await page.locator('input').evaluateAll(els =>
+        els.slice(0, 8).map(el => ({
+          type: el.getAttribute('type')?.slice(0, 24) ?? '',
+          name: el.getAttribute('name')?.slice(0, 40) ?? '',
+          autocomplete: el.getAttribute('autocomplete')?.slice(0, 32) ?? '',
+        })),
+      ).catch(() => []);
+      const text = (await page.locator('body').innerText({ timeout: 4000 }).catch(() => '')).toLowerCase();
+      const hint = /redirect.uri|redirect uri|redirect_url|invalid redirect/.test(text)
+        ? 'INVALID_REDIRECT' : /client.*invalid|invalid.*client/.test(text)
+        ? 'INVALID_CLIENT' : /unauthoriz|forbidden|access denied/.test(text)
+        ? 'ACCESS_DENIED' : /error|something went wrong|not found/.test(text)
+        ? 'PROVIDER_ERROR' : /login|sign in|anmelden|увійти/.test(text)
+        ? 'LOGIN_VIEW' : 'UNKNOWN';
+      console.log(identity.label + '_ZITADEL_VIEW_HINT=' + hint);
+      console.log(identity.label + '_ZITADEL_INPUT_SHAPE=' + JSON.stringify(shape));
+      console.log(identity.label + '_ZITADEL_FRAME_COUNT=' + page.frames().length);
+    }
     check(username, identity.label + '_ZITADEL_USERNAME_FIELD_MISSING');
     await username.fill(identity.email);
     let password = await visibleField(page, [
