@@ -194,6 +194,20 @@ async function main(){
       &&bridge.evidence.solver_status==="OPTIMAL",
       "OBSERVATORY_DOCTOR_CREDENTIALLED_BROWSER_BRIDGE_FAILED");
     console.log("DOCTOR_OBSERVATORY_LIVE_COOKIE_CORS_CP_SAT=PASS");
+    // Assert the actual Observatory UI can submit native bytes and render
+    // the verified result using Doctor's HttpOnly cookie, not fixture mocks.
+    await page.getByText("Сесія Doctor активна").waitFor({state:"visible",timeout:12000});
+    await page.locator('[data-testid="doctor-file"]').setInputFiles({
+      name:"browser-bridge.cpmodel",
+      mimeType:"application/octet-stream",
+      buffer:Buffer.from(feasible,"base64"),
+    });
+    await page.locator("#doctor-operation").selectOption("solve");
+    await page.getByRole("button",{name:"Виконати в Doctor"}).click();
+    await page.locator('[data-testid="doctor-result"]')
+      .getByText("OPTIMAL",{exact:true}).waitFor({state:"visible",timeout:20000});
+    console.log("DOCTOR_OBSERVATORY_LIVE_UI_UPLOAD_RESULT=PASS");
+
 
     const csrf=await context.request.post(SITE+"/api/doctor",{
       headers:{Origin:"https://other.invalid","Content-Type":"application/json"},
@@ -208,6 +222,13 @@ async function main(){
       headers:{Origin:SITE,"Content-Type":"application/json"},
       data:{model_base64:feasible,operation:"validate",time_limit_seconds:2}});
     check(blocked.status()===401,"DOCTOR_LOGOUT_SOLVER_NOT_BLOCKED");
+    await page.getByRole("button",{name:"Перевірити сесію"}).click();
+    await page.getByText("Увійдіть у Doctor через Zitadel",{exact:false})
+      .waitFor({state:"visible",timeout:10000});
+    await page.getByRole("button",{name:"Виконати в Doctor"}).waitFor({state:"visible"});
+    check(await page.getByRole("button",{name:"Виконати в Doctor"}).isDisabled(),
+      "DOCTOR_OBSERVATORY_LOGOUT_DID_NOT_DISABLE_EXECUTION");
+    console.log("DOCTOR_OBSERVATORY_LIVE_UI_LOGOUT_DENIAL=PASS");
     console.log("DOCTOR_P0_CSRF_LOGOUT=PASS");
     console.log("DOCTOR_P1_REAL_ZITADEL_BROWSER_MULTI_REPAIR_E2E=PASS");
     console.log("DOCTOR_ROLELESS_IDENTITY=NOT_TESTED");
