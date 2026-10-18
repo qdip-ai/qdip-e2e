@@ -1,0 +1,52 @@
+name: Doctor Observatory live bridge qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-observatory-bridge-release
+  cancel-in-progress: false
+jobs:
+  live-bridge:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check test source
+        run: node --check scripts/doctor_observatory_bridge_live.mjs
+      - name: Verify existing sealed test credentials
+        env:
+          TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          test -n "$TEST_LOGIN"
+          test -n "$TEST_PASSWORD"
+      - name: Install isolated Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-observatory-test
+          cp scripts/doctor_observatory_bridge_live.mjs /tmp/doctor-observatory-test/
+          cd /tmp/doctor-observatory-test
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real Observatory-origin Doctor cookie CORS and native Worker E2E
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          CI: 'true'
+        run: |
+          cd /tmp/doctor-observatory-test
+          node doctor_observatory_bridge_live.mjs
+      - name: Preserve unreached security gates
+        if: success()
+        run: |
+          echo 'DOCTOR_OBSERVATORY_ROLELESS_LIVE=NOT_TESTED'
+          echo 'DOCTOR_OBSERVATORY_IPHONE_SAFARI=NOT_TESTED'
+
