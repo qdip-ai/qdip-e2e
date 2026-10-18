@@ -2,7 +2,7 @@ name: Doctor plain report JSON production acceptance
 on:
   push:
     branches: [test/doctor-plain-report-json-20261018]
-    paths: [.github/workflows/doctor-plain-report-json-live.yml]
+    paths: [.github/workflows/doctor-plain-report-json-live.yml, scripts/doctor_plain_report_json_live.mjs]
   workflow_dispatch:
 permissions:
   contents: read
