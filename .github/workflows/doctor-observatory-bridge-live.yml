@@ -4,7 +4,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: doctor-observatory-bridge-release
+  group: doctor-shared-zitadel-test-user
   cancel-in-progress: false
 jobs:
   live-bridge:

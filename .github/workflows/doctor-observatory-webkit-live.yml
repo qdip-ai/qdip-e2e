@@ -4,13 +4,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: doctor-observatory-webkit-live
+  group: doctor-shared-zitadel-test-user
   cancel-in-progress: false
 jobs:
   webkit-mobile:
     if: github.event.repository.private == false
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,6 +36,8 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.56.1
           npx playwright install --with-deps webkit
+      - name: Respect shared per-subject Doctor rolling quota
+        run: sleep 65
       - name: Genuine Zitadel and Observatory WebKit mobile E2E
         env:
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
