@@ -11,6 +11,7 @@ import { chromium } from '@playwright/test';
 const SITE = 'https://mentality-web.vercel.app';
 const FRONT_SHA = 'e098d847c72e8c6f96735742f8f2a92f63117678';
 const BACK_SHA = '05dd3f327e05fef2c897a5ed1b9959fb0b391b6a';
+const FRONT_DEPLOYMENT = 'dpl_GxMWT69cYxPaa3tSWfNLZCxomSaH';
 
 const identities = [
   { label: 'QA1', email: process.env.QDIP_E2E_ZITADEL_TEST1_LOGIN, password: process.env.QDIP_E2E_ZITADEL_TEST1_PASSWORD },
@@ -182,8 +183,16 @@ async function login(browser, identity) {
 }
 async function main() {
   strictPreview();
-  console.log('DZVIN_B2C_EXACT_WEB_SHA=' + FRONT_SHA);
-  console.log('DZVIN_B2C_EXACT_BACK_SHA=' + BACK_SHA);
+  const revision = await fetch(SITE + '/en/my-day', { redirect: 'manual' });
+  check(revision.status === 200, 'PINNED_DEV_ALIAS_NOT_AVAILABLE');
+  const html = await revision.text();
+  check(html.includes('data-dpl-id="' + FRONT_DEPLOYMENT + '"'),
+    'DEV_ALIAS_MOVED_TO_UNVERIFIED_DEPLOYMENT');
+  console.log('DZVIN_B2C_PINNED_FRONTEND_DEPLOYMENT=PASS');
+  console.log('DZVIN_B2C_EXPECTED_WEB_SHA=' + FRONT_SHA);
+  // Render develop SHA must be verified independently: there is no authenticated
+  // deploy-metadata API exposed to this public, read-only GitHub runner.
+  console.log('DZVIN_B2C_EXPECTED_BACK_SHA=' + BACK_SHA);
   const pair = identities.every(x => Boolean(x.email && x.password));
   const one = Boolean(fallback.email && fallback.password);
   check(pair || one, 'EXISTING_ZITADEL_TEST_CREDENTIALS_UNAVAILABLE');
