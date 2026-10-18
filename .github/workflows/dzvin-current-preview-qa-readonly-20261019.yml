@@ -2,14 +2,6 @@ name: Dzvin current preview QA1 QA2 real login read-only E2E
 # Manual browser E2E only. Not CI, no customer data mutations.
 on:
   workflow_dispatch:
-  # Controlled QA retry after SSR hydration wait fix. Only changes to THIS workflow on the
-  # uniquely scoped branch may trigger the existing secret-bound E2E job.
-  # Never PR-triggered, never scheduled, never a release CI gate.
-  push:
-    branches:
-      - run/dzvin-qa1qa2-readonly-20261019
-    paths:
-      - .github/workflows/dzvin-current-preview-qa-readonly-20261019.yml
 
 permissions:
   contents: read
@@ -20,11 +12,7 @@ concurrency:
 
 jobs:
   qa1-qa2-preview:
-    if: >-
-      github.event.repository.private == false &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'push' &&
-        github.ref == 'refs/heads/run/dzvin-qa1qa2-readonly-20261019'))
+    if: github.event.repository.private == false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
