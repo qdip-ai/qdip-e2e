@@ -1,8 +1,5 @@
 name: Doctor example real-browser UI release check
 on:
-  push:
-    branches: [test/doctor-example-live-20261018]
-    paths: [.github/workflows/doctor-example-live-20261018.yml]
   workflow_dispatch:
 permissions:
   contents: read
