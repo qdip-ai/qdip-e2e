@@ -208,10 +208,22 @@ async function login(browser, actor) {
           waitUntil: 'domcontentloaded',
         });
         assert(pageLoad?.status() === 200, actor.label + '_LOCALIZED_DIARY_UNAVAILABLE');
-        assert(await pagePreview.getByText(item.help, { exact: true }).count() > 0,
-          actor.label + '_URGENT_HELP_MISSING');
-        assert(await pagePreview.getByRole('link', { name: item.privacy }).count() > 0,
-          actor.label + '_PRIVACY_NOTICE_MISSING');
+        const label = actor.label + '_' + item.lang.toUpperCase();
+        const help = pagePreview.getByText(item.help, { exact: true });
+        const privacy = pagePreview.getByRole('link', { name: item.privacy });
+        const helpVisible = await help.waitFor({ state: 'visible', timeout: 12000 })
+          .then(() => true, () => false);
+        assert(helpVisible, label + '_URGENT_HELP_MISSING');
+        const privacyVisible = await privacy.waitFor({ state: 'visible', timeout: 12000 })
+          .then(() => true, () => false);
+        if (!privacyVisible) {
+          // Print only safe structural evidence; never diary HTML or account data.
+          const matchingHref = await pagePreview.locator('a[href*="privacy"]')
+            .count().catch(() => 0);
+          console.log(label + '_PRIVACY_LINK_HREF_MATCHES=' + matchingHref);
+        }
+        assert(privacyVisible, label + '_PRIVACY_NOTICE_MISSING');
+        console.log(label + '_URGENT_HELP_AND_PRIVACY=PASS');
       }
       console.log(actor.label + '_CURRENT_PREVIEW_B2C_AND_DIARY_EXPORT=PASS');
       return { context: preview, userId: session.id, owned };
