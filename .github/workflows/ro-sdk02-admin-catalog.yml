@@ -1,0 +1,47 @@
+name: RO SDK-02 real QA admin catalog readiness
+on:
+  push:
+    branches: [test/ro-sdk02-production-admin-catalog]
+    paths:
+      - scripts/ro_sdk02_admin_catalog_probe.mjs
+      - .github/workflows/ro-sdk02-admin-catalog.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  admin-catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preflight sealed QA identity and source
+        env:
+          HAS_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          HAS_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          test "$HAS_LOGIN" = true
+          test "$HAS_PASSWORD" = true
+          node --check scripts/ro_sdk02_admin_catalog_probe.mjs
+      - name: Install isolated Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ro-sdk02-admin-catalog
+          cp scripts/ro_sdk02_admin_catalog_probe.mjs /tmp/ro-sdk02-admin-catalog/
+          cd /tmp/ro-sdk02-admin-catalog
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real qa@qdip.ai session + live admin key catalog GET only
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/ro-sdk02-admin-catalog
+          node ro_sdk02_admin_catalog_probe.mjs
