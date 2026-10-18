@@ -1,6 +1,9 @@
 name: Doctor Observatory mobile WebKit live qualification
 on:
   workflow_dispatch:
+  push:
+    branches: [test/doctor-native-repair-observatory-ui]
+    paths: [.github/workflows/doctor-observatory-webkit-live.yml]
 permissions:
   contents: read
 concurrency:
