@@ -1,0 +1,56 @@
+name: Observatory 405 real QA admin positive URL gate
+on:
+  push:
+    branches:
+      - test/observatory-405-qa-admin-probe
+    paths:
+      - scripts/observatory405_qa_positive_e2e.mjs
+      - .github/workflows/observatory405-qa-positive.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: observatory405-qa-admin-positive
+  cancel-in-progress: false
+jobs:
+  live-admin-positive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate script and sealed credentials
+        env:
+          LOGIN_SET: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          PASSWORD_SET: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/observatory405_qa_positive_e2e.mjs
+          test "$LOGIN_SET" = true
+          test "$PASSWORD_SET" = true
+      - name: Install isolated Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/observatory405-admin-positive
+          cp scripts/observatory405_qa_positive_e2e.mjs /tmp/observatory405-admin-positive/
+          cd /tmp/observatory405-admin-positive
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real QA admin review, save, public link, stale CAS, revoke, restore
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/observatory405-admin-positive
+          node observatory405_qa_positive_e2e.mjs
+      - name: Scope of E2E
+        if: success()
+        run: |
+          echo 'OBS405_REAL_ADMIN_METADATA_WRITE_CAS_REVOKE=PASS'
+          echo 'OBS405_MONGO_AUDIT_DATABASE_DIRECT=NOT_TESTED'
