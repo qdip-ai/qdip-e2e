@@ -144,6 +144,17 @@ async function login(browser, identity) {
     console.log(identity.label + '_B2C_RELEASE_BOUNDARY=PASS');
     await get(context, '/api/backend/user-statistics/mood?timeZone=Europe%2FWarsaw',
       200, identity.label + '_PERSONAL_STATS');
+    const moodResponse = await get(context, '/api/backend/mood-record?limit=1',
+      200, identity.label + '_MOOD_HISTORY');
+    const moods = await moodResponse.json();
+    check(Array.isArray(moods), identity.label + '_MOOD_HISTORY_INVALID');
+    const ownedMoodId = moods.map(x => x?.id ?? x?._id).find(x => /^[0-9a-f]{24}$/i.test(x || ''));
+    if (ownedMoodId) {
+      await get(context, '/api/backend/mood-record/' + ownedMoodId, 200, identity.label + '_OWN_MOOD');
+      console.log(identity.label + '_OWNED_MOOD_RECORD=PASS');
+    } else {
+      console.log(identity.label + '_OWNED_MOOD_RECORD=NO_EXISTING_FIXTURE');
+    }
     const diaryResponse = await get(context, '/api/backend/diary/user',
       200, identity.label + '_DIARY_LIST');
     const diaries = await diaryResponse.json();
@@ -163,7 +174,7 @@ async function login(browser, identity) {
         identity.label + '_B2C_PAGE_NAVIGATION_FAILED');
     }
     console.log(identity.label + '_B2C_FIVE_AUTHENTICATED_PAGES=PASS');
-    return { context, userId: session.id, ownedDiaryId };
+    return { context, userId: session.id, ownedDiaryId, ownedMoodId };
   } catch (e) {
     await context.close();
     throw e;
@@ -195,6 +206,15 @@ async function main() {
       }
       console.log('DZVIN_REAL_CROSS_USER_DIARY_DENIAL=' +
         (crossUserReads ? 'PASS_' + crossUserReads + '_DIRECTIONS' : 'NOT_TESTED_NO_FIXTURES'));
+      let crossMoodReads = 0;
+      for (const [actor, foreign] of [[actors[0], actors[1]], [actors[1], actors[0]]]) {
+        if (!foreign.ownedMoodId) continue;
+        await get(actor.context, '/api/backend/mood-record/' + foreign.ownedMoodId,
+          404, 'CROSS_USER_PRIVATE_MOOD');
+        crossMoodReads++;
+      }
+      console.log('DZVIN_REAL_CROSS_USER_MOOD_DENIAL=' +
+        (crossMoodReads ? 'PASS_' + crossMoodReads + '_DIRECTIONS' : 'NOT_TESTED_NO_FIXTURES'));
     } else {
       console.log('DZVIN_BIDIRECTIONAL_TWO_USER_TEST=NOT_TESTED');
     }
