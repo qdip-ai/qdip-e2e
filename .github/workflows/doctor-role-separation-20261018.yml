@@ -1,8 +1,5 @@
 name: Doctor QA role separation in Observatory (one-time)
 on:
-  push:
-    branches: [test/doctor-auth-crossapp-20261018]
-    paths: [.github/workflows/doctor-role-separation-20261018.yml]
   workflow_dispatch:
 permissions:
   contents: read
