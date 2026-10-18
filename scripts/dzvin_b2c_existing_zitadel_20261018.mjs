@@ -183,16 +183,6 @@ async function login(browser, identity) {
 }
 async function main() {
   strictPreview();
-  const revision = await fetch(SITE + '/en/my-day', { redirect: 'manual' });
-  check(revision.status === 200, 'PINNED_DEV_ALIAS_NOT_AVAILABLE');
-  const html = await revision.text();
-  check(html.includes('data-dpl-id="' + FRONT_DEPLOYMENT + '"'),
-    'DEV_ALIAS_MOVED_TO_UNVERIFIED_DEPLOYMENT');
-  console.log('DZVIN_B2C_PINNED_FRONTEND_DEPLOYMENT=PASS');
-  console.log('DZVIN_B2C_EXPECTED_WEB_SHA=' + FRONT_SHA);
-  // Render develop SHA must be verified independently: there is no authenticated
-  // deploy-metadata API exposed to this public, read-only GitHub runner.
-  console.log('DZVIN_B2C_EXPECTED_BACK_SHA=' + BACK_SHA);
   const pair = identities.every(x => Boolean(x.email && x.password));
   const one = Boolean(fallback.email && fallback.password);
   check(pair || one, 'EXISTING_ZITADEL_TEST_CREDENTIALS_UNAVAILABLE');
@@ -202,6 +192,27 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const actors = [];
   try {
+    // Probe from a real browser: Node fetch can be challenged by Vercel while
+    // Chromium receives the actual Next.js HTML. Never bypass WAF or log HTML.
+    const revisionContext = await browser.newContext({
+      ignoreHTTPSErrors: false, serviceWorkers: 'block',
+    });
+    try {
+      const page = await revisionContext.newPage();
+      const revision = await page.goto(SITE + '/en/my-day', {
+        waitUntil: 'domcontentloaded', timeout: 30000,
+      });
+      check(revision?.status() === 200, 'PINNED_DEV_ALIAS_NOT_AVAILABLE');
+      const html = await page.content();
+      check(html.includes('data-dpl-id="' + FRONT_DEPLOYMENT + '"'),
+        'DEV_ALIAS_MOVED_TO_UNVERIFIED_DEPLOYMENT');
+    } finally {
+      await revisionContext.close();
+    }
+    console.log('DZVIN_B2C_PINNED_FRONTEND_DEPLOYMENT=PASS');
+    console.log('DZVIN_B2C_EXPECTED_WEB_SHA=' + FRONT_SHA);
+    // Render backend revision is checked separately through deployment metadata.
+    console.log('DZVIN_B2C_EXPECTED_BACK_SHA=' + BACK_SHA);
     for (const identity of toTest) actors.push(await login(browser, identity));
     if (actors.length === 2) {
       check(actors[0].userId !== actors[1].userId, 'QA_TEST_ACCOUNTS_NOT_DISTINCT');
