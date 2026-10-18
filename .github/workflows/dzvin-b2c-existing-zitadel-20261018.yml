@@ -1,8 +1,8 @@
-name: Dzvin B2C existing Zitadel E2E (one-time)
+name: Dzvin B2C real Zitadel QA gate
+# Manual-only: use existing encrypted qdip-e2e test-user credentials.
+# Pinned to approved dev deployment; no automatic costly E2E on every push.
 on:
-  push:
-    branches:
-      - test/dzvin-existing-zitadel-b2c-20261018
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
