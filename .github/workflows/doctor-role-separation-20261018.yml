@@ -1,0 +1,60 @@
+name: Doctor QA role separation in Observatory (one-time)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-live-roleless-qa-crossapp
+  cancel-in-progress: false
+jobs:
+  two-test-identities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify secure test identity binding
+        env:
+          QA1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QA2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QA1_PASSWORD_EXISTS: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+          QA2_PASSWORD_EXISTS: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          test "${QA1_LOGIN,,}" = "qa1@qdip.ai"
+          test "${QA2_LOGIN,,}" = "qa2@qdip.ai"
+          test "$QA1_PASSWORD_EXISTS" = "true"
+          test "$QA2_PASSWORD_EXISTS" = "true"
+          echo "DOCTOR_QA_TEST_SECRET_BINDINGS=PASS"
+      - name: Install isolated Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-auth-crossapp
+          cp scripts/doctor_roleless_crossapp_live.mjs /tmp/doctor-auth-crossapp/
+          cd /tmp/doctor-auth-crossapp
+          node --check doctor_roleless_crossapp_live.mjs
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: QA1 real Zitadel OAuth and Observatory denial
+        env:
+          QDIP_DOCTOR_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QDIP_DOCTOR_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_DOCTOR_TEST_LABEL: QA1
+        run: |
+          set -euo pipefail
+          cd /tmp/doctor-auth-crossapp
+          node doctor_roleless_crossapp_live.mjs
+      - name: QA2 real Zitadel OAuth and Observatory denial
+        env:
+          QDIP_DOCTOR_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QDIP_DOCTOR_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          QDIP_DOCTOR_TEST_LABEL: QA2
+        run: |
+          set -euo pipefail
+          cd /tmp/doctor-auth-crossapp
+          node doctor_roleless_crossapp_live.mjs
