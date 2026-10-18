@@ -156,6 +156,13 @@ async function login(browser, actor) {
         assert(new URL(pagePreview.url()).pathname === path,
           actor.label + '_B2C_PAGE_REDIRECT');
       }
+      // Exercise the real UI download without uploading, saving or printing the file.
+      // Notes must exactly match the server-scoped authenticated diary list.
+      const diaryPage = await pagePreview.goto(PREVIEW_ORIGIN + '/en/diary', {
+        waitUntil: 'domcontentloaded',
+      });
+      assert(diaryPage?.status() === 200, actor.label + '_DIARY_EXPORT_PAGE_FAIL');
+
       const listing = await preview.request.get(PREVIEW_ORIGIN + '/api/backend/diary/user');
       assert(listing.status() === 200, actor.label + '_DIARY_LIST_UNAVAILABLE');
       assert((listing.headers()['cache-control'] || '').includes('no-store'),
@@ -164,7 +171,43 @@ async function login(browser, actor) {
       assert(Array.isArray(notes), actor.label + '_DIARY_LIST_INVALID');
       const owned = notes.map(n => n?.id ?? n?._id)
         .filter(id => /^[a-f0-9]{24}$/i.test(id || ''));
-      console.log(actor.label + '_CURRENT_PREVIEW_B2C_AND_DIARY=PASS');
+      const downloadButton = pagePreview.getByRole('button', {
+        name: 'Export all diary entries (JSON)',
+      });
+      if (owned.length) {
+        assert(await downloadButton.isEnabled(), actor.label + '_DIARY_EXPORT_DISABLED');
+        const [download] = await Promise.all([
+          pagePreview.waitForEvent('download', { timeout: 12000 }),
+          downloadButton.click(),
+        ]);
+        assert(/^dzvin-diary-\\d{4}-\\d{2}-\\d{2}\\.json$/.test(download.suggestedFilename()),
+          actor.label + '_EXPORT_FILENAME_INVALID');
+        const stream = await download.createReadStream();
+        const bytes = [];
+        for await (const part of stream) bytes.push(Buffer.from(part));
+        const exported = JSON.parse(Buffer.concat(bytes).toString('utf8'));
+        assert(exported?.format === 'dzvin-diary' && exported.version === 1 &&
+          Array.isArray(exported.entries), actor.label + '_EXPORT_SCHEMA_INVALID');
+        const downloadedIds = new Set(exported.entries.map(x => x.id));
+        assert(owned.every(id => downloadedIds.has(id)), actor.label + '_EXPORT_MISSING_OWNED_ENTRY');
+      } else {
+        assert(await downloadButton.isDisabled(), actor.label + '_EMPTY_EXPORT_SHOULD_DISABLE');
+      }
+      for (const item of [
+        { lang: 'en', help: 'Need urgent help?', privacy: 'How your data is handled' },
+        { lang: 'uk', help: 'Потрібна термінова допомога?', privacy: 'Як обробляються дані' },
+        { lang: 'pl', help: 'Potrzebujesz pilnej pomocy?', privacy: 'Jak przetwarzane są dane' },
+      ]) {
+        const pageLoad = await pagePreview.goto(PREVIEW_ORIGIN + '/' + item.lang + '/diary', {
+          waitUntil: 'domcontentloaded',
+        });
+        assert(pageLoad?.status() === 200, actor.label + '_LOCALIZED_DIARY_UNAVAILABLE');
+        assert(await pagePreview.getByText(item.help, { exact: true }).count() > 0,
+          actor.label + '_URGENT_HELP_MISSING');
+        assert(await pagePreview.getByRole('link', { name: item.privacy }).count() > 0,
+          actor.label + '_PRIVACY_NOTICE_MISSING');
+      }
+      console.log(actor.label + '_CURRENT_PREVIEW_B2C_AND_DIARY_EXPORT=PASS');
       return { context: preview, userId: session.id, owned };
     } catch (e) {
       await preview.close();
