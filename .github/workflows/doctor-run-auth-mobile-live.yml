@@ -1,0 +1,45 @@
+name: Doctor login CTA mobile WebKit E2E
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-login-cta-mobile-live
+  cancel-in-progress: false
+jobs:
+  mobile-webkit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check existing sealed Zitadel QA identity
+        env:
+          TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          test -n "$TEST_LOGIN"
+          test -n "$TEST_PASSWORD"
+      - name: Prepare isolated mobile WebKit
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-run-auth-webkit
+          cp scripts/doctor_run_auth_mobile_webkit_live.mjs /tmp/doctor-run-auth-webkit/
+          cd /tmp/doctor-run-auth-webkit
+          node --check doctor_run_auth_mobile_webkit_live.mjs
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps webkit
+      - name: Real mobile sign-in CTA and CP-SAT operation
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          cd /tmp/doctor-run-auth-webkit
+          node doctor_run_auth_mobile_webkit_live.mjs
