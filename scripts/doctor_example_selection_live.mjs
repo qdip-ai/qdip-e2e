@@ -151,7 +151,7 @@ async function main(){
     check(after.authenticated===false,"DOCTOR_SESSION_NOT_REVOKED");
     const blocked=await context.request.post(SITE+"/api/doctor",{
       headers:{Origin:SITE,"Content-Type":"application/json"},
-      data:{model_base64:feasible,operation:"validate",time_limit_seconds:2}});
+      data:{model_base64:"e30=",operation:"validate",time_limit_seconds:2}});
     check(blocked.status()===401,"DOCTOR_LOGOUT_SOLVER_NOT_BLOCKED");
     console.log("DOCTOR_P0_CSRF_LOGOUT=PASS");
     console.log("DOCTOR_EXAMPLE_REAL_BROWSER_E2E=PASS");
