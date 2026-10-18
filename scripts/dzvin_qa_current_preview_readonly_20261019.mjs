@@ -194,8 +194,10 @@ async function login(browser, actor) {
           new Set(downloadedIds).size === expectedIds.size &&
           downloadedIds.every(id => expectedIds.has(id)),
           actor.label + '_EXPORT_OWNERSHIP_OR_COMPLETENESS_MISMATCH');
+        console.log(actor.label + '_DIARY_BROWSER_EXPORT=PASS_OWNED_ONLY');
       } else {
         assert(await downloadButton.isDisabled(), actor.label + '_EMPTY_EXPORT_SHOULD_DISABLE');
+        console.log(actor.label + '_DIARY_BROWSER_EXPORT=NOT_TESTED_EMPTY_DIARY');
       }
       for (const item of [
         { lang: 'en', help: 'Need urgent help?', privacy: 'How your data is handled' },
@@ -246,7 +248,7 @@ async function main() {
     assert(successfulDirections >= 1, 'QA_DIARY_FIXTURES_MISSING');
     console.log('DZVIN_QA_CURRENT_PREVIEW_READONLY=PASS_LIMITED');
     console.log('DZVIN_QA_EXPECTED_FRONT_SHA=' + FRONT_SHA);
-    console.log('DZVIN_QA_MUTATION_DELETE_EXPORT_E2E=NOT_TESTED');
+    console.log('DZVIN_QA_DIARY_CREATE_DELETE_E2E=NOT_TESTED');
   } finally {
     await Promise.all(active.map(a => a.context.close()));
     await browser.close();
