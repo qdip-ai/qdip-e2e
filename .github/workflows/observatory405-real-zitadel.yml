@@ -1,0 +1,72 @@
+name: Observatory #405 real Zitadel QA1 QA2 role gate
+on:
+  push:
+    branches:
+      - test/observatory-405-real-zitadel-qa
+    paths:
+      - scripts/observatory405_real_qa_negative.mjs
+      - .github/workflows/observatory405-real-zitadel.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: observatory405-live-qa1-qa2
+  cancel-in-progress: false
+jobs:
+  real-account-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source and sealed QA bindings
+        env:
+          QA1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QA2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QA1_PASSWORD_SET: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+          QA2_PASSWORD_SET: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/observatory405_real_qa_negative.mjs
+          test "${QA1_LOGIN,,}" = "qa1@qdip.ai"
+          test "${QA2_LOGIN,,}" = "qa2@qdip.ai"
+          test "$QA1_PASSWORD_SET" = "true"
+          test "$QA2_PASSWORD_SET" = "true"
+          echo "OBS405_SEALED_QA_BINDINGS=PASS"
+      - name: Install isolated Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/observatory405-qa
+          cp scripts/observatory405_real_qa_negative.mjs /tmp/observatory405-qa/
+          cd /tmp/observatory405-qa
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: QA1 real browser OAuth and plugin admin denial
+        env:
+          QDIP_405_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QDIP_405_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_405_TEST_LABEL: QA1
+        run: |
+          set -euo pipefail
+          cd /tmp/observatory405-qa
+          node observatory405_real_qa_negative.mjs
+      - name: QA2 real browser OAuth and plugin admin denial
+        env:
+          QDIP_405_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QDIP_405_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          QDIP_405_TEST_LABEL: QA2
+        run: |
+          set -euo pipefail
+          cd /tmp/observatory405-qa
+          node observatory405_real_qa_negative.mjs
+      - name: Document intentionally uncovered admin-positive gate
+        if: success()
+        run: |
+          echo "OBS405_QA1_QA2_ROLELESS_NEGATIVE=PASS"
+          echo "OBS405_AUTHENTICATED_ADMIN_CREATE_REVOKE=NOT_TESTED"
+          echo "OBS405_TENANT_AUDIT_CAS=NOT_TESTED"
