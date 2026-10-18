@@ -52,3 +52,5 @@ jobs:
         run: |
           echo 'DOCTOR_OBSERVATORY_ROLELESS_LIVE=NOT_TESTED'
           echo 'DOCTOR_OBSERVATORY_IPHONE_SAFARI=NOT_TESTED'
+
+# Production UI regression run — qdip-web 8fab85a8, Doctor ab475608.
