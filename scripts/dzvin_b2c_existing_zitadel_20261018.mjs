@@ -6,7 +6,9 @@
  */
 import { chromium } from '@playwright/test';
 
-const SITE = 'https://mentality-pvsj69g4v-taras-gezs-projects.vercel.app';
+// This pre-existing dev-only alias currently resolves to the exact e098d84 deployment.
+// It is also an established Zitadel redirect origin; do not use a random preview host.
+const SITE = 'https://mentality-web.vercel.app';
 const FRONT_SHA = 'e098d847c72e8c6f96735742f8f2a92f63117678';
 const BACK_SHA = '05dd3f327e05fef2c897a5ed1b9959fb0b391b6a';
 
@@ -42,7 +44,7 @@ async function get(context, path, expected, label) {
 }
 function strictPreview() {
   const host = new URL(SITE).hostname;
-  check(host === 'mentality-pvsj69g4v-taras-gezs-projects.vercel.app', 'PREVIEW_HOST_UNEXPECTED');
+  check(host === 'mentality-web.vercel.app', 'PREVIEW_HOST_UNEXPECTED');
   check(!host.startsWith('dzvin.co') && !host.includes('production'), 'PRODUCTION_TARGET_REJECTED');
 }
 async function login(browser, identity) {
