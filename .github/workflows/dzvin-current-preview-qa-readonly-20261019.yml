@@ -1,0 +1,52 @@
+name: Dzvin current preview QA1 QA2 real login read-only E2E
+# Manual browser E2E only. Not CI, no customer data mutations.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dzvin-current-preview-qa-readonly-20261019
+  cancel-in-progress: false
+
+jobs:
+  qa1-qa2-preview:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      DZVIN_QA_READONLY_ACK: '1'
+      DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - name: Checkout independent QA suite
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and preflight
+        run: node --check scripts/dzvin_qa_current_preview_readonly_20261019.mjs
+      - name: Install isolated browser runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dzvin-qa-current-preview
+          cp scripts/dzvin_qa_current_preview_readonly_20261019.mjs /tmp/dzvin-qa-current-preview/
+          cd /tmp/dzvin-qa-current-preview
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Execute two real QA Zitadel logins and current preview read-only browser E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/dzvin-qa-current-preview
+          node dzvin_qa_current_preview_readonly_20261019.mjs
