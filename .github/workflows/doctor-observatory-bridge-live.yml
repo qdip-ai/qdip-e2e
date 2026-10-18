@@ -1,6 +1,9 @@
 name: Doctor Observatory live bridge qualification
 on:
   workflow_dispatch:
+  push:
+    branches: [test/doctor-observatory-bridge-20261018]
+    paths: [.github/workflows/doctor-observatory-bridge-live.yml]
 permissions:
   contents: read
 concurrency:
