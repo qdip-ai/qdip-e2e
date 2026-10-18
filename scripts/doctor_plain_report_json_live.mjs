@@ -151,8 +151,15 @@ async function main(){
     check(await page.locator("#plain-result-values li").count()===1,
       "DOCTOR_FEASIBLE_KEY_ASSIGNMENT_MISSING");
     const valueRow=await page.locator("#plain-result-values li").first().innerText();
-    check(valueRow.includes("shift_assigned") && valueRow.includes("1"),
-      "DOCTOR_FEASIBLE_VALUE_INCORRECT");
+    check(valueRow.includes("Зміну призначено") && valueRow.includes("Так"),
+      "DOCTOR_VERIFIED_DEMO_RESULT_NOT_EXPLAINED");
+    check((await page.locator("#report-summary").textContent()||"").includes("Зміну"),
+      "DOCTOR_DEMO_SUMMARY_STILL_TECHNICAL");
+    check(await page.locator("#next-step").isHidden(),
+      "DOCTOR_DEMO_DISPLAYS_IRRELEVANT_OBJECTIVE_ADVICE");
+    check((await page.locator("#plain-result-note").textContent()||"").includes("демонстрація"),
+      "DOCTOR_DEMO_NOT_MARKED_SYNTHETIC");
+    console.log("DOCTOR_VERIFIED_DEMO_MEANING=PASS");
     console.log("DOCTOR_PLAIN_RESULT_PRIMARY=PASS");
 
     await page.locator("#advanced-details > summary").click();
