@@ -142,12 +142,28 @@ async function login(browser, identity) {
       await get(context, path, 404, identity.label + '_B2C_POLICY');
     }
     console.log(identity.label + '_B2C_RELEASE_BOUNDARY=PASS');
-    for (const path of ['/api/backend/user-statistics/mood?timeZone=Europe%2FWarsaw',
-        '/api/backend/diary/user']) {
-      await get(context, path, 200, identity.label + '_PERSONAL_DATA');
+    await get(context, '/api/backend/user-statistics/mood?timeZone=Europe%2FWarsaw',
+      200, identity.label + '_PERSONAL_STATS');
+    const diaryResponse = await get(context, '/api/backend/diary/user',
+      200, identity.label + '_DIARY_LIST');
+    const diaries = await diaryResponse.json();
+    check(Array.isArray(diaries), identity.label + '_DIARY_LIST_INVALID');
+    const ownedDiaryId = diaries.map(x => x?.id ?? x?._id).find(x => /^[0-9a-f]{24}$/i.test(x || ''));
+    if (ownedDiaryId) {
+      await get(context, '/api/backend/diary/' + ownedDiaryId, 200, identity.label + '_OWN_DIARY');
+      console.log(identity.label + '_OWNED_DIARY_RECORD=PASS');
+    } else {
+      console.log(identity.label + '_OWNED_DIARY_RECORD=NO_EXISTING_FIXTURE');
     }
     console.log(identity.label + '_PERSONAL_STATISTICS_AND_DIARY=PASS');
-    return { context, userId: session.id };
+    for (const path of ['/en/my-day', '/en/mood-tracker', '/en/diary',
+        '/en/my-progress', '/en/my-progress/achievements']) {
+      const p = await page.goto(SITE + path, { waitUntil: 'domcontentloaded', timeout: 25000 });
+      check(p?.status() === 200 && new URL(page.url()).pathname === path,
+        identity.label + '_B2C_PAGE_NAVIGATION_FAILED');
+    }
+    console.log(identity.label + '_B2C_FIVE_AUTHENTICATED_PAGES=PASS');
+    return { context, userId: session.id, ownedDiaryId };
   } catch (e) {
     await context.close();
     throw e;
@@ -170,6 +186,15 @@ async function main() {
     if (actors.length === 2) {
       check(actors[0].userId !== actors[1].userId, 'QA_TEST_ACCOUNTS_NOT_DISTINCT');
       console.log('DZVIN_REAL_QA_USER_IDENTITIES_ISOLATED=PASS');
+      let crossUserReads = 0;
+      for (const [actor, foreign] of [[actors[0], actors[1]], [actors[1], actors[0]]]) {
+        if (!foreign.ownedDiaryId) continue;
+        await get(actor.context, '/api/backend/diary/' + foreign.ownedDiaryId,
+          404, 'CROSS_USER_PRIVATE_DIARY');
+        crossUserReads++;
+      }
+      console.log('DZVIN_REAL_CROSS_USER_DIARY_DENIAL=' +
+        (crossUserReads ? 'PASS_' + crossUserReads + '_DIRECTIONS' : 'NOT_TESTED_NO_FIXTURES'));
     } else {
       console.log('DZVIN_BIDIRECTIONAL_TWO_USER_TEST=NOT_TESTED');
     }
