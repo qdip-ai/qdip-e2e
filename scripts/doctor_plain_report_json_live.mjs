@@ -161,8 +161,13 @@ async function main(){
     check(JSON.parse(json).solver_status==="OPTIMAL",
       "DOCTOR_RAW_JSON_DIFFERENT_FROM_EXECUTION");
     await page.locator("#copy-report").click();
-    check((await page.locator("#report-action-status").textContent()||"").includes("скопійовано"),
-      "DOCTOR_COPY_JSON_SUCCESS_MISSING");
+    await page.waitForFunction(()=>{
+      const text=document.querySelector("#report-action-status")?.textContent || "";
+      return Boolean(text);
+    },null,{timeout:5000});
+    const copyStatus=(await page.locator("#report-action-status").textContent()||"");
+    check(copyStatus.includes("скопійовано"),
+      "DOCTOR_COPY_JSON_STATUS_"+(copyStatus.includes("Не вдалося")?"FAILED":"UNKNOWN"));
     check((await page.evaluate(()=>navigator.clipboard.readText())).trim()===json,
       "DOCTOR_CLIPBOARD_JSON_MISMATCH");
     console.log("DOCTOR_COPY_JSON_REAL_BROWSER=PASS");
