@@ -1,0 +1,57 @@
+name: Observatory 405 real QA admin role probe
+on:
+  push:
+    branches:
+      - test/observatory-405-qa-admin-probe
+    paths:
+      - scripts/observatory405_qa_admin_probe.mjs
+      - .github/workflows/observatory405-qa-admin-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: observatory405-qa-admin-probe
+  cancel-in-progress: false
+jobs:
+  verify-qa-admin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate script syntax and sealed credentials
+        env:
+          QA_LOGIN_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          QA_PASSWORD_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/observatory405_qa_admin_probe.mjs
+          test "$QA_LOGIN_PRESENT" = true
+          test "$QA_PASSWORD_PRESENT" = true
+          echo "OBS405_QA_ADMIN_SEALED_BINDINGS=PASS"
+      - name: Prepare isolated browser
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/observatory-qa-admin
+          cp scripts/observatory405_qa_admin_probe.mjs /tmp/observatory-qa-admin/
+          cd /tmp/observatory-qa-admin
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify real qa@qdip.ai Zitadel role and Observatory admin read
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/observatory-qa-admin
+          node observatory405_qa_admin_probe.mjs
+      - name: State scope boundary
+        if: success()
+        run: |
+          echo "OBS405_ADMIN_WRITE_REVOKE=NOT_TESTED"
+          echo "OBS405_ADMIN_AUDIT_CAS=NOT_TESTED"
