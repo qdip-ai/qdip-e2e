@@ -1,0 +1,45 @@
+name: Doctor plain report JSON production acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-plain-report-json-production
+  cancel-in-progress: false
+jobs:
+  real-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check existing QA Zitadel credentials
+        env:
+          QA_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QA_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          test -n "$QA_LOGIN"
+          test -n "$QA_PASSWORD"
+      - name: Prepare isolated Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-report-json
+          cp scripts/doctor_plain_report_json_live.mjs /tmp/doctor-report-json/
+          cd /tmp/doctor-report-json
+          node --check doctor_plain_report_json_live.mjs
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real Zitadel login, simplified result, clipboard and JSON download
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          cd /tmp/doctor-report-json
+          node doctor_plain_report_json_live.mjs
