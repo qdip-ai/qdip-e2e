@@ -71,13 +71,24 @@ async function main(){
   const entry=page.locator('button.live-monitor__login');
   await entry.waitFor({state:'visible',timeout:15000});
   require_(!(await entry.isDisabled()),'QA1_ZITADEL_SIGNIN_DISABLED');
+  let pkce=null;
+  page.on('request', request=>{
+   try{
+    const url=new URL(request.url());
+    if(url.origin===ISSUER && url.pathname==='/oauth/v2/authorize'){
+     pkce={
+      client:url.searchParams.get('client_id'),
+      challenge:url.searchParams.get('code_challenge_method'),
+      redirect:url.searchParams.get('redirect_uri'),
+      scope:url.searchParams.get('scope')||'',
+     };
+    }
+   }catch{}
+  });
   await entry.click();
   await page.waitForURL(url=>url.origin===ISSUER,{timeout:30000});
-  const url=new URL(page.url());
-  require_(url.origin===ISSUER && url.searchParams.get('client_id')===CLIENT &&
-   url.searchParams.get('code_challenge_method')==='S256' &&
-   url.searchParams.get('redirect_uri')===SITE+'/auth/callback' &&
-   (url.searchParams.get('scope')||'').includes(PROJECT),
+  require_(pkce?.client===CLIENT && pkce?.challenge==='S256' &&
+   pkce?.redirect===SITE+'/auth/callback' && pkce?.scope.includes(PROJECT),
    'QA1_PKCE_APPLICATION_MISMATCH');
   console.log('AUTODEV_QA1_REAL_ZITADEL_PKCE=PASS');
 
@@ -108,7 +119,7 @@ async function main(){
        }
      }
      return false;
-   },{timeout:18000});
+   },null,{timeout:18000});
   }catch{throw Error('QA1_REAL_LOGIN_MFA_OR_CALLBACK_BLOCKED');}
   const token=await page.evaluate(()=>{
    for(let i=0;i<sessionStorage.length;i++){
