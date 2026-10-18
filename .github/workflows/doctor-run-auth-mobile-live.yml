@@ -1,8 +1,5 @@
 name: Doctor login CTA mobile WebKit E2E
 on:
-  push:
-    branches: [test/doctor-signin-run-mobile-20261018]
-    paths: [.github/workflows/doctor-run-auth-mobile-live.yml, scripts/doctor_run_auth_mobile_webkit_live.mjs]
   workflow_dispatch:
 permissions:
   contents: read
