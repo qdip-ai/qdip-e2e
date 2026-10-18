@@ -1,0 +1,49 @@
+name: Doctor Observatory mobile WebKit live qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/doctor-observatory-webkit-mobile]
+    paths: [.github/workflows/doctor-observatory-webkit-live.yml]
+permissions:
+  contents: read
+concurrency:
+  group: doctor-observatory-webkit-live
+  cancel-in-progress: false
+jobs:
+  webkit-mobile:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check test source
+        run: node --check scripts/doctor_observatory_webkit_live.mjs
+      - name: Verify existing sealed test credentials
+        env:
+          TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          test -n "$TEST_LOGIN"
+          test -n "$TEST_PASSWORD"
+      - name: Install isolated WebKit
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/doctor-webkit-qa
+          cp scripts/doctor_observatory_webkit_live.mjs /tmp/doctor-webkit-qa/
+          cd /tmp/doctor-webkit-qa
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps webkit
+      - name: Genuine Zitadel and Observatory WebKit mobile E2E
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          CI: 'true'
+        run: |
+          cd /tmp/doctor-webkit-qa
+          node doctor_observatory_webkit_live.mjs
