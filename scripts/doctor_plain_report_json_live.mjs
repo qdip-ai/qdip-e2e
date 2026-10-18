@@ -170,7 +170,7 @@ async function main(){
     const promise=page.waitForEvent("download",{timeout:15000});
     await page.locator("#export-report").click();
     const download=await promise;
-    check(/^doctor-report-[0-9a-f]{8}\\.json$/.test(download.suggestedFilename()),
+    check(/^doctor-report-[0-9a-f]{8}\.json$/.test(download.suggestedFilename()),
       "DOCTOR_JSON_FILENAME_BAD");
     const bytes=await readFile(await download.path(),"utf8");
     check(bytes.trim()===json,"DOCTOR_DOWNLOAD_JSON_MISMATCH");
