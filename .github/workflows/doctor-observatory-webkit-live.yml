@@ -1,9 +1,6 @@
 name: Doctor Observatory mobile WebKit live qualification
 on:
   workflow_dispatch:
-  push:
-    branches: [test/doctor-observatory-webkit-mobile]
-    paths: [.github/workflows/doctor-observatory-webkit-live.yml]
 permissions:
   contents: read
 concurrency:
