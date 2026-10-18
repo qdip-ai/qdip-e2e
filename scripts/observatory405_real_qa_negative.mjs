@@ -61,7 +61,7 @@ async function main() {
     const target = new URL(initial.headers()["location"] || "");
     check(target.protocol === "https:" &&
       target.searchParams.get("code_challenge_method") === "S256" &&
-      target.searchParams.get("redirect_uri") === SITE + "/api/auth/callback",
+      target.searchParams.get("redirect_uri") === SITE + "/api/auth/callback/zitadel",
       "OIDC_PKCE_CONTRACT_INVALID");
     console.log(prefix + "_PKCE_START=PASS");
 
@@ -90,7 +90,7 @@ async function main() {
     check(Boolean(pass), "ZITADEL_PASSWORD_INPUT_MISSING");
     const callback = page.waitForResponse(response => {
       try { return new URL(response.url()).origin === SITE &&
-                   new URL(response.url()).pathname === "/api/auth/callback"; }
+                   new URL(response.url()).pathname === "/api/auth/callback/zitadel"; }
       catch { return false; }
     }, { timeout: 40000 });
     await pass.fill(PASSWORD);
