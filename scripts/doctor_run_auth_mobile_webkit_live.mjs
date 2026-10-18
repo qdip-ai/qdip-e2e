@@ -58,7 +58,9 @@ async function main(){
 
     check(await page.locator("#run-auth").isVisible(),"DOCTOR_RUN_LOGIN_CTA_HIDDEN");
     const inlineLogin=page.locator("#run-login");
-    check(await inlineLogin.getAttribute("href")==="/auth/login?lang=uk",
+    const loginTarget=new URL(await inlineLogin.getAttribute("href"),SITE);
+    check(loginTarget.origin===SITE && loginTarget.pathname==="/auth/login"
+      && loginTarget.searchParams.get("lang")==="uk",
       "DOCTOR_RUN_LOGIN_URL_INVALID");
     const disabledStyle=await page.locator("#run").evaluate(el=>({
       color:getComputedStyle(el).color,
