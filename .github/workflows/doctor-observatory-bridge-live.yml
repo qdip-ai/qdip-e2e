@@ -1,9 +1,6 @@
 name: Doctor Observatory live bridge qualification
 on:
   workflow_dispatch:
-  push:
-    branches: [test/doctor-observatory-bridge-20261018]
-    paths: [.github/workflows/doctor-observatory-bridge-live.yml]
 permissions:
   contents: read
 concurrency:
@@ -53,4 +50,3 @@ jobs:
           echo 'DOCTOR_OBSERVATORY_ROLELESS_LIVE=NOT_TESTED'
           echo 'DOCTOR_OBSERVATORY_IPHONE_SAFARI=NOT_TESTED'
 
-# Production UI regression run — qdip-web 8fab85a8, Doctor ab475608.
