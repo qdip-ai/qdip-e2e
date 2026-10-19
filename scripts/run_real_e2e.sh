@@ -77,7 +77,13 @@ esac
   python ../suite/scripts/safe_stage.py --timeout 300 observatory-lint -- pnpm lint
   python ../suite/scripts/safe_stage.py --timeout 300 observatory-typecheck -- pnpm typecheck
   python ../suite/scripts/safe_stage.py --timeout 300 observatory-format -- pnpm prettier
-  python ../suite/scripts/safe_stage.py --timeout 300 observatory-unit -- pnpm test
+  # Collect independent RR browser evidence even when unrelated Web unit tests
+  # fail. Persist that failure and force this runner to exit nonzero at the end;
+  # no release gate is softened and no unit failure may be reported as PASS.
+  if ! python ../suite/scripts/safe_stage.py --timeout 300 observatory-unit -- pnpm test; then
+    printf 'FAIL\n' > "$RUNNER_TEMP/rr-web-unit.failed"
+    echo 'RR_WEB_UNIT=FAIL; collecting independent native browser evidence (overall gate remains blocked)'
+  fi
   # Only the built browser app uses localhost origins; the unit tests above
   # must retain their production-default routing contracts.
   if [[ "$RR_E2E_CONTRACT_MODE" == "rr-oidc-session-v1" ]]; then
@@ -115,4 +121,8 @@ test -s "$RR_E2E_API_REQUEST_PATH"
       --project=chromium --workers=1 --retries=0 --reporter=json --forbid-only
 )
 python suite/scripts/safe_stage.py --timeout 40 test-report -- python suite/scripts/check_browser_report.py
+if [[ -f "$RUNNER_TEMP/rr-web-unit.failed" ]]; then
+  echo 'QDIP_REAL_NATIVE_E2E=FAIL (Web unit tests failed; browser evidence does not override release gate)' >&2
+  exit 1
+fi
 echo 'QDIP_REAL_NATIVE_E2E=PASS (not production qualification)'
