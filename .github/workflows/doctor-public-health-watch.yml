@@ -1,0 +1,44 @@
+name: Doctor public health watch
+
+on:
+  schedule:
+    # Four tiny, secret-free external checks daily; not a PR/merge gate.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: doctor-public-health-watch
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate probe logic offline
+        run: node --test tests/doctor_health_probe.test.mjs
+      - name: Probe production, including negative auth and worker readiness
+        id: doctor_probe
+        run: node scripts/doctor_health_probe.mjs
+      - name: Create or update one incident on repeated probe failure
+        if: failure() && steps.doctor_probe.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title='Doctor public health watch failure'
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Do not copy headers, bodies, bearer tokens or diagnostic URLs to issues.
+          body="Doctor's unauthenticated operational probe failed three times. Inspect ${run_url}, Railway /readyz, OAuth discovery, and expected MCP 401. No authorized OAuth/tool E2E was attempted. Confirm incident independently before rollback."
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'Doctor public health watch failure in:title' --json number --jq '.[0].number // empty')
+          if [[ -n "$issue" ]]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
