@@ -1,0 +1,81 @@
+name: Dzvin QA1 QA2 diary ownership E2E (existing Render backend)
+
+# Permanent manual trigger; temporary one-shot push trigger is removed after first run.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/dzvin-diary-ownership-live-20261019
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dzvin-diary-scoped-qa1-qa2
+  cancel-in-progress: false
+
+jobs:
+  scoped-diary-e2e:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      RUN_RELEASE_QUALIFICATION: '1'
+      RUN_B2C_DIARY_E2E: '1'
+      DZVIN_QA_MUTATION_RUN_ACK: '1'
+      E2E_BASE_URL: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      E2E_ALLOWED_MUTATION_ORIGIN: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
+      E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
+      E2E_DEPLOYED_WEB_SHA: ca5871766e3f44bcb4978a3212e1eb60b2895fa7
+      E2E_DEPLOYED_BACKEND_SHA: 9367147682caa5c8226519da38403c4b020fb4eb
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - name: Checkout QA authentication runner (no credentials persisted)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout pinned diary E2E suite
+        uses: actions/checkout@v4
+        with:
+          repository: mentality-prj/mentality-tests
+          ref: da4d1b47aa04a31243f4afb7a5e82fac3a1dfdcf
+          path: diary-suite
+          persist-credentials: false
+      - name: Node 22 and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.26.0'
+      - name: Check script syntax and install only the pinned test-suite dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/dzvin_qa_diary_mutation_auth_20261019.mjs
+          cd diary-suite
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Sign in real QA1 and QA2 and execute diary ownership E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/dzvin_qa_diary_mutation_auth_20261019.mjs diary-suite/.qa-diaries-auth.mjs
+          cd diary-suite
+          umask 077
+          node .qa-diaries-auth.mjs
+          set -a
+          source playwright/.auth/qa-approval.env
+          set +a
+          node scripts/b2c-diary-preflight.mjs
+          pnpm exec playwright test --project=b2c-diary-privacy-chromium --reporter=list --retries=0 --workers=1
+      - name: Cleanup ephemeral local browser credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf diary-suite/playwright/.auth || true
