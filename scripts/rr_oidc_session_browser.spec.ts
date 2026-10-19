@@ -5,7 +5,8 @@ import { expect, test } from '@playwright/test'
 // This spec is owned by the independent E2E suite and copied to the checked-out
 // qdip-web/e2e directory ONLY when the rr-oidc-session-v1 contract is required.
 // The E2E fixture injects an ephemeral signed session; live Zitadel login is NOT tested.
-// HTTP, Core, Mongo persistence and BFF authorization are never mocked.
+// Core, Mongo persistence and BFF authorization are never mocked; the two
+// lost-ack regression cases suppress only the browser-visible POST acknowledgement.
 const ORIGIN = 'http://observatory.localhost:3000'
 const PAGE = `${ORIGIN}/en/readiness-recovery`
 const ROUTE = `${ORIGIN}/api/rr-operator/kernel`
