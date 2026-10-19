@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - qa/dzvin-privacy-inventory-20261019
+      - qa/dzvin-privacy-inventory-pinfix-20261019
 
 permissions:
   contents: read
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --check scripts/dzvin_qa_mood_export_auth_20261019.mjs
+          node --check scripts/dzvin_qa_privacy_inventory_auth_20261019.mjs
           node --check scripts/dzvin_qa_privacy_inventory_20261019.mjs
           cd qa-suite
           pnpm install --frozen-lockfile
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp scripts/dzvin_qa_mood_export_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
+          cp scripts/dzvin_qa_privacy_inventory_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
           cp scripts/dzvin_qa_privacy_inventory_20261019.mjs qa-suite/.qa-privacy-inventory.mjs
           cd qa-suite
           umask 077
