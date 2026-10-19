@@ -1,0 +1,44 @@
+name: RO SDK-02 live Gateway Kernel E2E
+on:
+  push:
+    branches: [test/ro-sdk02-real-kernel-e2e]
+    paths:
+      - scripts/ro_sdk02_sdk_client_live.mjs
+      - .github/workflows/ro-sdk02-real-gateway.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ro-sdk02-real-kernel
+  cancel-in-progress: false
+jobs:
+  live-gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check secret binding (never print value)
+        env:
+          HAS_RO_EXECUTE_KEY: ${{ secrets.QDIP_RO_SDK02_EXECUTE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/ro_sdk02_sdk_client_live.mjs
+          test "$HAS_RO_EXECUTE_KEY" = "true"
+          echo "RO_EXECUTE_KEY_SEALED_BINDING=PASS"
+      - name: Prepare independent Node 22 HTTPS client
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ro-e2e-client
+          cp scripts/ro_sdk02_sdk_client_live.mjs /tmp/ro-e2e-client/
+      - name: Execute real registered worker through frozen Kernel and replay
+        env:
+          QDIP_RO_SDK02_EXECUTE_KEY: ${{ secrets.QDIP_RO_SDK02_EXECUTE_KEY }}
+        run: |
+          set -euo pipefail
+          cd /tmp/ro-e2e-client
+          node ro_sdk02_sdk_client_live.mjs
