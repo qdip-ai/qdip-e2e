@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - qa/dzvin-privacy-inventory-pinfix-20261019
+      - qa/dzvin-privacy-links-e2e-20261019
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ jobs:
       E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
       E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
       E2E_DEPLOYED_WEB_SHA: ec4a1875ebc9e6e3300d9728c3859dff88da3d79
-      E2E_DEPLOYED_BACKEND_SHA: 56b954d2fb41e60d8da111d265330d1b273969f4
+      E2E_DEPLOYED_BACKEND_SHA: 8734d4c4166d3a91da9fab1e33b03c9bec7bb5dd
       QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
       QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
       QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
@@ -47,8 +47,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --check scripts/dzvin_qa_privacy_inventory_auth_20261019.mjs
-          node --check scripts/dzvin_qa_privacy_inventory_20261019.mjs
+          node --check scripts/dzvin_qa_privacy_links_auth_20261019.mjs
+          node --check scripts/dzvin_qa_privacy_links_verify_20261019.mjs
           cd qa-suite
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
@@ -56,8 +56,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp scripts/dzvin_qa_privacy_inventory_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
-          cp scripts/dzvin_qa_privacy_inventory_20261019.mjs qa-suite/.qa-privacy-inventory.mjs
+          cp scripts/dzvin_qa_privacy_links_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
+          cp scripts/dzvin_qa_privacy_links_verify_20261019.mjs qa-suite/.qa-privacy-inventory.mjs
           cd qa-suite
           umask 077
           node .qa-mood-auth.mjs
