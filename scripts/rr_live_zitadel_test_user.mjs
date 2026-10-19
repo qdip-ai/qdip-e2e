@@ -104,6 +104,20 @@ async function main() {
     const readPath = RR + '/api/rr-operator/kernel/executions/' + syntheticId + '/presentation'
     const noExecution = await context.request.get(readPath, {maxRedirects:0,timeout:20000})
     console.log('LIVE_ZITADEL_RR_CORE_READ_HTTP=' + noExecution.status())
+    if (noExecution.status() === 403) {
+      // Only fixed enum categories are emitted. Never display a server response
+      // body, origin, organization, credential or framework error details.
+      let denial = 'UNKNOWN_403'
+      const response = await noExecution.json().catch(() => null)
+      const detail = response && typeof response === 'object' ? response.detail : null
+      const error = response && typeof response === 'object' ? response.error : null
+      if (detail === 'Permission required: decisions:read') denial = 'MISSING_DECISIONS_READ'
+      else if (detail === 'Permission required: audit:read') denial = 'MISSING_AUDIT_READ'
+      else if (detail === 'This endpoint requires an org-scoped API key') denial = 'MISSING_ORG_SCOPE'
+      else if (error === 'TLS required') denial = 'WEB_TLS_POLICY'
+      else if (error === 'Forbidden origin') denial = 'WEB_ORIGIN_POLICY'
+      console.log('LIVE_ZITADEL_RR_CORE_READ_DENIAL=' + denial)
+    }
     requireStage(noExecution.status() === 404, 'REAL_RR_AUTHORIZED_CORE_READ_NOT_404')
     requireStage((noExecution.headers()['cache-control'] || '').includes('no-store'),
       'REAL_RR_AUTHORIZED_CORE_READ_CACHE_UNSAFE')
