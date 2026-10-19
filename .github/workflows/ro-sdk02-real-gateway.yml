@@ -1,4 +1,4 @@
-name: RO SDK-02 live Kernel decision E2E
+name: RO SDK-02 live Gateway Kernel E2E
 on:
   push:
     branches: [test/ro-sdk02-real-kernel-e2e]
@@ -30,14 +30,11 @@ jobs:
           node --check scripts/ro_sdk02_sdk_client_live.mjs
           test "$HAS_RO_EXECUTE_KEY" = "true"
           echo "RO_EXECUTE_KEY_SEALED_BINDING=PASS"
-      - name: Install independent published QDIP SDK
+      - name: Prepare independent Node 22 HTTPS client
         run: |
           set -euo pipefail
           mkdir -p /tmp/ro-e2e-client
           cp scripts/ro_sdk02_sdk_client_live.mjs /tmp/ro-e2e-client/
-          cd /tmp/ro-e2e-client
-          npm init -y >/dev/null
-          npm install --no-save --ignore-scripts --no-audit @qdip/client@0.1.1
       - name: Execute real registered worker through frozen Kernel and replay
         env:
           QDIP_RO_SDK02_EXECUTE_KEY: ${{ secrets.QDIP_RO_SDK02_EXECUTE_KEY }}
