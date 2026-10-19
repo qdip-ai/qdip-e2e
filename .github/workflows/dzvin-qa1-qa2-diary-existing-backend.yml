@@ -1,11 +1,11 @@
 name: Dzvin QA1 QA2 diary ownership E2E (existing Render backend)
 
-# Permanent manual trigger; temporary one-shot push trigger is removed after first run.
+# Manual trigger plus one-shot branch trigger. Every mutation is preceded by exact-window cleanup of the failed 07:38 UTC test; any incomplete cleanup BLOCKS new records.
 on:
   workflow_dispatch:
   push:
     branches:
-      - qa/dzvin-diary-ownership-live-20261019
+      - qa/dzvin-diary-resume-after-cleanup-20261019
 
 permissions:
   contents: read
@@ -24,6 +24,7 @@ jobs:
       RUN_RELEASE_QUALIFICATION: '1'
       RUN_B2C_DIARY_E2E: '1'
       DZVIN_QA_MUTATION_RUN_ACK: '1'
+      DZVIN_FAILED_DIARY_CLEANUP_ACK: '1'
       E2E_BASE_URL: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
       E2E_ALLOWED_MUTATION_ORIGIN: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
       E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
@@ -43,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mentality-prj/mentality-tests
-          ref: da4d1b47aa04a31243f4afb7a5e82fac3a1dfdcf
+          ref: 4eeeeede781570cee1ae8d83ae298564ff01c81f
           path: diary-suite
           persist-credentials: false
       - name: Node 22 and pnpm
@@ -58,10 +59,11 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/dzvin_qa_diary_mutation_auth_20261019.mjs
+          node --check scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs
           cd diary-suite
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
-      - name: Sign in real QA1 and QA2 and execute diary ownership E2E
+      - name: Authenticate, reconcile failed-run fixtures, then execute the corrected E2E
         shell: bash
         run: |
           set -euo pipefail
@@ -72,6 +74,8 @@ jobs:
           set -a
           source playwright/.auth/qa-approval.env
           set +a
+          cp ../scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs .qa-scoped-cleanup.mjs
+          node .qa-scoped-cleanup.mjs
           node scripts/b2c-diary-preflight.mjs
           pnpm exec playwright test --project=b2c-diary-privacy-chromium --reporter=list --retries=0 --workers=1
       - name: Cleanup ephemeral local browser credentials
