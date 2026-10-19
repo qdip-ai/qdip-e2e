@@ -12,8 +12,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const LOGIN_ORIGIN = 'https://mentality-web.vercel.app';
-const PREVIEW_ORIGIN = 'https://mentality-piytogl1z-taras-gezs-projects.vercel.app';
-const PREVIEW_DEPLOYMENT = 'dpl_CS2bbA8uibuoUujHfvXq7xvFVk5b';
+const PREVIEW_ORIGIN = 'https://mentality-f0lbd28o7-taras-gezs-projects.vercel.app';
+const PREVIEW_DEPLOYMENT = 'dpl_BsbruPDQiv6PnHeuQzspQ7raXaRZ';
 const actors = [
   {
     label: 'QA1',
@@ -36,7 +36,7 @@ function preflight() {
   assert(process.env.E2E_ALLOWED_MUTATION_ORIGIN === PREVIEW_ORIGIN, 'QA_ORIGIN_NOT_ALLOWLISTED');
   assert(process.env.E2E_QA_SHARED_BACKEND_SCOPED_APPROVED === '1', 'SCOPED_BACKEND_APPROVAL_MISSING');
   assert(process.env.E2E_DISPOSABLE_TENANT_CONFIRMED !== '1', 'SHARED_BACKEND_NOT_DISPOSABLE');
-  assert(process.env.E2E_DEPLOYED_WEB_SHA === 'ca5871766e3f44bcb4978a3212e1eb60b2895fa7',
+  assert(process.env.E2E_DEPLOYED_WEB_SHA === '6622a7b213cc6f47c72380c544c02e0c80d0aa65',
     'WEB_SHA_NOT_PINNED');
   assert(process.env.E2E_DEPLOYED_BACKEND_SHA === '9367147682caa5c8226519da38403c4b020fb4eb',
     'BACKEND_SHA_NOT_PINNED');
