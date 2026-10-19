@@ -1,0 +1,74 @@
+name: Dzvin failed-run scoped diary fixture cleanup (2026-10-19)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/dzvin-failed-diary-fixture-cleanup-20261019
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dzvin-qa-diary-scoped-20261019
+  cancel-in-progress: false
+
+jobs:
+  cleanup-only:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      DZVIN_QA_MUTATION_RUN_ACK: '1'
+      DZVIN_FAILED_DIARY_CLEANUP_ACK: '1'
+      E2E_BASE_URL: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      E2E_ALLOWED_MUTATION_ORIGIN: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
+      E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
+      E2E_DEPLOYED_WEB_SHA: ca5871766e3f44bcb4978a3212e1eb60b2895fa7
+      E2E_DEPLOYED_BACKEND_SHA: 9367147682caa5c8226519da38403c4b020fb4eb
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mentality-prj/mentality-tests
+          ref: da4d1b47aa04a31243f4afb7a5e82fac3a1dfdcf
+          path: diary-suite
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.26.0'
+      - name: Authenticate QA1 and QA2 (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs
+          cd diary-suite
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          cp ../scripts/dzvin_qa_diary_mutation_auth_20261019.mjs .qa-diaries-auth.mjs
+          umask 077
+          node .qa-diaries-auth.mjs
+      - name: Reconcile ONLY 2026-10-19 07:38 run-owned diary entries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd diary-suite
+          set -a
+          source playwright/.auth/qa-approval.env
+          set +a
+          cp ../scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs .qa-scoped-cleanup.mjs
+          node .qa-scoped-cleanup.mjs
+      - name: Remove ephemeral QA cookies and storage states
+        if: always()
+        run: rm -rf diary-suite/playwright/.auth || true
