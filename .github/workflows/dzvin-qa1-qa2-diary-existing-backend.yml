@@ -1,11 +1,11 @@
 name: Dzvin QA1 QA2 diary ownership E2E (existing Render backend)
 
-# Manual trigger plus one-shot branch trigger. Every mutation is preceded by exact-window cleanup of the failed 07:38 UTC test; any incomplete cleanup BLOCKS new records.
+# Manual trigger and one-shot push trigger for the pinned new frontend preview. Prior failed-run residue was verified absent, and prior run's own teardown passed.
 on:
   workflow_dispatch:
   push:
     branches:
-      - qa/dzvin-diary-hydration-rerun-20261019
+      - qa/dzvin-frontend-auth-fallback-20261019
 
 permissions:
   contents: read
@@ -24,12 +24,11 @@ jobs:
       RUN_RELEASE_QUALIFICATION: '1'
       RUN_B2C_DIARY_E2E: '1'
       DZVIN_QA_MUTATION_RUN_ACK: '1'
-      DZVIN_FAILED_DIARY_CLEANUP_ACK: '1'
-      E2E_BASE_URL: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
+      E2E_BASE_URL: https://mentality-f0lbd28o7-taras-gezs-projects.vercel.app
       E2E_ALLOWED_MUTATION_ORIGIN: https://mentality-piytogl1z-taras-gezs-projects.vercel.app
       E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
       E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
-      E2E_DEPLOYED_WEB_SHA: ca5871766e3f44bcb4978a3212e1eb60b2895fa7
+      E2E_DEPLOYED_WEB_SHA: 6622a7b213cc6f47c72380c544c02e0c80d0aa65
       E2E_DEPLOYED_BACKEND_SHA: 9367147682caa5c8226519da38403c4b020fb4eb
       QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
       QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
@@ -59,11 +58,10 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/dzvin_qa_diary_mutation_auth_20261019.mjs
-          node --check scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs
           cd diary-suite
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
-      - name: Authenticate, reconcile failed-run fixtures, then execute the corrected E2E
+      - name: Authenticate QA1 QA2 and execute exact-fixture diary E2E with teardown
         shell: bash
         run: |
           set -euo pipefail
@@ -74,8 +72,6 @@ jobs:
           set -a
           source playwright/.auth/qa-approval.env
           set +a
-          cp ../scripts/dzvin_qa_cleanup_failed_diary_20261019.mjs .qa-scoped-cleanup.mjs
-          node .qa-scoped-cleanup.mjs
           node scripts/b2c-diary-preflight.mjs
           pnpm exec playwright test --project=b2c-diary-privacy-chromium --reporter=list --retries=0 --workers=1
       - name: Cleanup ephemeral local browser credentials
