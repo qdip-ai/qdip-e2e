@@ -1,0 +1,55 @@
+name: RR real Zitadel QA1 roleless E2E
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/rr_roleless_qa1_live.mjs
+      - .github/workflows/rr-roleless-qa1-live.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rr-roleless-qa1-live
+  cancel-in-progress: false
+jobs:
+  qa1-rr-denied:
+    # Secret-bearing browser execution is permitted on reviewed main only.
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require bound pre-existing roleless identity
+        env:
+          TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          TEST1_PASSWORD_SET: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${TEST1_LOGIN,,}" = 'qa1@qdip.ai'
+          test "$TEST1_PASSWORD_SET" = 'true'
+          echo 'RR_QA1_EXISTING_ACCOUNT=BOUND'
+      - name: Validate browser script syntax
+        run: node --check scripts/rr_roleless_qa1_live.mjs
+      - name: Install isolated Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rr-qa1-live
+          cp scripts/rr_roleless_qa1_live.mjs /tmp/rr-qa1-live/
+          cd /tmp/rr-qa1-live
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real QA1 sign-in and fail-closed RR authorization
+        env:
+          QDIP_E2E_ZITADEL_QA1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          cd /tmp/rr-qa1-live
+          node rr_roleless_qa1_live.mjs
