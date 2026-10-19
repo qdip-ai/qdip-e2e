@@ -1,1 +1,35 @@
-{"branches": {"dev": {"last_attempt": {"backend_sha": "9242e5de9e294cef8cd35e50dd4e5fe11cb39785", "count": 1, "key": "a7b548d8707f6065c8812dcb41a13af7ce8c0a3ba2e0e52a11052697ccf50676", "obs_sha": "545a514fc9ffb3ee60d0f77dfd152860582d9397", "requested_at": "2026-10-19T01:13:11.442007+00:00", "rr_contract_mode": "rr-oidc-session-v1", "run_id": "39184348828", "status": "TEST_FAIL", "suite_fingerprint": "679141a4fa4de7faf652c262bc77389ea5088d452c3bd62e4fca7cbbbb0f1077", "suite_sha": "8a616065ab645442bd1546a60d29b063b5a35a34"}, "seen_sha": "9242e5de9e294cef8cd35e50dd4e5fe11cb39785", "status": "TEST_FAIL"}, "feat/rr-plugin-computation-ownership": {"last_attempt": {"backend_sha": "1aa4842cb5154f4b55853f8efd4fd5993e3f1673", "count": 1, "key": "c122b11b0d9558c4297a05a830468712336821e6304ab9080051add959f1b37d", "obs_sha": "2d1270e60173a8d438ec1b25f6d1b48b81d9d862", "requested_at": "2026-10-11T14:00:23.052169+00:00", "rr_contract_mode": "rr-oidc-session-v1", "run_id": "38145428326", "status": "PASS", "suite_fingerprint": "725f9e210fb982a402034b1a56a1ca10dcdb866d4d7fe79d8ca7e91d789f0ff4"}, "seen_sha": "1aa4842cb5154f4b55853f8efd4fd5993e3f1673", "status": "PASS"}}, "version": 1}
+{
+  "branches": {
+    "dev": {
+      "last_attempt": {
+        "backend_sha": "9242e5de9e294cef8cd35e50dd4e5fe11cb39785",
+        "count": 1,
+        "key": "e60b21ef34d09abd43da95dc1da7858432679e401c6f051ecc2fc098119fcfca",
+        "obs_sha": "545a514fc9ffb3ee60d0f77dfd152860582d9397",
+        "requested_at": "2026-10-19T06:11:10.192322+00:00",
+        "rr_contract_mode": "rr-oidc-session-v1",
+        "status": "DISPATCHED",
+        "suite_fingerprint": "679141a4fa4de7faf652c262bc77389ea5088d452c3bd62e4fca7cbbbb0f1077",
+        "suite_sha": "c9984fba37b6adc745c9c0ea42aeab5b88bb4f43"
+      },
+      "seen_sha": "9242e5de9e294cef8cd35e50dd4e5fe11cb39785",
+      "status": "DISPATCHED"
+    },
+    "feat/rr-plugin-computation-ownership": {
+      "last_attempt": {
+        "backend_sha": "1aa4842cb5154f4b55853f8efd4fd5993e3f1673",
+        "count": 1,
+        "key": "c122b11b0d9558c4297a05a830468712336821e6304ab9080051add959f1b37d",
+        "obs_sha": "2d1270e60173a8d438ec1b25f6d1b48b81d9d862",
+        "requested_at": "2026-10-11T14:00:23.052169+00:00",
+        "rr_contract_mode": "rr-oidc-session-v1",
+        "run_id": "38145428326",
+        "status": "PASS",
+        "suite_fingerprint": "725f9e210fb982a402034b1a56a1ca10dcdb866d4d7fe79d8ca7e91d789f0ff4"
+      },
+      "seen_sha": "1aa4842cb5154f4b55853f8efd4fd5993e3f1673",
+      "status": "PASS"
+    }
+  },
+  "version": 1
+}
