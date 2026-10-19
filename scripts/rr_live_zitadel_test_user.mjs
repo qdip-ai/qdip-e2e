@@ -97,6 +97,35 @@ async function main() {
     requireStage(rrSession.authenticated === true, 'REAL_USER_RR_SESSION_DENIED')
     console.log('LIVE_ZITADEL_REAL_USER_RR_OPERATOR_LOGIN=PASS')
 
+    // Non-mutating real signed-in RR BFF -> Core probes. A fresh impossible
+    // synthetic execution ID cannot refer to an actual customer record.
+    // Never log the URI, response payload, cookies, authorization or identity.
+    const syntheticId = 'rr-live-nonexistent-' + Date.now().toString(36)
+    const readPath = RR + '/api/rr-operator/kernel/executions/' + syntheticId + '/presentation'
+    const noExecution = await context.request.get(readPath, {maxRedirects:0,timeout:20000})
+    requireStage(noExecution.status() === 404, 'REAL_RR_AUTHORIZED_CORE_READ_NOT_404')
+    requireStage((noExecution.headers()['cache-control'] || '').includes('no-store'),
+      'REAL_RR_AUTHORIZED_CORE_READ_CACHE_UNSAFE')
+    console.log('LIVE_ZITADEL_RR_AUTHORIZED_CORE_READ_BOUNDARY=PASS')
+
+    // Invalid preflight has no possible durable execution or procurement effect.
+    // A real 422 proves the same-origin operator session passes the Web proxy
+    // and Core's admission validator, not just the session lookup endpoint.
+    const invalidPreflight = await context.request.post(RR + '/api/rr-operator/kernel/preflight', {
+      headers:{Origin:RR,'Content-Type':'application/json'},
+      data:{}, maxRedirects:0,timeout:20000,
+    })
+    requireStage(invalidPreflight.status() === 422, 'REAL_RR_CORE_INVALID_PREFLIGHT_NOT_422')
+    console.log('LIVE_ZITADEL_RR_CORE_INVALID_PREFLIGHT_DENIED=PASS')
+
+    // This request must never reach Core: QDIP site != Observatory origin.
+    const crossOrigin = await context.request.post(RR + '/api/rr-operator/kernel/preflight', {
+      headers:{Origin:SITE,'Content-Type':'application/json'},
+      data:{}, maxRedirects:0,timeout:20000,
+    })
+    requireStage(crossOrigin.status() === 403, 'REAL_RR_CROSS_ORIGIN_NOT_403')
+    console.log('LIVE_ZITADEL_RR_CROSS_ORIGIN_POST_DENIED=PASS')
+
     const result = await context.request.post(SITE + '/api/auth/logout', {
       headers: {Origin:SITE},
     })
@@ -105,6 +134,10 @@ async function main() {
     const afterRr = await safeJson(await context.request.get(RR + '/api/rr-operator/session'), 'RR_AFTER_LOGOUT')
     requireStage(after.authenticated === false && after.operator === false, 'SITE_SESSION_NOT_REVOKED')
     requireStage(afterRr.authenticated === false, 'RR_SESSION_NOT_REVOKED')
+    // Backend access itself, not just session status, must be revoked.
+    const afterRead = await context.request.get(readPath, {maxRedirects:0,timeout:15000})
+    requireStage(afterRead.status() === 401, 'REAL_RR_CORE_READ_NOT_REVOKED')
+    console.log('LIVE_ZITADEL_RR_CORE_READ_REVOKED_AFTER_LOGOUT=PASS')
     console.log('LIVE_ZITADEL_REAL_USER_LOGOUT_AND_RR_REVOCATION=PASS')
 
     // Only one existing identity: cannot falsely qualify wrong-organization or
