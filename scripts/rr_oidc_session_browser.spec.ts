@@ -105,6 +105,23 @@ function mark(label: string, value: number | boolean) {
   test.info().annotations.push({ type: 'rr-' + label, description: String(value) })
 }
 
+// Sanitize the RR document navigation into one numeric status, never page HTML,
+// redirect URLs, role claims, cookies, tokens or response bodies.
+test.beforeEach(({ page }) => {
+  page.on('response', (response) => {
+    try {
+      const url = new URL(response.url())
+      if (
+        response.request().isNavigationRequest() &&
+        url.origin === ORIGIN &&
+        url.pathname === '/en/readiness-recovery'
+      ) mark('document-http', response.status())
+    } catch {
+      /* Diagnostic must never change the outcome of protected browser tests. */
+    }
+  })
+})
+
 async function markOperatorSession(page: import('@playwright/test').Page) {
   const response = await page.request.get(`${ORIGIN}/api/rr-operator/session`)
   mark('session-http', response.status())
