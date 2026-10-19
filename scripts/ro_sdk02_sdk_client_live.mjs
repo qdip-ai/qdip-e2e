@@ -1,28 +1,36 @@
 import assert from 'node:assert/strict';
-import { QdipClient } from '@qdip/client';
 
 const capabilityId = 'route-optimizer.select-routes.v1';
 const apiKey = process.env.QDIP_RO_SDK02_EXECUTE_KEY;
 assert(apiKey, 'Missing RO E2E execute key');
 
-const client = new QdipClient({
-  baseUrl: 'https://dzvin-intelligence-platform-production.up.railway.app',
-  readApiKey: apiKey,
-  executeApiKey: apiKey,
-});
+const base = 'https://dzvin-intelligence-platform-production.up.railway.app/api/v1/';
+async function getJson(path, payload) {
+  const response = await fetch(base + path, {
+    method: payload === undefined ? 'GET' : 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'accept': 'application/json',
+      ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+    redirect: 'error',
+    signal: AbortSignal.timeout(45000),
+  });
+  assert.equal(response.status, 200, 'Gateway request was not successful');
+  return response.json();
+}
 
-const inventory = await client.capabilities.list();
+const inventory = await getJson('remote-plugins/capabilities');
 assert(inventory.items.some(item =>
   item.plugin_id === 'route-optimizer-sdk02' &&
   item.capability_id === capabilityId &&
   item.capability_version === '1'), 'RO worker not registered');
 console.log('RO_WORKER_DISCOVERY=PASS');
 
-const result = await client.plugins.invoke({
-  capabilityId,
-  capabilityVersion: '1',
-  timeoutSeconds: 20,
-  deadlineMs: 45000,
+const result = await getJson('remote-plugins/' + capabilityId + '/invoke', {
+  capability_version: '1',
+  timeout_seconds: 20,
   input: {
     drivers: ['d1', 'd2'],
     deliveries: ['a', 'b', 'c'],
