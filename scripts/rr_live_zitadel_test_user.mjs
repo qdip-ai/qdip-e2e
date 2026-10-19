@@ -103,6 +103,7 @@ async function main() {
     const syntheticId = 'rr-live-nonexistent-' + Date.now().toString(36)
     const readPath = RR + '/api/rr-operator/kernel/executions/' + syntheticId + '/presentation'
     const noExecution = await context.request.get(readPath, {maxRedirects:0,timeout:20000})
+    console.log('LIVE_ZITADEL_RR_CORE_READ_HTTP=' + noExecution.status())
     requireStage(noExecution.status() === 404, 'REAL_RR_AUTHORIZED_CORE_READ_NOT_404')
     requireStage((noExecution.headers()['cache-control'] || '').includes('no-store'),
       'REAL_RR_AUTHORIZED_CORE_READ_CACHE_UNSAFE')
@@ -115,6 +116,7 @@ async function main() {
       headers:{Origin:RR,'Content-Type':'application/json'},
       data:{}, maxRedirects:0,timeout:20000,
     })
+    console.log('LIVE_ZITADEL_RR_CORE_INVALID_PREFLIGHT_HTTP=' + invalidPreflight.status())
     requireStage(invalidPreflight.status() === 422, 'REAL_RR_CORE_INVALID_PREFLIGHT_NOT_422')
     console.log('LIVE_ZITADEL_RR_CORE_INVALID_PREFLIGHT_DENIED=PASS')
 
@@ -136,6 +138,7 @@ async function main() {
     requireStage(afterRr.authenticated === false, 'RR_SESSION_NOT_REVOKED')
     // Backend access itself, not just session status, must be revoked.
     const afterRead = await context.request.get(readPath, {maxRedirects:0,timeout:15000})
+    console.log('LIVE_ZITADEL_RR_CORE_AFTER_LOGOUT_HTTP=' + afterRead.status())
     requireStage(afterRead.status() === 401, 'REAL_RR_CORE_READ_NOT_REVOKED')
     console.log('LIVE_ZITADEL_RR_CORE_READ_REVOKED_AFTER_LOGOUT=PASS')
     console.log('LIVE_ZITADEL_REAL_USER_LOGOUT_AND_RR_REVOCATION=PASS')
