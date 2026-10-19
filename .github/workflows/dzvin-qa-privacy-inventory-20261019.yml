@@ -1,10 +1,10 @@
-name: Dzvin QA1 QA2 privacy inventory (read-only)
+name: Dzvin QA1 QA2 account-erasure auth lock smoke
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - qa/dzvin-privacy-links-e2e-20261019
+      - qa/dzvin-account-auth-lock-smoke-20261019
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ jobs:
       E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
       E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
       E2E_DEPLOYED_WEB_SHA: ec4a1875ebc9e6e3300d9728c3859dff88da3d79
-      E2E_DEPLOYED_BACKEND_SHA: 8734d4c4166d3a91da9fab1e33b03c9bec7bb5dd
+      E2E_DEPLOYED_BACKEND_SHA: 2d50bd63dd0d9b58b02ade8d119b403b4ecfb52c
       QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
       QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
       QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --check scripts/dzvin_qa_privacy_links_auth_20261019.mjs
+          node --check scripts/dzvin_qa_account_auth_lock_smoke_20261019.mjs
           node --check scripts/dzvin_qa_privacy_links_verify_20261019.mjs
           cd qa-suite
           pnpm install --frozen-lockfile
@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp scripts/dzvin_qa_privacy_links_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
+          cp scripts/dzvin_qa_account_auth_lock_smoke_20261019.mjs qa-suite/.qa-mood-auth.mjs
           cp scripts/dzvin_qa_privacy_links_verify_20261019.mjs qa-suite/.qa-privacy-inventory.mjs
           cd qa-suite
           umask 077
