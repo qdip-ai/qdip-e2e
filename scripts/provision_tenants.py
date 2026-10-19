@@ -39,6 +39,11 @@ for env_name, (org, kid) in names.items():
     values[env_name] = secret
 
 values["API_KEY"] = secrets.token_urlsafe(48)
+# The Observatory's SDK catalog reader uses platform ADMIN. An org-scoped
+# RR execution key cannot list /plugin-publications (403 by design).
+# Reuse this disposable runner's platform key server-side only; never export
+# it to browser cookies, trace artifacts, or client-facing variables.
+values["DIP_ADMIN_API_KEY"] = values["API_KEY"]
 values["RR_OPERATOR_PASSWORD"] = secrets.token_urlsafe(48)
 values["RR_OPERATOR_SESSION_SECRET"] = secrets.token_urlsafe(64)
 # Isolated Core/Web actor-attribution trust secret. Never use in production.
