@@ -108,7 +108,15 @@ async function main() {
       // Only fixed enum categories are emitted. Never display a server response
       // body, origin, organization, credential or framework error details.
       let denial = 'UNKNOWN_403'
-      const response = await noExecution.json().catch(() => null)
+      const contentType = (noExecution.headers()['content-type'] || '').toLowerCase()
+      const kind = contentType.startsWith('application/json') ? 'JSON'
+        : contentType.startsWith('text/html') ? 'HTML' : 'OTHER'
+      // Booleans/enums only: helps distinguish the BFF's validated Core
+      // forward response from an upstream Cloudflare or reverse-proxy denial.
+      console.log('LIVE_ZITADEL_RR_CORE_READ_BODY_TYPE=' + kind)
+      console.log('LIVE_ZITADEL_RR_CORE_READ_NOSNIFF=' +
+        (noExecution.headers()['x-content-type-options'] === 'nosniff'))
+      const response = kind === 'JSON' ? await noExecution.json().catch(() => null) : null
       const detail = response && typeof response === 'object' ? response.detail : null
       const error = response && typeof response === 'object' ? response.error : null
       if (detail === 'Permission required: decisions:read') denial = 'MISSING_DECISIONS_READ'
@@ -116,6 +124,12 @@ async function main() {
       else if (detail === 'This endpoint requires an org-scoped API key') denial = 'MISSING_ORG_SCOPE'
       else if (error === 'TLS required') denial = 'WEB_TLS_POLICY'
       else if (error === 'Forbidden origin') denial = 'WEB_ORIGIN_POLICY'
+      else if (typeof detail === 'string' && /audit:read/i.test(detail)) denial = 'AUDIT_READ_RELATED'
+      else if (typeof detail === 'string' && /decisions:read/i.test(detail)) denial = 'DECISIONS_READ_RELATED'
+      else if (typeof detail === 'string' && /organi[sz]ation|org.scoped/i.test(detail)) denial = 'ORGANIZATION_SCOPE_RELATED'
+      else if (typeof detail === 'string') denial = 'OTHER_CORE_DETAIL_STRING'
+      else if (typeof error === 'string') denial = 'OTHER_WEB_ERROR_STRING'
+      else if (response !== null) denial = 'UNRECOGNIZED_JSON_SCHEMA'
       console.log('LIVE_ZITADEL_RR_CORE_READ_DENIAL=' + denial)
     }
     requireStage(noExecution.status() === 404, 'REAL_RR_AUTHORIZED_CORE_READ_NOT_404')
