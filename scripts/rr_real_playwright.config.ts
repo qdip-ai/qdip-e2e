@@ -20,6 +20,9 @@ const mandatory = [
   'QDIP_STUDIO_ZITADEL_ROLE_KEY',
   'QDIP_RR_ZITADEL_ROLE_KEY',
   'DIP_API_KEY',
+  // Server-only, disposable platform-admin key: Core publication catalog
+  // requires admin:* while RR execution keeps the separate org-scoped key.
+  'DIP_ADMIN_API_KEY',
   'RR_ACTOR_ASSERTION_SECRET',
 ] as const
 
