@@ -545,20 +545,26 @@ test('economic-v2 preview reaches real Core but cannot execute, mutate or author
   expect(initialCount).toBe(0)
 
   await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
+  await markOperatorSession(page)
   const panel = page.getByTestId('rr-economic-v2-preflight')
   await expect(panel).toBeVisible()
+  mark('economic-ui-panel', true)
   await expect(panel.getByTestId('rr-economic-v2-warning')).toContainText('NOT ACTIONABLE')
+  mark('economic-ui-warning', true)
   await panel.getByLabel('RR-ECON-v2 JSON').fill(JSON.stringify(input))
+  mark('economic-ui-input', true)
   const response = page.waitForResponse((r) =>
     r.url().endsWith('/api/rr-operator/kernel/economic-v2/preflight') &&
     r.request().method() === 'POST'
   )
   await panel.getByRole('button', { name: 'Validate in Core (no execution)' }).click()
+  mark('economic-ui-click', true)
   const actual = await response
   mark('economic-browser-http', actual.status())
   expect(actual.status()).toBe(200)
   const preview = panel.getByTestId('rr-economic-v2-result')
   await expect(preview).toBeVisible()
+  mark('economic-ui-result', true)
   await expect(preview).toHaveAttribute('data-actionable', 'false')
   await expect(preview).toContainText(String(compiled.ir_semantic_hash))
   await expect(panel.getByRole('button', { name: /apply|execute|purchase/i })).toHaveCount(0)
