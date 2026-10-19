@@ -28,6 +28,8 @@ MATRIX: dict[str, tuple[str, ...]] = {
         "anonymous and Studio-only browser cannot access RR workspace or operate Core",
         "tampered isolated OIDC session never authorizes",
         "isolated signed-session browser → real Core",
+        "post-commit lost acknowledgement reconciles real create and replan without retrying POST",
+        "post-commit lost write and unavailable read stays UNKNOWN and blocks duplicate create",
         "economic-v2 preview reaches real Core but cannot execute",
         "invalid input fails closed in real Core preflight",
     ),

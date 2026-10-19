@@ -5,7 +5,8 @@ import { expect, test } from '@playwright/test'
 // This spec is owned by the independent E2E suite and copied to the checked-out
 // qdip-web/e2e directory ONLY when the rr-oidc-session-v1 contract is required.
 // The E2E fixture injects an ephemeral signed session; live Zitadel login is NOT tested.
-// HTTP, Core, Mongo persistence and BFF authorization are never mocked.
+// Core, Mongo persistence and BFF authorization are never mocked; the two
+// lost-ack regression cases suppress only the browser-visible POST acknowledgement.
 const ORIGIN = 'http://observatory.localhost:3000'
 const PAGE = `${ORIGIN}/en/readiness-recovery`
 const ROUTE = `${ORIGIN}/api/rr-operator/kernel`
@@ -565,4 +566,125 @@ test('invalid input fails closed in real Core preflight; no fabricated decision 
   await expect(page.getByTestId('rr-kernel-preflight')).toContainText('Server preflight')
   await expect(panel.getByRole('button', { name: 'Create execution', exact: true })).toBeDisabled()
   await expect(page.getByTestId('rr-decision-first')).toHaveCount(0)
+})
+
+/** Browser-only fault injection after a genuinely committed Core/Mongo write.
+ * The browser sees HTTP 502 instead of the 201 returned by the real BFF.
+ * All persistence, auth, Core HTTP, and presentation reads remain genuine.
+ */
+test('post-commit lost acknowledgement reconciles real create and replan without retrying POST', async ({ page }) => {
+  test.setTimeout(180_000)
+  const original = actualInput()
+  await installIsolatedOidcSession(page)
+  await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
+  const panel = page.getByTestId('rr-production-operator')
+  await expect(panel).toBeVisible()
+  await panel.getByLabel('Kernel execution JSON').fill(JSON.stringify(original))
+  const createButton = panel.getByRole('button', { name: 'Create execution', exact: true })
+  await expect(createButton).toBeEnabled()
+  let createPosts = 0
+  let createReads = 0
+  await page.route(ROUTE + '/executions', async route => {
+    if (route.request().method() !== 'POST') return route.continue()
+    createPosts++
+    const committed = await route.fetch({ timeout: 50_000 })
+    expect(committed.status()).toBe(201)
+    await route.fulfill({ status: 502, contentType: 'application/json',
+      body: JSON.stringify({ error: 'RR backend unavailable' }) })
+  })
+  await page.route(ROUTE + '/executions/' + original.execution_id + '/presentation', async route => {
+    createReads++
+    await route.continue()
+  })
+  await createButton.click()
+  await expect(panel.getByText('Saved execution confirmed after lost acknowledgement.')).toBeVisible()
+  await expect(page.getByTestId('rr-decision-first')).toContainText(original.execution_id)
+  expect(createPosts).toBe(1)
+  expect(createReads).toBeGreaterThanOrEqual(1)
+  await page.unroute(ROUTE + '/executions')
+  await page.unroute(ROUTE + '/executions/' + original.execution_id + '/presentation')
+  const revised = original.execution_id + '-ack-replanned'
+  const later = new Date(Date.now() + 2000).toISOString()
+  const change = {
+    execution_id: revised, change_id: 'lost-ack-' + original.execution_id,
+    kind: 'OVERRIDE',
+    reason: 'Isolated post-commit response-loss acceptance for real Mongo replan.',
+    requested_at: later, source: original.source, ingested_at: later,
+    payload: { ...original.payload, operator_directives: { excluded_job_ids: ['sensor-service'] } },
+  }
+  await panel.getByLabel('Kernel replan JSON').fill(JSON.stringify(change))
+  const replanButton = panel.getByRole('button', { name: 'Replan from predecessor' })
+  await expect(replanButton).toBeEnabled()
+  let replanPosts = 0
+  let replanReads = 0
+  await page.route(ROUTE + '/executions/' + original.execution_id + '/replan', async route => {
+    if (route.request().method() !== 'POST') return route.continue()
+    replanPosts++
+    const committed = await route.fetch({ timeout: 50_000 })
+    expect(committed.status()).toBe(201)
+    await route.fulfill({ status: 502, contentType: 'application/json',
+      body: JSON.stringify({ error: 'RR backend unavailable' }) })
+  })
+  await page.route(ROUTE + '/executions/' + revised + '/presentation', async route => {
+    replanReads++
+    await route.continue()
+  })
+  await replanButton.click()
+  await expect(panel.getByText('Saved execution confirmed after lost acknowledgement.')).toBeVisible()
+  await expect(page.getByTestId('rr-decision-first')).toContainText(revised)
+  expect(replanPosts).toBe(1)
+  expect(replanReads).toBeGreaterThanOrEqual(1)
+  await page.unroute(ROUTE + '/executions/' + original.execution_id + '/replan')
+  await page.unroute(ROUTE + '/executions/' + revised + '/presentation')
+  const historyResponse = await page.request.get(ROUTE + '/decisions/' + original.payload.decision_id + '/history')
+  expect(historyResponse.status()).toBe(200)
+  const history = (await historyResponse.json()) as { executions: unknown[] }
+  expect(history.executions).toHaveLength(2)
+  const replay = await page.request.get(ROUTE + '/executions/' + revised + '/replay-verification')
+  expect(replay.status()).toBe(200)
+  expect(((await replay.json()) as { verified: boolean }).verified).toBe(true)
+  mark('lost-ack-create-and-replan-reconciled', true)
+  mark('lost-ack-only-two-mongo-executions', true)
+})
+
+test('post-commit lost write and unavailable read stays UNKNOWN and blocks duplicate create', async ({ page }) => {
+  test.setTimeout(150_000)
+  const original = actualInput()
+  await installIsolatedOidcSession(page)
+  await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
+  const panel = page.getByTestId('rr-production-operator')
+  await expect(panel).toBeVisible()
+  await panel.getByLabel('Kernel execution JSON').fill(JSON.stringify(original))
+  const createButton = panel.getByRole('button', { name: 'Create execution', exact: true })
+  await expect(createButton).toBeEnabled()
+  let postCount = 0
+  let readCount = 0
+  await page.route(ROUTE + '/executions', async route => {
+    if (route.request().method() !== 'POST') return route.continue()
+    postCount++
+    const committed = await route.fetch({ timeout: 50_000 })
+    expect(committed.status()).toBe(201)
+    await route.fulfill({ status: 502, contentType: 'application/json',
+      body: JSON.stringify({ error: 'RR backend unavailable' }) })
+  })
+  await page.route(ROUTE + '/executions/' + original.execution_id + '/presentation', async route => {
+    readCount++
+    await route.fulfill({ status: 502, contentType: 'application/json',
+      body: JSON.stringify({ error: 'RR backend unavailable' }) })
+  })
+  await createButton.click()
+  await expect(panel.getByRole('alert')).toContainText('Write status unknown. Do not submit again.')
+  await expect(createButton).toBeDisabled()
+  expect(postCount).toBe(1)
+  expect(readCount).toBeGreaterThanOrEqual(1)
+  await page.unroute(ROUTE + '/executions')
+  await page.unroute(ROUTE + '/executions/' + original.execution_id + '/presentation')
+  const historyResponse = await page.request.get(ROUTE + '/decisions/' + original.payload.decision_id + '/history')
+  expect(historyResponse.status()).toBe(200)
+  const history = (await historyResponse.json()) as { executions: unknown[] }
+  expect(history.executions).toHaveLength(1)
+  const projection = await page.request.get(ROUTE + '/executions/' + original.execution_id + '/presentation')
+  expect(projection.status()).toBe(200)
+  mark('lost-ack-unknown-no-duplicate-post', true)
+  mark('lost-ack-unknown-real-mongo-commit', true)
 })
