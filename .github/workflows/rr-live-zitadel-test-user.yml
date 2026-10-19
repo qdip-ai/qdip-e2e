@@ -1,13 +1,18 @@
 name: RR real Zitadel existing test-user browser E2E
 on:
-  # Interactive login is not available for the qdip-dev-agent machine user.
-  # Only run explicitly once a separately configured browser identity exists.
+  # Credential-bearing browser E2E runs only from reviewed public main,
+  # never a PR/untrusted branch. Manual dispatch remains available.
+  push:
+    branches: [main]
+    paths:
+      - scripts/rr_live_zitadel_test_user.mjs
+      - .github/workflows/rr-live-zitadel-test-user.yml
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   existing-user-login:
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
