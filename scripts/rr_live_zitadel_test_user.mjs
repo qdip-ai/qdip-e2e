@@ -119,7 +119,15 @@ async function main() {
       const response = kind === 'JSON' ? await noExecution.json().catch(() => null) : null
       const detail = response && typeof response === 'object' ? response.detail : null
       const error = response && typeof response === 'object' ? response.error : null
-      if (detail === 'Permission required: decisions:read') denial = 'MISSING_DECISIONS_READ'
+      // QDIP Core normalizes HTTPException to { error: { code, message } }.
+      // Classify only known RBAC constants; never print the actual message.
+      const coreMessage = error && typeof error === 'object' &&
+        error.code === 'http_error' && typeof error.message === 'string'
+        ? error.message : null
+      if (coreMessage === 'Permission required: decisions:read') denial = 'MISSING_DECISIONS_READ'
+      else if (coreMessage === 'Permission required: audit:read') denial = 'MISSING_AUDIT_READ'
+      else if (coreMessage === 'This endpoint requires an org-scoped API key') denial = 'MISSING_ORG_SCOPE'
+      else if (detail === 'Permission required: decisions:read') denial = 'MISSING_DECISIONS_READ'
       else if (detail === 'Permission required: audit:read') denial = 'MISSING_AUDIT_READ'
       else if (detail === 'This endpoint requires an org-scoped API key') denial = 'MISSING_ORG_SCOPE'
       else if (error === 'TLS required') denial = 'WEB_TLS_POLICY'
