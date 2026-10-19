@@ -1,0 +1,94 @@
+name: Dzvin QA1 QA2 privacy inventory (read-only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - qa/dzvin-privacy-inventory-20261019
+
+permissions:
+  contents: read
+
+jobs:
+  privacy-inventory:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      DZVIN_MOOD_EXPORT_READONLY_ACK: '1'
+      E2E_BASE_URL: https://mentality-ho9v3tydz-taras-gezs-projects.vercel.app
+      E2E_ALLOWED_MUTATION_ORIGIN: https://mentality-ho9v3tydz-taras-gezs-projects.vercel.app
+      E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
+      E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
+      E2E_DEPLOYED_WEB_SHA: ec4a1875ebc9e6e3300d9728c3859dff88da3d79
+      E2E_DEPLOYED_BACKEND_SHA: 56b954d2fb41e60d8da111d265330d1b273969f4
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mentality-prj/mentality-tests
+          ref: fe74fbf2cc1de43fc2fa2f555d8e7f78e1afcbbf
+          path: qa-suite
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.26.0'
+      - name: Install browser and validate scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/dzvin_qa_mood_export_auth_20261019.mjs
+          node --check scripts/dzvin_qa_privacy_inventory_20261019.mjs
+          cd qa-suite
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Run real QA1 QA2 authenticated read-only inventory checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/dzvin_qa_mood_export_auth_20261019.mjs qa-suite/.qa-mood-auth.mjs
+          cp scripts/dzvin_qa_privacy_inventory_20261019.mjs qa-suite/.qa-privacy-inventory.mjs
+          cd qa-suite
+          umask 077
+          node .qa-mood-auth.mjs
+          set -a
+          source playwright/.auth/qa-approval.env
+          set +a
+          node .qa-privacy-inventory.mjs
+      - name: Remove ephemeral browser credentials
+        if: always()
+        run: rm -rf qa-suite/playwright/.auth
+
+  record-privacy-inventory-result:
+    if: always()
+    needs: privacy-inventory
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const result = '${{ needs.privacy-inventory.result }}';
+            const body = [
+              `Dzvin QA1/QA2 privacy data inventory: **${result === 'success' ? 'PASS' : 'NOT PASS'}**`,
+              `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `Job conclusion: ${result}`
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 90,
+              body,
+            });
