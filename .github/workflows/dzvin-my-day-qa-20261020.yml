@@ -16,8 +16,8 @@ jobs:
     env:
       CI: 'true'
       DZVIN_QA_MUTATION_RUN_ACK: '1'
-      E2E_BASE_URL: https://dzvin.co
-      E2E_ALLOWED_MUTATION_ORIGIN: https://dzvin.co
+      E2E_BASE_URL: https://www.dzvin.co
+      E2E_ALLOWED_MUTATION_ORIGIN: https://www.dzvin.co
       E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
       E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
       E2E_DEPLOYED_WEB_SHA: ff306433f54e5aa6619f5da1e7d1063cbfdfd526
@@ -54,7 +54,7 @@ jobs:
           const f = 'qa-auth.mjs';
           let content = fs.readFileSync(f, 'utf8');
           const changes = [
-            ['https://mentality-f0lbd28o7-taras-gezs-projects.vercel.app', 'https://dzvin.co'],
+            ['https://mentality-f0lbd28o7-taras-gezs-projects.vercel.app', 'https://www.dzvin.co'],
             ['dpl_BsbruPDQiv6PnHeuQzspQ7raXaRZ', 'dpl_2EvLLhqueRcaeBP9Kjmodo3GiXXM'],
             ['6622a7b213cc6f47c72380c544c02e0c80d0aa65', 'ff306433f54e5aa6619f5da1e7d1063cbfdfd526'],
             ['9367147682caa5c8226519da38403c4b020fb4eb', '21fc665ec4793dee9fe841d1d907a2d69e5d5cbe'],
