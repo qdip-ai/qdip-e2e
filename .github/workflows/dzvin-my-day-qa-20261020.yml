@@ -58,6 +58,7 @@ jobs:
             ['dpl_BsbruPDQiv6PnHeuQzspQ7raXaRZ', 'dpl_2EvLLhqueRcaeBP9Kjmodo3GiXXM'],
             ['6622a7b213cc6f47c72380c544c02e0c80d0aa65', 'ff306433f54e5aa6619f5da1e7d1063cbfdfd526'],
             ['9367147682caa5c8226519da38403c4b020fb4eb', '21fc665ec4793dee9fe841d1d907a2d69e5d5cbe'],
+            ['https://mentality-web.vercel.app', 'https://www.dzvin.co'],
           ];
           for (const [from, to] of changes) {
             if (!content.includes(from)) throw new Error('QA_AUTH_PIN_MISMATCH');
