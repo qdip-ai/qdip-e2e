@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-const ORIGIN = 'https://dzvin.co';
+const ORIGIN = 'https://www.dzvin.co';
 const ZONE = '?timeZone=Europe%2FWarsaw';
 const API = '/api/backend/daily-habits';
 const KINDS = ['breathing','movement','journaling','screenBreak'];
