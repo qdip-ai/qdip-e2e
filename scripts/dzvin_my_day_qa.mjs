@@ -1,5 +1,5 @@
 import { chromium } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { expect } from '@playwright/test';
 const ORIGIN = 'https://www.dzvin.co';
 const ZONE = '?timeZone=Europe%2FWarsaw';
 const API = '/api/backend/daily-habits';
@@ -44,7 +44,54 @@ async function main(){
     if(del.status()!==200||(await read(a)).some(x=>x.kind===kind)) fail('REMOVE_NOT_PERSISTED');
     created.pop();
     if(JSON.stringify(await read(a))!==JSON.stringify(oldA)||JSON.stringify(await read(b))!==JSON.stringify(oldB)) fail('QA_STATE_CHANGED');
+
     console.log('MY_DAY_SEEDED_API_PERSISTENCE_AND_OWNER_ISOLATION=PASS');
+
+    // Run the same seeded scenario through real hydrated My Day controls.
+    // Register cleanup before any UI write, so partial browser failures
+    // never leave test fixtures behind.
+    const titles = {
+      breathing: 'A short breathing break',
+      movement: 'A little movement',
+      journaling: 'Write down one thought',
+      screenBreak: 'Take a screen break',
+    };
+    const page = await a.newPage();
+    created.push([a,kind]);
+    try {
+      const response = await page.goto(ORIGIN+'/en/my-day',{waitUntil:'domcontentloaded',timeout:45000});
+      if(response?.status()!==200) fail('MY_DAY_PAGE_HTTP_'+response?.status());
+      await expect(page.getByRole('heading',{name:'Your optional daily habits'})).toBeVisible({timeout:25000});
+      const row=page.locator('li').filter({has:page.getByRole('heading',{name:titles[kind],exact:true})}).first();
+      await expect(row.getByRole('button',{name:'Add to my day'})).toBeVisible({timeout:25000});
+      await row.getByRole('button',{name:'Add to my day'}).click();
+      await expect(row.getByText('Selected — available today')).toBeVisible({timeout:15000});
+      if((await read(a)).find(x=>x.kind===kind)?.doneToday!==false) fail('BROWSER_SELECT_NOT_PERSISTED');
+      await page.reload({waitUntil:'domcontentloaded',timeout:45000});
+      await expect(page.locator('li').filter({has:page.getByRole('heading',{name:titles[kind],exact:true})}).getByText('Selected — available today')).toBeVisible({timeout:25000});
+      console.log('MY_DAY_UI_SELECT_AND_RELOAD=PASS');
+
+      const row2=page.locator('li').filter({has:page.getByRole('heading',{name:titles[kind],exact:true})}).first();
+      await row2.getByRole('button',{name:'I did this today'}).click();
+      await expect(row2.getByText('Marked for today')).toBeVisible({timeout:15000});
+      await page.reload({waitUntil:'domcontentloaded',timeout:45000});
+      const row3=page.locator('li').filter({has:page.getByRole('heading',{name:titles[kind],exact:true})}).first();
+      await expect(row3.getByText('Marked for today')).toBeVisible({timeout:25000});
+      if((await read(a)).find(x=>x.kind===kind)?.doneToday!==true) fail('BROWSER_DONE_NOT_PERSISTED');
+      console.log('MY_DAY_UI_DONE_AND_RELOAD=PASS');
+
+      await row3.getByRole('button',{name:"Undo today's mark"}).click();
+      await expect(row3.getByText('Selected — available today')).toBeVisible({timeout:15000});
+      if((await read(a)).find(x=>x.kind===kind)?.doneToday!==false) fail('BROWSER_UNDO_NOT_PERSISTED');
+      await row3.getByRole('button',{name:'Remove from my day'}).click();
+      await expect(row3.getByRole('button',{name:'Add to my day'})).toBeVisible({timeout:15000});
+      if((await read(a)).some(x=>x.kind===kind)) fail('BROWSER_REMOVE_NOT_PERSISTED');
+      created.pop();
+      console.log('MY_DAY_UI_UNDO_REMOVE_AND_CLEANUP=PASS');
+    } finally {
+      await page.close();
+    }
+
   } finally {
     for(const [ctx,kind] of created) {
       const d=await ctx.request.delete(ORIGIN+API+'/'+kind,{headers:{Origin:ORIGIN}}).catch(()=>null);
