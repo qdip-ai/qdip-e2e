@@ -1,0 +1,80 @@
+name: Dzvin My Day owner-scoped production QA
+on:
+  push:
+    branches:
+      - qa/dzvin-my-day-production-20261020
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-my-day-prod-qa-one-shot
+  cancel-in-progress: false
+jobs:
+  isolated-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      DZVIN_QA_MUTATION_RUN_ACK: '1'
+      E2E_BASE_URL: https://dzvin.co
+      E2E_ALLOWED_MUTATION_ORIGIN: https://dzvin.co
+      E2E_QA_SHARED_BACKEND_SCOPED_APPROVED: '1'
+      E2E_DISPOSABLE_TENANT_CONFIRMED: '0'
+      E2E_DEPLOYED_WEB_SHA: ff306433f54e5aa6619f5da1e7d1063cbfdfd526
+      E2E_DEPLOYED_BACKEND_SHA: 21fc665ec4793dee9fe841d1d907a2d69e5d5cbe
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated QA browser (no app build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dzvin-myday-qa
+          cp scripts/dzvin_qa_diary_mutation_auth_20261019.mjs /tmp/dzvin-myday-qa/qa-auth.mjs
+          cp scripts/dzvin_my_day_qa.mjs /tmp/dzvin-myday-qa/dzvin_my_day_qa.mjs
+          cd /tmp/dzvin-myday-qa
+          npm init -y >/dev/null
+          npm install --ignore-scripts --no-save @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Pin existing QA login helper to exact production release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/dzvin-myday-qa
+          node - <<'NODE'
+          const fs = require('fs');
+          const f = 'qa-auth.mjs';
+          let content = fs.readFileSync(f, 'utf8');
+          const changes = [
+            ['https://mentality-f0lbd28o7-taras-gezs-projects.vercel.app', 'https://dzvin.co'],
+            ['dpl_BsbruPDQiv6PnHeuQzspQ7raXaRZ', 'dpl_2EvLLhqueRcaeBP9Kjmodo3GiXXM'],
+            ['6622a7b213cc6f47c72380c544c02e0c80d0aa65', 'ff306433f54e5aa6619f5da1e7d1063cbfdfd526'],
+            ['9367147682caa5c8226519da38403c4b020fb4eb', '21fc665ec4793dee9fe841d1d907a2d69e5d5cbe'],
+          ];
+          for (const [from, to] of changes) {
+            if (!content.includes(from)) throw new Error('QA_AUTH_PIN_MISMATCH');
+            content = content.replaceAll(from, to);
+          }
+          fs.writeFileSync(f, content, {mode: 0o600});
+          NODE
+          node --check qa-auth.mjs
+          node --check dzvin_my_day_qa.mjs
+      - name: Seed, verify owner isolation and teardown through authenticated production BFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/dzvin-myday-qa
+          umask 077
+          node qa-auth.mjs
+          node dzvin_my_day_qa.mjs
+      - name: Wipe browser QA credentials from runner
+        if: always()
+        run: rm -rf /tmp/dzvin-myday-qa/playwright/.auth
