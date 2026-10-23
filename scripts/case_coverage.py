@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX_FILE = ROOT / "scripts" / "check_browser_report.py"
 SPEC_FILE = ROOT / "scripts" / "rr_oidc_session_browser.spec.ts"
 SCOPE = "rr-oidc-session-v1"
-_TEST = re.compile(r"\\btest\\s*\\(\\s*(['\"])(.*?)\\1")
+_TEST = re.compile(r"\btest\s*\(\s*'([^']+)'")
 
 
 def requirements(source: str, mode: str = SCOPE) -> tuple[str, ...]:
@@ -38,7 +38,7 @@ def requirements(source: str, mode: str = SCOPE) -> tuple[str, ...]:
 
 
 def browser_titles(source: str) -> list[str]:
-    return [match.group(2) for match in _TEST.finditer(source)]
+    return [match.group(1) for match in _TEST.finditer(source)]
 
 
 def summary(required: tuple[str, ...], actual_titles: list[str]) -> dict:
