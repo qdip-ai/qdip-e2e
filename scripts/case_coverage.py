@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX_FILE = ROOT / "scripts" / "check_browser_report.py"
 SPEC_FILE = ROOT / "scripts" / "rr_oidc_session_browser.spec.ts"
 SCOPE = "rr-oidc-session-v1"
-_TEST = re.compile(r"\btest\s*\(\s*'([^']+)'")
+_TEST = re.compile(r"^\s*test\s*\(\s*'([^']+)'", re.MULTILINE)
 
 
 def requirements(source: str, mode: str = SCOPE) -> tuple[str, ...]:
