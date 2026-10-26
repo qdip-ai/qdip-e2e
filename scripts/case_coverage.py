@@ -38,7 +38,9 @@ def requirements(source: str, mode: str = SCOPE) -> tuple[str, ...]:
 
 
 def browser_titles(source: str) -> list[str]:
-    return [match.group(1) for match in _TEST.finditer(source)]
+    # Commented-out Playwright tests must not count as implemented cases.
+    active = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return [match.group(1) for match in _TEST.finditer(active)]
 
 
 def summary(required: tuple[str, ...], actual_titles: list[str]) -> dict:
