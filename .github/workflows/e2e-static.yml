@@ -2,7 +2,7 @@ name: Validate public E2E suite
 
 on:
   push:
-    branches: [main, 'test/**', 'fix/**']
+    branches: [main, 'test/**', 'fix/**', 'feat/**']
     paths:
       - '.github/workflows/**'
       - 'scripts/**'
@@ -56,5 +56,9 @@ jobs:
         run: node --test tests/security_gate.test.mjs tests/deterministic_security_gate.test.mjs
       - name: Validate fail-closed browser result checker
         run: python -m unittest discover -s scripts -p 'test_e2e_*.py' -v
+      - name: Validate scoped E2E required-case coverage without claiming global PASS
+        run: |
+          python -m unittest discover -s tests -p 'test_case_coverage.py' -v
+          python scripts/case_coverage.py --check >/dev/null
       - name: Validate SHA-pinned watcher and stale-run result isolation
         run: python -m unittest discover -s tests -p 'test_runner_integrity.py' -v
