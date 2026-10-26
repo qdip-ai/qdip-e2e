@@ -39,7 +39,7 @@ class CaseCoverageTests(unittest.TestCase):
         # The limited source scan is only a mapping sanity check, not
         # proof that an executable Playwright run passed.
         self.assertEqual(result, ["real browser case"])
-        block_comment = "/*\\ntest('fake case in comment', async () => {})\\n*/"
+        block_comment = "/*\ntest('fake case in comment', async () => {})\n*/"
         self.assertEqual(browser_titles(block_comment), [])
         self.assertEqual(summary(("fake case in comment",),
                                  browser_titles(block_comment))["mappedCases"], 0)
