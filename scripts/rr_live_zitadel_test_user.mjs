@@ -146,6 +146,24 @@ async function main() {
     } finally {
       await page.unroute(SITE + '/api/auth/callback/zitadel**', intercept)
     }
+    if (!callbackCode) {
+      // Zitadel can complete a consent/redirect asynchronously after the
+      // initial document load. Do not repeat the password or bypass MFA.
+      await page.waitForTimeout(7000)
+    }
+    if (!callbackCode) {
+      const current = new URL(page.url())
+      const category = current.origin === target.origin ? 'ZITADEL_INTERACTION_REQUIRED'
+        : current.origin === SITE && current.pathname === '/api/auth/callback/zitadel'
+          ? 'CALLBACK_HANDLED_OUTSIDE_INTERCEPT' : 'OTHER_OIDC_NAVIGATION'
+      const hasPasswordInput = await page.locator('input[type="password"]').count().catch(() => 0)
+      const hasVisibleApproval = await page.getByRole('button', {
+        name:/approve|allow|consent|continue|fortfahren|zezwól|дозволити/i,
+      }).count().catch(() => 0)
+      console.log('EXISTING_TEST_USER_PKCE_STAGE=' + category)
+      console.log('EXISTING_TEST_USER_PKCE_PASSWORD_CHALLENGE=' + Boolean(hasPasswordInput))
+      console.log('EXISTING_TEST_USER_PKCE_CONSENT_UI=' + Boolean(hasVisibleApproval))
+    }
     requireStage(Boolean(callbackCode), 'EXISTING_TEST_USER_PKCE_CODE_NOT_OBTAINED')
     const tokenResponse = await context.request.post(doc.token_endpoint, {
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
