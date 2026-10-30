@@ -5,6 +5,7 @@
  * One login attempt to avoid locking out the existing account.
  */
 import { chromium } from '@playwright/test'
+import { createHash, randomBytes } from 'node:crypto'
 
 const SITE = 'https://qdip.ai'
 const RR = 'https://observatory.qdip.ai'
@@ -96,6 +97,90 @@ async function main() {
     const rrSession = await safeJson(await context.request.get(RR + '/api/rr-operator/session'), 'RR_SESSION')
     requireStage(rrSession.authenticated === true, 'REAL_USER_RR_SESSION_DENIED')
     console.log('LIVE_ZITADEL_REAL_USER_RR_OPERATOR_LOGIN=PASS')
+
+    // Acquire a real *access* token, not an ID token or QDIP session cookie.
+    // Run only in this public-repo workflow whose existing GitHub Secrets
+    // already supply the TEST account. No new Zitadel user/app is created.
+    // Fresh PKCE authorization code is intercepted before the site's
+    // callback (which cannot know our verifier). Token never leaves memory,
+    // is not stored in artifacts and is never printed.
+    requireStage(doc.token_endpoint && new URL(doc.token_endpoint).origin === target.origin,
+      'UNTRUSTED_OAUTH_TOKEN_ENDPOINT')
+    requireStage(doc.userinfo_endpoint && new URL(doc.userinfo_endpoint).origin === target.origin,
+      'UNTRUSTED_OAUTH_USERINFO_ENDPOINT')
+    const verifier = randomBytes(32).toString('base64url')
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+    const state = randomBytes(24).toString('base64url')
+    const nonce = randomBytes(24).toString('base64url')
+    const authorization = new URL(doc.authorization_endpoint)
+    for (const [key, value] of Object.entries({
+      client_id: EXPECTED_CLIENT,
+      response_type: 'code',
+      redirect_uri: SITE + '/api/auth/callback/zitadel',
+      scope: target.searchParams.get('scope') || '',
+      state, nonce, code_challenge: challenge, code_challenge_method: 'S256',
+    })) authorization.searchParams.set(key, value)
+
+    let callbackCode = null
+    const intercept = async route => {
+      const callback = new URL(route.request().url())
+      if (callback.searchParams.get('state') !== state) {
+        await route.continue()
+        return
+      }
+      const code = callback.searchParams.get('code')
+      if (typeof code === 'string' && code.length > 12 && code.length < 4096)
+        callbackCode = code
+      await route.fulfill({
+        status: 200, contentType: 'text/html',
+        body: '<!doctype html><html><body>OIDC QA token exchange</body></html>',
+      })
+    }
+    await page.route(SITE + '/api/auth/callback/zitadel**', intercept)
+    try {
+      // A Zitadel browser session was just established above. No second
+      // password attempt, bypass of MFA, consent or new redirect URI.
+      await page.goto(authorization.toString(), {waitUntil:'domcontentloaded',timeout:30000})
+    } catch {
+      fail('EXISTING_TEST_USER_PKCE_AUTHORIZATION_NOT_COMPLETED')
+    } finally {
+      await page.unroute(SITE + '/api/auth/callback/zitadel**', intercept)
+    }
+    requireStage(Boolean(callbackCode), 'EXISTING_TEST_USER_PKCE_CODE_NOT_OBTAINED')
+    const tokenResponse = await context.request.post(doc.token_endpoint, {
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      data:new URLSearchParams({
+        grant_type:'authorization_code', code:callbackCode,
+        client_id:EXPECTED_CLIENT,
+        redirect_uri:SITE + '/api/auth/callback/zitadel',
+        code_verifier:verifier,
+      }).toString(),
+      maxRedirects:0, timeout:15000,
+    })
+    // Sanitized errors only. OAuth code/token and HTTP bodies are never logged.
+    requireStage(tokenResponse.status() === 200, 'EXISTING_TEST_USER_PKCE_TOKEN_EXCHANGE_DENIED')
+    const tokenPayload = await tokenResponse.json().catch(() => null)
+    requireStage(tokenPayload && tokenPayload.token_type?.toLowerCase() === 'bearer' &&
+      typeof tokenPayload.access_token === 'string' && tokenPayload.access_token.length >= 32 &&
+      Number.isFinite(tokenPayload.expires_in) && tokenPayload.expires_in > 60,
+      'EXISTING_TEST_USER_OAUTH_ACCESS_TOKEN_INVALID')
+    const accessToken = tokenPayload.access_token
+    const userinfoResponse = await context.request.get(doc.userinfo_endpoint, {
+      headers:{Authorization:'Bearer ' + accessToken},
+      maxRedirects:0, timeout:15000,
+    })
+    requireStage(userinfoResponse.status() === 200, 'EXISTING_TEST_USER_USERINFO_DENIED')
+    const userinfo = await userinfoResponse.json().catch(() => null)
+    requireStage(
+      userinfo && typeof userinfo.sub === 'string' &&
+      userinfo.sub === siteSession.user?.id,
+      'EXISTING_TEST_USER_OAUTH_SUBJECT_MISMATCH'
+    )
+    console.log('LIVE_ZITADEL_EXISTING_TEST_USER_ACCESS_TOKEN=PASS')
+    console.log('LIVE_ZITADEL_EXISTING_TEST_USERINFO_SUBJECT=PASS')
+    console.log('LIVE_ZITADEL_ACCESS_TOKEN_STAGING_DELIVERY=NOT_CONFIGURED')
+    // Access token is intentionally not returned, logged, persisted or
+    // transferred. RR staging needs an independently scoped bearer delivery.
 
     // Non-mutating real signed-in RR BFF -> Core probes. A fresh impossible
     // synthetic execution ID cannot refer to an actual customer record.
