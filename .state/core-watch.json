@@ -4,13 +4,13 @@
       "last_attempt": {
         "backend_sha": "c886ef6b1c9398b81267afd9fb0feea7cc1b1a13",
         "count": 1,
-        "key": "33e0a8d466764f518843a08762a7ed3704a4a340a6c67a6c5c79becee3855916",
+        "key": "61f7d36c580a1095ddeb7da5c35b187dc7401b0776c535f2a2e85e8909485236",
         "obs_sha": "ad814912bc23c8d2293adac22a4a2e4a82e2f714",
-        "requested_at": "2026-10-30T20:26:27.979699+00:00",
+        "requested_at": "2026-10-30T20:27:48.278429+00:00",
         "rr_contract_mode": "rr-oidc-session-v1",
         "status": "DISPATCHED",
-        "suite_fingerprint": "18453f3f6ff0fb38a6c6cb0bd7a2169312e0ff34374bc90b31a3d91e81341ed1",
-        "suite_sha": "674a5ab7db684191c930837fe2ef2288df64f4a1"
+        "suite_fingerprint": "11cf26494be9aafdab7b957d3738b9ff1cc847c7118cf655f38f8be83c77d7e2",
+        "suite_sha": "ec10ebcefadc1ae8cb3dfd8dc1d48031b17b9d9a"
       },
       "seen_sha": "c886ef6b1c9398b81267afd9fb0feea7cc1b1a13",
       "status": "DISPATCHED"
