@@ -121,64 +121,32 @@ async function main() {
       state, nonce, code_challenge: challenge, code_challenge_method: 'S256',
     })) authorization.searchParams.set(key, value)
 
-    let callbackCode = null
-    let callbackRouteCount = 0
-    let callbackStateMatched = false
-    const intercept = async route => {
-      const callback = new URL(route.request().url())
-      callbackRouteCount += 1
-      callbackStateMatched ||= callback.searchParams.get('state') === state
-      if (callback.searchParams.get('state') !== state) {
-        await route.continue()
-        return
-      }
-      const code = callback.searchParams.get('code')
-      if (typeof code === 'string' && code.length > 12 && code.length < 4096)
-        callbackCode = code
-      await route.fulfill({
-        status: 200, contentType: 'text/html',
-        body: '<!doctype html><html><body>OIDC QA token exchange</body></html>',
-      })
-    }
-    await page.route(SITE + '/api/auth/callback/zitadel**', intercept)
-    try {
-      // A Zitadel browser session was just established above. No second
-      // password attempt, bypass of MFA, consent or new redirect URI.
-      await page.goto(authorization.toString(), {waitUntil:'domcontentloaded',timeout:30000})
-      if (!callbackCode) {
-        // The initial authorization page may load BEFORE its asynchronous
-        // redirect. Keep route interception installed until callback or
-        // bounded timeout. Never repeat the password or bypass MFA.
-        await page.waitForURL(
-          url => url.origin === SITE &&
-            url.pathname === '/api/auth/callback/zitadel',
-          {timeout:15000},
-        ).catch(() => {})
-      }
-    } catch {
-      fail('EXISTING_TEST_USER_PKCE_AUTHORIZATION_NOT_COMPLETED')
-    } finally {
-      await page.unroute(SITE + '/api/auth/callback/zitadel**', intercept)
-    }
-    if (!callbackCode) {
-      const current = new URL(page.url())
-      const category = current.origin === target.origin ? 'ZITADEL_INTERACTION_REQUIRED'
-        : current.origin === SITE && current.pathname === '/api/auth/callback/zitadel'
-          ? 'CALLBACK_HANDLED_OUTSIDE_INTERCEPT' : 'OTHER_OIDC_NAVIGATION'
-      const hasPasswordInput = await page.locator('input[type="password"]').count().catch(() => 0)
-      const hasVisibleApproval = await page.getByRole('button', {
-        name:/approve|allow|consent|continue|fortfahren|zezwól|дозволити/i,
-      }).count().catch(() => 0)
-      console.log('EXISTING_TEST_USER_PKCE_STAGE=' + category)
-      console.log('EXISTING_TEST_USER_PKCE_ROUTE_CALLED=' + Boolean(callbackRouteCount))
-      console.log('EXISTING_TEST_USER_PKCE_ROUTE_STATE_VALID=' + callbackStateMatched)
-      console.log('EXISTING_TEST_USER_PKCE_URL_HAS_CODE=' + current.searchParams.has('code'))
-      console.log('EXISTING_TEST_USER_PKCE_URL_HAS_ERROR=' + current.searchParams.has('error'))
-      console.log('EXISTING_TEST_USER_PKCE_URL_STATE_VALID=' + (current.searchParams.get('state') === state))
-      console.log('EXISTING_TEST_USER_PKCE_PASSWORD_CHALLENGE=' + Boolean(hasPasswordInput))
-      console.log('EXISTING_TEST_USER_PKCE_CONSENT_UI=' + Boolean(hasVisibleApproval))
-    }
-    requireStage(Boolean(callbackCode), 'EXISTING_TEST_USER_PKCE_CODE_NOT_OBTAINED')
+    // The existing production callback rejects this fresh QA-only state
+    // (it has no matching qdip_oidc_flow cookie) before redeeming the code.
+    // The browser still retains the issuer redirect URL with its one-time
+    // code. Read it ONLY in memory; never print URI, code or token.
+    await page.goto(authorization.toString(), {
+      waitUntil:'domcontentloaded', timeout:30000,
+    })
+    await page.waitForURL(
+      url => url.origin === SITE &&
+        url.pathname === '/api/auth/callback/zitadel',
+      {timeout:15000},
+    ).catch(() => {})
+    const callback = new URL(page.url())
+    requireStage(
+      callback.origin === SITE &&
+      callback.pathname === '/api/auth/callback/zitadel' &&
+      callback.searchParams.get('state') === state &&
+      !callback.searchParams.has('error'),
+      'EXISTING_TEST_USER_OAUTH_CALLBACK_INVALID'
+    )
+    const callbackCode = callback.searchParams.get('code')
+    requireStage(
+      typeof callbackCode === 'string' &&
+      callbackCode.length > 12 && callbackCode.length < 4096,
+      'EXISTING_TEST_USER_PKCE_CODE_NOT_OBTAINED'
+    )
     const tokenResponse = await context.request.post(doc.token_endpoint, {
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
       data:new URLSearchParams({
