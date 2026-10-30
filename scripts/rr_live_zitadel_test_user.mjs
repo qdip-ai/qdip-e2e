@@ -122,8 +122,12 @@ async function main() {
     })) authorization.searchParams.set(key, value)
 
     let callbackCode = null
+    let callbackRouteCount = 0
+    let callbackStateMatched = false
     const intercept = async route => {
       const callback = new URL(route.request().url())
+      callbackRouteCount += 1
+      callbackStateMatched ||= callback.searchParams.get('state') === state
       if (callback.searchParams.get('state') !== state) {
         await route.continue()
         return
@@ -166,6 +170,11 @@ async function main() {
         name:/approve|allow|consent|continue|fortfahren|zezwól|дозволити/i,
       }).count().catch(() => 0)
       console.log('EXISTING_TEST_USER_PKCE_STAGE=' + category)
+      console.log('EXISTING_TEST_USER_PKCE_ROUTE_CALLED=' + Boolean(callbackRouteCount))
+      console.log('EXISTING_TEST_USER_PKCE_ROUTE_STATE_VALID=' + callbackStateMatched)
+      console.log('EXISTING_TEST_USER_PKCE_URL_HAS_CODE=' + current.searchParams.has('code'))
+      console.log('EXISTING_TEST_USER_PKCE_URL_HAS_ERROR=' + current.searchParams.has('error'))
+      console.log('EXISTING_TEST_USER_PKCE_URL_STATE_VALID=' + (current.searchParams.get('state') === state))
       console.log('EXISTING_TEST_USER_PKCE_PASSWORD_CHALLENGE=' + Boolean(hasPasswordInput))
       console.log('EXISTING_TEST_USER_PKCE_CONSENT_UI=' + Boolean(hasVisibleApproval))
     }
