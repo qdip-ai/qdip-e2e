@@ -141,15 +141,20 @@ async function main() {
       // A Zitadel browser session was just established above. No second
       // password attempt, bypass of MFA, consent or new redirect URI.
       await page.goto(authorization.toString(), {waitUntil:'domcontentloaded',timeout:30000})
+      if (!callbackCode) {
+        // The initial authorization page may load BEFORE its asynchronous
+        // redirect. Keep route interception installed until callback or
+        // bounded timeout. Never repeat the password or bypass MFA.
+        await page.waitForURL(
+          url => url.origin === SITE &&
+            url.pathname === '/api/auth/callback/zitadel',
+          {timeout:15000},
+        ).catch(() => {})
+      }
     } catch {
       fail('EXISTING_TEST_USER_PKCE_AUTHORIZATION_NOT_COMPLETED')
     } finally {
       await page.unroute(SITE + '/api/auth/callback/zitadel**', intercept)
-    }
-    if (!callbackCode) {
-      // Zitadel can complete a consent/redirect asynchronously after the
-      // initial document load. Do not repeat the password or bypass MFA.
-      await page.waitForTimeout(7000)
     }
     if (!callbackCode) {
       const current = new URL(page.url())
