@@ -13,7 +13,15 @@ function allSpecs(groups){
   return specs;
 }
 const specs=allSpecs(data.suites);
-const tests=specs.flatMap(s=>(s.tests||[]).map(t=>({name:s.title,project:t.projectName,status:t.status,result:t.results?.[0]?.status})));
+const tests=specs.flatMap(s=>(s.tests||[]).map(t=>({
+  name:s.title,project:t.projectName,status:t.status,result:t.results?.[0]?.status,
+  // Source line number only, never assertion text or authenticated response.
+  errorLine:(()=>{const stack=t.results?.[0]?.error?.stack||'';
+    const match=/yara-browser\\.spec\\.cjs:(\\d+):\\d+/.exec(stack);
+    return match?Number(match[1]):null;})(),
+  errorClass:(()=>{const name=t.results?.[0]?.error?.name||'';
+    return name==='TimeoutError'?'timeout':name==='Error'?'error':'other';})()
+})));
 const projects=['desktop-chromium','mobile-portrait-chromium','mobile-landscape-chromium',
   'desktop-webkit','mobile-portrait-webkit','mobile-landscape-webkit'];
 const expected=scope==='full'?18:6;
@@ -26,7 +34,8 @@ function failMatrix(reason){
       t.name.includes('@auth')?'auth':'unexpected',
     project:projects.includes(t.project)?t.project:'unexpected',
     status:['expected','unexpected','skipped'].includes(t.status)?t.status:'other',
-    result:['passed','failed','timedOut','skipped','interrupted'].includes(t.result)?t.result:'other'
+    result:['passed','failed','timedOut','skipped','interrupted'].includes(t.result)?t.result:'other',
+    line:t.errorLine,errorClass:t.errorClass
   }))));
   throw Error(reason);
 }
