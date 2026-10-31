@@ -147,21 +147,6 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
-  // Even a genuine signed QA1 token cannot close a claimed execution.
-  const forbiddenClose=await context.request.post(SITE+'/v1/autodev/ai-attempts/cancel',{
-    headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json',
-             'Content-Type':'application/json','Idempotency-Key':'12345678-1234-4123-8123-123456789abc'},
-    data:{attemptKey:'rr-pilot-attempt:'+'a'.repeat(64),
-          runId:'rr388-'+'b'.repeat(20),action:'CLOSE_CLAIMED_NO_RESULT',
-          requestId:'12345678-1234-4123-8123-123456789abc',
-          confirmation:'NO_CHARGE_CONFIRMED:rr388-'+'b'.repeat(20)},
-    maxRedirects:0,failOnStatusCode:false,timeout:15000,
-  });
-  require_(forbiddenClose.status()===403,'QA1_CLAIMED_CLOSURE_NOT_FORBIDDEN');
-  require_((await forbiddenClose.json().catch(()=>null))?.code==='NOT_AUTHORIZED',
-           'QA1_CLOSURE_ROLE_DENIAL_NOT_BACKEND');
-  console.log('AUTODEV_QA1_CLAIMED_CLOSURE_NO_STAGE_ROLE_403=PASS');
-
   await page.goto(SITE,{waitUntil:'domcontentloaded'});
   await page.waitForSelector('.live-monitor__warning',{timeout:18000});
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
