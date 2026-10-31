@@ -8,6 +8,7 @@ on:
       - '.github/workflows/yara-browser-e2e.yml'
       - 'yara/**'
       - 'scripts/yara-browser-gate.mjs'
+      - 'scripts/yara-real-zitadel-http-e2e.mjs'
       - 'scripts/yara-browser-report.mjs'
       - 'tests/yara_browser_contract.test.mjs'
   issue_comment:
@@ -112,6 +113,20 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/yara-suite"
           ./node_modules/.bin/playwright install --with-deps chromium webkit
+
+      - name: Existing Zitadel real-user Yara QA HTTP lifecycle (isolated, no new credentials)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 104
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 https://yara-qa-web-sandbox.up.railway.app/api/build-identity |
+            node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{let v;try{v=JSON.parse(s)}catch{}if(v?.sha!=="940022940415b9af28486efa4ce1a9437bc0c879")process.exit(1);console.log("YARA_QA_DEPLOYED_SHA=PASS")})'
+          cp suite/scripts/yara-real-zitadel-http-e2e.mjs "$RUNNER_TEMP/yara-suite/yara-real-zitadel-http-e2e.mjs"
+          cd "$RUNNER_TEMP/yara-suite"
+          node yara-real-zitadel-http-e2e.mjs
 
       - name: Check real QA deploy source SHA before authenticated testing
         if: inputs.scope == 'full'
