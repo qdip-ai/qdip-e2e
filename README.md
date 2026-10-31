@@ -269,42 +269,33 @@ Core/Web refs and select `rr-oidc-session-v1`. The same missing
 `QDIP_READ_TOKEN` private-read prerequisite applies.
 
 
-## AutoDev claimed-run recovery E2E (manual, real staging)
+## AutoDev claimed-run recovery — isolated Mongo integration
 
-`.github/workflows/autodev-claimed-recovery-live.yml` runs Chromium against
-`https://autodev.qdip.ai`, using **real Zitadel and real Controller**; no fake
-tokens, fake Mongo evidence, or bypass of `autodev_stage_closer`.
-Use **Run workflow** on the test branch with one of three modes:
+Run `scripts/autodev_claimed_recovery_mongo.py` using the existing QDIP
+test sandbox with **a local MongoDB replica set** and the exact Core checkout
+under test. It exercises the actual
+`scripts.autodev.ai_attempt_review` implementation with real majority-read
+Mongo collections, not mock persistence.
 
-- `anonymous` (default, safe): desktop 1440×900, mobile portrait 390×844,
-  landscape 844×390; real login gate, no horizontal overflow, no uncaught
-  page errors, and authenticated-closure API denies missing token with 403.
-- `review`: read-only browser login using the existing staging stage-closer
-  identity, verify signed JWT roles and Controller `whoami`, inspect an exact
-  `OUTCOME_UNKNOWN` RR #388 run on all three viewports, check that the
-  confirmation button rejects empty/wrong run IDs, **without sending POST**.
-- `close-claimed`: requires an exact `run_id`, a one-run no-charge owner
-  attestation and independently authenticated stage-closer credentials.
-  The test makes **one** real PWA closure POST only after the read-only checks
-  on all three viewports. It checks the request identity, durable close receipt,
-  and that the open attempt no longer appears in Controller's fresh review.
-  It does not retry on an ambiguous HTTP result or rerun the provider.
+```sh
+# In the existing isolated test sandbox, after checking out qdip-core:
+QDIP_E2E_CORE_ROOT=/path/to/qdip-core \
+QDIP_E2E_LOCAL_MONGO_PORT=27027 \
+python3 scripts/autodev_claimed_recovery_mongo.py
+```
 
-For privileged modes, configure these **existing-account** GitHub Actions
-secrets (never commit values):
-`QDIP_E2E_AUTODEV_STAGE_CLOSER_LOGIN`,
-`QDIP_E2E_AUTODEV_STAGE_CLOSER_PASSWORD`.
-Only `close-claimed` also requires
-`QDIP_E2E_AUTODEV_NO_CHARGE_RUN` equal to the workflow `run_id` input and
-`QDIP_E2E_AUTODEV_ALLOW_CLAIMED_CLOSE=true`; revoke that approval immediately
-after the single manual run. Missing identity, wrong roles, stale run, missing
-claim or stored result is **FAIL/BLOCKED**, never a skipped or fake PASS.
-The existing QA1 roleless workflow additionally tests that a real signed QA1
-token receives HTTP 403 on the same privileged closure endpoint.
+The script only connects to `127.0.0.1`; it generates a random
+`qdip_autodev_recovery_e2e_*` database and deletes **only that database**
+afterwards. No staging/production Mongo credentials, real RR run IDs,
+Zitadel sessions, new test accounts or additional roles are required.
 
-**Qualification limit:** the public runner can verify the actual browser,
-HTTP acknowledgement and Controller readback, but it cannot inspect private
-Railway MongoDB directly. The independent Mongo slot/audit readback in the
-Railway sandbox remains a separate required acceptance gate. Authenticated
-screenshots, tokens and live request payloads are never uploaded to public
-Actions artifacts. Browser success is not production release approval.
+Coverage: exact claimed-run eligibility; read-only review; confirmed
+one-shot closure; immutable Broker claim preservation; persisted
+`FAILED`/no-charge audit; `retryAuthorized=false`; owner-fenced slot release;
+idempotent request; refusal on wrong run, wrong confirmation, saved result,
+missing/foreign claim and foreign slot.
+
+**Scope limit:** This qualifies the *recovery engine and real Mongo
+persistence*, **not** the HTTP/PWA flow or an authenticated browser session.
+Those checks are not marked PASS. Authorization is deliberately outside this
+task: already existing Zitadel coverage remains unchanged.
