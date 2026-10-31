@@ -52,7 +52,7 @@ class FixturePolicyTests(unittest.TestCase):
             }
             with (
                 patch.dict(os.environ, env),
-                patch.dict(sys.modules, {"pymongo": types.SimpleNamespace(MongoClient=lambda _: client)}),
+                patch.dict(sys.modules, {"pymongo": types.SimpleNamespace(MongoClient=lambda *_args, **_kwargs: client)}),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 runpy.run_path(str(ROOT / "scripts/provision_tenants.py"), run_name="__main__")
