@@ -18,7 +18,7 @@ function validUrl(){
   return parsed;
 }
 const base=validUrl();
-if(!/^[0-9a-f]{40}$/.test(sha||''))fail('YARA_SHA_INVALID');
+if((scope==='full'||sha) && !/^[0-9a-f]{40}$/.test(sha||''))fail('YARA_SHA_INVALID');
 if(!['public','full'].includes(scope))fail('YARA_SCOPE_INVALID');
 if(scope==='full' && base.origin==='https://yara.qdip.ai')
   fail('YARA_FULL_GATE_REQUIRES_ISOLATED_QA_DEPLOYMENT');
