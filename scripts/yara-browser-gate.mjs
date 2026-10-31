@@ -77,6 +77,14 @@ if(mode==='validate'){
         type:n.getAttribute('type'),name:n.getAttribute('name'),autocomplete:n.getAttribute('autocomplete')
       })).slice(0,10));
       console.error('YARA_ZITADEL_LOGIN_LOCATION='+location.origin+location.pathname);
+      // Presence/shape only, never query values (may include OAuth state/PKCE).
+      const clientId=location.searchParams.get('client_id');
+      console.error('YARA_OIDC_QUERY_SHAPE='+JSON.stringify({
+        hasValidClientId:!!clientId&&clientId!=='undefined'&&clientId!=='null',
+        hasRedirectUri:location.searchParams.has('redirect_uri'),
+        hasResponseType:location.searchParams.has('response_type'),
+        title:await page.title()
+      }));
       console.error('YARA_ZITADEL_LOGIN_INPUT_SHAPE='+JSON.stringify(inputs));
       fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
     }
