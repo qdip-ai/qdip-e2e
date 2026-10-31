@@ -19,9 +19,9 @@ function report(scope,mutation=()=>{}){
     projectName:p,status:'expected',results:[{status:'passed'}],
   }))});
   const specs=[cases('@public login')];
-  if(scope==='full')specs.push(cases('@auth Today'));
+  if(scope==='full'){specs.push(cases('@auth Today'));specs.push(cases('@delegation lifecycle'));}
   const fixture={suites:[{specs}],stats:{
-    expected:scope==='full'?12:6,unexpected:0,skipped:0,
+    expected:scope==='full'?18:6,unexpected:0,skipped:0,
   }};
   mutation(fixture);
   const tmp=mkdtempSync(join(tmpdir(),'yara-test-'));
@@ -37,10 +37,15 @@ test('Yara browser report requires all six public browsers',()=>{
   assert.match(p.stdout,/6\/6/);
   assert.match(p.stdout,/CANDIDATE_AUTH=NOT_TESTED/);
 });
-test('Yara browser report requires twelve public and authenticated browsers',()=>{
+test('Yara browser report requires eighteen public, authenticated and delegation browsers',()=>{
   const p=report('full');
   assert.equal(p.status,0,p.stderr);
-  assert.match(p.stdout,/12\/12/);
+  assert.match(p.stdout,/18/18/);
+});
+test('Yara full report refuses missing or skipped delegation lifecycle',()=>{
+  assert.notEqual(report('full',x=>x.suites[0].specs.pop()).status,0);
+  assert.notEqual(report('full',x=>x.suites[0].specs[2].tests.pop()).status,0);
+  assert.notEqual(report('full',x=>{x.suites[0].specs[2].tests[0].results[0].status='failed'}).status,0);
 });
 test('Yara browser report rejects missing, skipped or duplicated cases',()=>{
   assert.notEqual(report('public',x=>x.suites[0].specs[0].tests.pop()).status,0);
