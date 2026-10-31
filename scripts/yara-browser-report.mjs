@@ -17,7 +17,7 @@ const tests=specs.flatMap(s=>(s.tests||[]).map(t=>({
   name:s.title,project:t.projectName,status:t.status,result:t.results?.[0]?.status,
   // Source line number only, never assertion text or authenticated response.
   errorLine:(()=>{const stack=t.results?.[0]?.error?.stack||'';
-    const match=/yara-browser\\.spec\\.cjs:(\\d+):\\d+/.exec(stack);
+    const match=/yara-browser\.spec\.cjs:(\d+):\d+/.exec(stack);
     return match?Number(match[1]):null;})(),
   errorClass:(()=>{const name=t.results?.[0]?.error?.name||'';
     return name==='TimeoutError'?'timeout':name==='Error'?'error':'other';})()
