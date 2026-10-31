@@ -54,9 +54,9 @@ jobs:
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
-      YARA_E2E_BASE_URL: ${{ inputs.target_url || 'https://yara.qdip.ai' }}
-      YARA_E2E_EXPECTED_SHA: ${{ inputs.yara_sha || '' }}
-      YARA_E2E_SCOPE: ${{ inputs.scope || 'public' }}
+      YARA_E2E_BASE_URL: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'https://yara-qa-web-sandbox.up.railway.app' || inputs.target_url || 'https://yara.qdip.ai' }}
+      YARA_E2E_EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && '940022940415b9af28486efa4ce1a9437bc0c879' || inputs.yara_sha || '' }}
+      YARA_E2E_SCOPE: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'full' || inputs.scope || 'public' }}
     steps:
       - name: Checkout independent qdip-e2e suite
         uses: actions/checkout@v4
@@ -114,11 +114,11 @@ jobs:
           ./node_modules/.bin/playwright install --with-deps chromium webkit
 
       - name: Check real QA deploy source SHA before authenticated testing
-        if: inputs.scope == 'full'
+        if: inputs.scope == 'full' || (github.event_name == 'pull_request' && github.event.pull_request.number == 104)
         run: node suite/scripts/yara-browser-gate.mjs attest
 
       - name: Validate existing encrypted Zitadel test identity
-        if: inputs.scope == 'full'
+        if: inputs.scope == 'full' || (github.event_name == 'pull_request' && github.event.pull_request.number == 104)
         env:
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
           QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
@@ -129,7 +129,7 @@ jobs:
           test -n "$QDIP_E2E_ZITADEL_TEST_PASSWORD"
 
       - name: Create private QA session via genuine Zitadel browser login
-        if: inputs.scope == 'full'
+        if: inputs.scope == 'full' || (github.event_name == 'pull_request' && github.event.pull_request.number == 104)
         env:
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
           QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
@@ -140,7 +140,7 @@ jobs:
       - name: Real browser smoke / authenticated read-only matrix
         shell: bash
         env:
-          YARA_E2E_QA_CONFIRMED: ${{ inputs.scope == 'full' && '1' || '0' }}
+          YARA_E2E_QA_CONFIRMED: ${{ (inputs.scope == 'full' || (github.event_name == 'pull_request' && github.event.pull_request.number == 104)) && '1' || '0' }}
         run: |
           set -euo pipefail
           if [[ "$YARA_E2E_SCOPE" == 'full' ]]; then
