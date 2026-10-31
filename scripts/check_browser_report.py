@@ -22,6 +22,7 @@ MATRIX: dict[str, tuple[str, ...]] = {
     ),
     "rr-oidc-session-v1": (
         "anonymous RR workspace is role-gated; no public optimizer or preview leaks",
+        "signed RR browser never receives server-only SDK credentials",
         "anonymous browser cannot preflight",
         "isolated signed Studio-only role cannot access RR operator",
         "signed RR role with wrong project, organization, issuer or expiry is denied",
