@@ -40,7 +40,7 @@ test('Yara browser report requires all six public browsers',()=>{
 test('Yara browser report requires eighteen public, authenticated and delegation browsers',()=>{
   const p=report('full');
   assert.equal(p.status,0,p.stderr);
-  assert.match(p.stdout,/18/18/);
+  assert.match(p.stdout,/18\/18/);
 });
 test('Yara full report refuses missing or skipped delegation lifecycle',()=>{
   assert.notEqual(report('full',x=>x.suites[0].specs.pop()).status,0);
