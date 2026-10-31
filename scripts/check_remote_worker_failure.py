@@ -16,7 +16,7 @@ def main() -> None:
     if pid <= 1:
         raise RuntimeError("Invalid disposable worker PID")
     os.kill(pid, signal.SIGTERM)
-    headers = {"x-api-key": os.environ["E2E_KEY_A"]}
+    headers = {"x-api-key": os.environ["E2E_CALLER_KEY"]}
     with httpx.Client(timeout=12) as client:
         for _ in range(35):
             response = client.get(ROOT + "/capabilities", headers=headers)
