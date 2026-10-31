@@ -406,6 +406,26 @@ async function verifyFullBrowserJourney(
   await expect(summary.getByTestId('rr-kernel-schedule')).not.toContainText('sensor-service')
   mark('replan-presentation', true)
 
+  // The 64-character input digest is verification evidence, not a client
+  // credential. Its line must scroll within the panel and copy exactly.
+  const digestLine = summary.getByTestId('rr-kernel-evidence').getByTestId('rr-input-digest-scroll')
+  await expect(digestLine).toBeVisible()
+  await expect(digestLine).toHaveCSS('overflow-x', 'auto')
+  const digest = (await digestLine.textContent())?.trim() ?? ''
+  expect(digest).toMatch(/^[a-f0-9]{64}$/)
+  if (viewport.label === 'mobile-portrait') {
+    const dimensions = await digestLine.evaluate((el) => ({
+      visible: el.clientWidth,
+      content: el.scrollWidth,
+    }))
+    expect(dimensions.content).toBeGreaterThan(dimensions.visible)
+  }
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN })
+  await summary.getByRole('button', { name: 'Copy input digest' }).click()
+  await expect(summary.getByTestId('rr-input-digest-copy-status')).toHaveText('Input digest copied')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(digest)
+  mark('digest-scroll-and-clipboard-exact', true)
+
   const historyResponse = page.waitForResponse((r) =>
     r.url().endsWith(`/decisions/${original.payload.decision_id}/history`)
   )
