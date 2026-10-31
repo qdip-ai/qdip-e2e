@@ -54,7 +54,7 @@ jobs:
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
-      YARA_E2E_BASE_URL: ${{ inputs.target_url || 'https://yara.qdip.ai' }}
+      YARA_E2E_BASE_URL: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'https://yara-qa-web-sandbox.up.railway.app' || inputs.target_url || 'https://yara.qdip.ai' }}
       YARA_E2E_EXPECTED_SHA: ${{ inputs.yara_sha || '' }}
       YARA_E2E_SCOPE: ${{ inputs.scope || 'public' }}
     steps:
@@ -79,6 +79,9 @@ jobs:
             [[ "$YARA_E2E_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'YARA_SOURCE_SHA_INVALID'; exit 1; }
           fi
           node suite/scripts/yara-browser-gate.mjs validate
+          if [[ "${{ github.event_name }}" == 'pull_request' && "${{ github.event.pull_request.number }}" == '104' ]]; then
+            curl --fail --silent --show-error --max-time 15 "$YARA_E2E_BASE_URL/api/build-identity" | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{let v;try{v=JSON.parse(s)}catch{} if(v?.sha!=="940022940415b9af28486efa4ce1a9437bc0c879")process.exit(1);console.log("YARA_QA_DEPLOYED_SHA=PASS")})'
+          fi
 
       - name: Validate centralized browser contracts
         shell: bash
