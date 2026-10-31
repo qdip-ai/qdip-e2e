@@ -86,6 +86,8 @@ if(mode==='validate'){
         title:await page.title()
       }));
       console.error('YARA_ZITADEL_LOGIN_INPUT_SHAPE='+JSON.stringify(inputs));
+      if(!clientId||clientId==='undefined'||clientId==='null')
+        fail('YARA_QA_OIDC_CLIENT_ID_NOT_CONFIGURED');
       fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
     }
     await user.fill(login);
