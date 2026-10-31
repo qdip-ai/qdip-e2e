@@ -8,6 +8,10 @@ on:
     branches: [feat/rr-browser-acceptance-matrix]
     paths:
       - scripts/rr_oidc_session_browser.spec.ts
+      - scripts/provision_tenants.py
+      - scripts/http_sdk_e2e.py
+      - scripts/check_remote_worker_failure.py
+      - tests/test_sdk_credential_fixture.py
       - scripts/rr_live_zitadel_test_user.mjs
       - scripts/check_browser_report.py
       - scripts/run_real_e2e.sh
@@ -144,7 +148,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-core
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ github.event.client_payload.backend_sha || inputs.backend_ref || 'dev' }}
+          ref: ${{ github.event.client_payload.backend_sha || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && 'f5f00378ae71d483206d845b153b9b471e38eb39') || inputs.backend_ref || 'dev' }}
           path: backend
           persist-credentials: false
 
@@ -153,7 +157,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-web
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || inputs.observatory_ref || 'dev' }}
+          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && 'ad814912bc23c8d2293adac22a4a2e4a82e2f714') || inputs.observatory_ref || 'dev' }}
           path: observatory
           persist-credentials: false
 
