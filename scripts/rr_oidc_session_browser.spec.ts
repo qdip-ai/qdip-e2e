@@ -132,6 +132,33 @@ async function markOperatorSession(page: import('@playwright/test').Page) {
   }
 }
 
+test('signed RR browser never receives server-only SDK credentials', async ({ page }) => {
+  // These ephemeral credentials belong to the disposable Core/Worker services.
+  // Test only booleans; never include secret values in assertions or artifacts.
+  const keys = [
+    process.env.E2E_CALLER_KEY, process.env.E2E_WORKER_KEY,
+    process.env.DIP_API_KEY, process.env.DIP_ADMIN_API_KEY,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+  expect(keys).toHaveLength(4)
+  await installIsolatedOidcSession(page)
+  let exposedInRequest = false
+  page.on('request', (request) => {
+    const metadata = request.url() + JSON.stringify(request.headers())
+    if (keys.some((key) => metadata.includes(key))) exposedInRequest = true
+  })
+  await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('rr-production-operator')).toBeVisible()
+  const html = await page.content()
+  const storage = await page.evaluate(() =>
+    JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, cookies: document.cookie })
+  )
+  const session = await page.request.get(`${ORIGIN}/api/auth/session`)
+  expect(session.status()).toBe(200)
+  const sessionBody = await session.text()
+  expect(keys.some((key) => [html, storage, sessionBody].some((part) => part.includes(key)))).toBe(false)
+  expect(exposedInRequest).toBe(false)
+})
+
 test('anonymous RR workspace is role-gated; no public optimizer or preview leaks', async ({ page }) => {
   await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
   const gate = page.getByTestId('qdip-access-gate')
