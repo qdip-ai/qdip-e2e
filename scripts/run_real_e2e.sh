@@ -104,6 +104,18 @@ elif [[ "$RR_E2E_CONTRACT_MODE" == "rr-plugin-v1" ]]; then
   cp suite/scripts/rr_plugin_browser.spec.ts observatory/e2e/rr_plugin_real_e2e.spec.ts
 fi
 python suite/scripts/safe_stage.py --timeout 180 sdk-install -- bash suite/scripts/start_remote_worker.sh
+# The current Core is default-deny for unreviewed remote Workers. Derive the
+# exact persisted Worker digest, restart ONLY this disposable localhost API with
+# its allowlist, and exercise real platform-admin approval before any invoke.
+# No production credential, trust wildcard, or private code path is involved.
+export QDIP_TRUSTED_REMOTE_MANIFESTS="$(cd backend && python ../suite/scripts/admit_disposable_sdk_worker.py digest)"
+[[ "$QDIP_TRUSTED_REMOTE_MANIFESTS" =~ ^[a-f0-9]{64}$ ]] || exit 2
+python suite/scripts/safe_stage.py --timeout 120 sdk-admission-restart -- bash suite/scripts/restart_fastapi.sh
+(
+  cd backend
+  python ../suite/scripts/safe_stage.py --timeout 90 sdk-admission -- \\
+    python ../suite/scripts/admit_disposable_sdk_worker.py approve
+)
 # SDK caller/Worker qualification is independent of the existing RR
 # operator Core/Mongo UI. Collect browser evidence even when SDK fails, but
 # never promote the overall workflow to PASS or claim SDK gate success.
