@@ -43,6 +43,7 @@ jobs:
           node --experimental-strip-types --check scripts/rr_plugin_browser.spec.ts
           node --check scripts/doctor_p1_repair_live_user.mjs
           node --check scripts/doctor_roleless_qa1_live.mjs
+          node --check scripts/rr_live_zitadel_test_user.mjs
           node --check scripts/dzvin_two_qa_company_gate.mjs
           node --check scripts/doctor_p1_mobile_stage.mjs
           node --check scripts/doctor_p1_audit_stage.mjs
