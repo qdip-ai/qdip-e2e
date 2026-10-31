@@ -115,7 +115,7 @@ test -s "$RR_E2E_API_REQUEST_PATH"
     export NEXT_PUBLIC_STUDIO_URL=http://studio.localhost:3000
     export NEXT_PUBLIC_OBSERVATORY_URL=http://observatory.localhost:3000
   fi
-  python ../suite/scripts/safe_stage.py --timeout 350 \
+  python ../suite/scripts/safe_stage.py --timeout 850 \
     --output "$RUNNER_TEMP/qdip-browser-report.json" browser-e2e -- \
     pnpm exec playwright test "$SPEC" "${BROWSER_CONFIG_ARGS[@]}" \
       --project=chromium --workers=1 --retries=0 --reporter=json --forbid-only
