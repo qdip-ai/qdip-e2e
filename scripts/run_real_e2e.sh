@@ -113,8 +113,7 @@ export QDIP_TRUSTED_REMOTE_MANIFESTS="$(cd backend && python ../suite/scripts/ad
 python suite/scripts/safe_stage.py --timeout 120 sdk-admission-restart -- bash suite/scripts/restart_fastapi.sh
 (
   cd backend
-  python ../suite/scripts/safe_stage.py --timeout 90 sdk-admission -- \\
-    python ../suite/scripts/admit_disposable_sdk_worker.py approve
+  python ../suite/scripts/safe_stage.py --timeout 90 sdk-admission -- python ../suite/scripts/admit_disposable_sdk_worker.py approve
 )
 # SDK caller/Worker qualification is independent of the existing RR
 # operator Core/Mongo UI. Collect browser evidence even when SDK fails, but
