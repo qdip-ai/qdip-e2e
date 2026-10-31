@@ -106,6 +106,19 @@ async function run(){
 
     const headers={Authorization:'Bearer '+token.access_token};
     const list=await context.request.get(API+'/v1/delegations',{headers,timeout:15000});
+    console.log('YARA_QA_REAL_AUTH_READ_HTTP='+list.status());
+    console.log('YARA_REAL_ACCESS_TOKEN_IS_JWT='+(token.access_token.split('.').length===3));
+    if(token.access_token.split('.').length===3){
+      let audMatch=false, issuerMatch=false;
+      try{
+        const jwt=JSON.parse(Buffer.from(token.access_token.split('.')[1],'base64url').toString('utf8'));
+        const aud=Array.isArray(jwt.aud)?jwt.aud:[jwt.aud];
+        audMatch=aud.includes(EXPECTED_AUDIENCE);
+        issuerMatch=jwt.iss===oidc.issuer;
+      }catch{}
+      console.log('YARA_REAL_ACCESS_TOKEN_HAS_EXPECTED_AUD='+audMatch);
+      console.log('YARA_REAL_ACCESS_TOKEN_ISSUER_MATCHES='+issuerMatch);
+    }
     gate(list.status()===200,'YARA_QA_REAL_AUTH_READ_NOT_200');
     const data=await list.json().catch(()=>null);
     gate(Array.isArray(data),'YARA_QA_REAL_AUTH_READ_SHAPE');
