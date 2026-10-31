@@ -16,10 +16,10 @@ const specs=allSpecs(data.suites);
 const tests=specs.flatMap(s=>(s.tests||[]).map(t=>({name:s.title,project:t.projectName,status:t.status,result:t.results?.[0]?.status})));
 const projects=['desktop-chromium','mobile-portrait-chromium','mobile-landscape-chromium',
   'desktop-webkit','mobile-portrait-webkit','mobile-landscape-webkit'];
-const expected=scope==='full'?12:6;
+const expected=scope==='full'?18:6;
 const seen=new Set();
 for(const t of tests){
-  const type=t.name.includes('@public')?'public':t.name.includes('@auth')?'auth':'unexpected';
+  const type=t.name.includes('@public')?'public':t.name.includes('@delegation')?'delegation':t.name.includes('@auth')?'auth':'unexpected';
   const key=type+':'+t.project;
   if(!projects.includes(t.project)||type==='unexpected'||seen.has(key) ||
     (scope==='public'&&type!=='public') ||
@@ -28,7 +28,7 @@ for(const t of tests){
   seen.add(key);
 }
 for(const name of projects){
-  if(!seen.has('public:'+name)||(scope==='full'&&!seen.has('auth:'+name)))
+  if(!seen.has('public:'+name)||(scope==='full'&&(!seen.has('auth:'+name)||!seen.has('delegation:'+name))))
     throw Error('YARA_BROWSER_REQUIRED_CASE_MISSING');
 }
 if(tests.length!==expected || data.stats?.unexpected!==0 ||
