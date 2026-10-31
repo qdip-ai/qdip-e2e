@@ -9,7 +9,6 @@ import argparse
 import os
 import re
 import time
-from pathlib import Path
 
 import httpx
 from pymongo import MongoClient
@@ -37,7 +36,7 @@ def registration() -> tuple[str, int, str, str]:
             if row:
                 reg = row["registration"]
                 assert reg["capabilities"] == {"staffing.plan": "1"}
-                assert reg["version"] == "1.0.0"
+                assert reg["version"] == "0.1.0"
                 assert reg["manifest_version"] == "1.0.0"
                 assert reg["capability_contracts"]["staffing.plan"]["required_scopes"] == []
                 assert db["org_api_keys"].count_documents({
