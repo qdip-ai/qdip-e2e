@@ -2,6 +2,8 @@ name: Yara centralized real-browser E2E
 
 # Public qdip-e2e runner only. Private Yara repository never runs GitHub Actions.
 on:
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       yara_sha:
@@ -31,21 +33,33 @@ concurrency:
 
 jobs:
   yara-browser:
-    if: github.event.repository.private == false
+    if: >-
+      github.event.repository.private == false &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'issue_comment' && github.event.issue.number == 101 &&
+        github.event.comment.user.login == 'TarasGez' &&
+        startsWith(github.event.comment.body, '/yara-e2e public ')))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
-      YARA_E2E_BASE_URL: ${{ inputs.target_url }}
-      YARA_E2E_EXPECTED_SHA: ${{ inputs.yara_sha }}
-      YARA_E2E_SCOPE: ${{ inputs.scope }}
+      YARA_E2E_BASE_URL: ${{ inputs.target_url || 'https://yara.qdip.ai' }}
+      YARA_E2E_EXPECTED_SHA: ${{ inputs.yara_sha || '' }}
+      YARA_E2E_SCOPE: ${{ inputs.scope || 'public' }}
     steps:
       - name: Checkout independent qdip-e2e suite
         uses: actions/checkout@v4
         with:
           path: suite
           persist-credentials: false
+
+      - name: Parse authorized one-command smoke request
+        if: github.event_name == 'issue_comment'
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          node -e 'const fs=require("node:fs");const m=/^\/yara-e2e public ([0-9a-f]{40})$/.exec(process.env.COMMENT_BODY.trim());if(!m)process.exit(1);fs.appendFileSync(process.env.GITHUB_ENV,"YARA_E2E_EXPECTED_SHA="+m[1]+"\n")'
 
       - name: Verify input syntax and isolated full-test target
         shell: bash
@@ -64,7 +78,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-personal-secretary
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ inputs.yara_sha }}
+          ref: ${{ env.YARA_E2E_EXPECTED_SHA }}
           path: yara
           persist-credentials: false
 
