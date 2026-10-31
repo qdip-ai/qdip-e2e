@@ -418,12 +418,14 @@ async function verifyFullBrowserJourney(
 
   // These screenshots are exclusively of the disposable synthetic runner.
   // Never capture OAuth credentials or production patient/customer records.
-  const historyWidth = await page.evaluate(() => document.documentElement.scrollWidth)
-  expect(historyWidth, 'RR history overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
   await page.screenshot({
     path: test.info().outputPath('rr-' + viewport.label + '-history.png'),
     fullPage: true, animations: 'disabled',
   })
+  const historyWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  // Preserve failure screenshots for precise root-cause inspection rather
+  // than masking mobile overflow or asserting only a desktop layout.
+  expect(historyWidth, 'RR history overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
 
   const replayResponse = page.waitForResponse((r) =>
     r.url().endsWith(`/executions/${successorId}/replay-verification`)
