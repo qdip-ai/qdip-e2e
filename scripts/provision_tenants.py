@@ -20,21 +20,28 @@ names = {
     "E2E_KEY_A": ("rr-e2e-org-a", "rr-e2e-key-a"),
     "E2E_KEY_B": ("rr-e2e-org-b", "rr-e2e-key-b"),
     "E2E_WORKER_KEY": ("rr-e2e-org-a", "rr-e2e-worker-a"),
+    "E2E_CALLER_KEY": ("rr-e2e-org-a", "rr-e2e-caller-a"),
 }
 values: dict[str, str] = {}
 for env_name, (org, kid) in names.items():
     secret = secrets.token_urlsafe(48)
-    scopes = (
-        ["plugins:register"] if env_name == "E2E_WORKER_KEY"
-        else ["decisions:execute", "decisions:read", "audit:read",
-              "plugins:execute", "plugins:read"]
-    )
+    # Core rejects mixed decisions + plugin scopes. Worker and caller must
+    # carry separate scoped identities; RR browser BFF uses decisions only.
+    if env_name == "E2E_WORKER_KEY":
+        scopes = ["plugins:register"]
+    elif env_name == "E2E_CALLER_KEY":
+        scopes = ["plugins:read", "plugins:execute"]
+    else:
+        scopes = ["decisions:execute", "decisions:read", "audit:read"]
+    plugin_key = env_name in ("E2E_WORKER_KEY", "E2E_CALLER_KEY")
     db["org_api_keys"].insert_one({
         "key_hash": hashlib.sha256(secret.encode()).hexdigest(),
         "revoked_at": None,
         "org_id": org,
         "id": kid,
         "scopes": scopes,
+        **({"plugin_id": "staffing", "allowed_capabilities": ["staffing.plan"]}
+           if plugin_key else {}),
     })
     values[env_name] = secret
 
