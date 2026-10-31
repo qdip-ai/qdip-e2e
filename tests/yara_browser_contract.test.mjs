@@ -80,3 +80,11 @@ test('Yara runner executes centralized browser matrix without private checkout',
   assert.ok(existsSync(join(root,'yara','playwright.config.cjs')));
   assert.ok(existsSync(join(root,'yara','tests','e2e','yara-browser.spec.cjs')));
 });
+
+test('Yara public PR browser smoke needs no Yara source SHA',()=>{
+  const r=invoke('yara-browser-gate.mjs',['validate'],{
+    YARA_E2E_EXPECTED_SHA:'',YARA_E2E_SCOPE:'public',
+    YARA_E2E_BASE_URL:'https://yara.qdip.ai',
+  });
+  assert.equal(r.status,0,r.stderr);
+});
