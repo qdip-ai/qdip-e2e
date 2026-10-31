@@ -69,7 +69,17 @@ if(mode==='validate'){
       'input[name="loginname"]','input[name="username"]',
       'input[name="email"]','input[type="email"]','input[type="text"]'
     ]);
-    if(!user)fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
+    if(!user){
+      // Diagnostic metadata only: never print query parameters, cookies,
+      // user names, credentials or page content from the identity provider.
+      const location=new URL(page.url());
+      const inputs=await page.locator('input').evaluateAll(nodes=>nodes.map(n=>({
+        type:n.getAttribute('type'),name:n.getAttribute('name'),autocomplete:n.getAttribute('autocomplete')
+      })).slice(0,10));
+      console.error('YARA_ZITADEL_LOGIN_LOCATION='+location.origin+location.pathname);
+      console.error('YARA_ZITADEL_LOGIN_INPUT_SHAPE='+JSON.stringify(inputs));
+      fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
+    }
     await user.fill(login);
     let pass=await firstVisible(['input[autocomplete="current-password"]','input[type="password"]'],1300);
     if(!pass){
