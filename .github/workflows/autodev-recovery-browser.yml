@@ -1,5 +1,11 @@
 name: AutoDev recovery browser E2E
 on:
+  push:
+    branches:
+      - test/autodev-model-controls
+    paths:
+      - scripts/autodev_recovery_browser.mjs
+      - .github/workflows/autodev-recovery-browser.yml
   workflow_dispatch:
 permissions:
   contents: read
