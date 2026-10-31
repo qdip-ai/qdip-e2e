@@ -157,7 +157,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-web
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && 'ad814912bc23c8d2293adac22a4a2e4a82e2f714') || inputs.observatory_ref || 'dev' }}
+          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && 'cb9866783c64ce6c9da8feca81091f0cd8a8de55') || inputs.observatory_ref || 'dev' }}
           path: observatory
           persist-credentials: false
 
