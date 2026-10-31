@@ -30,8 +30,8 @@ class RunnerIntegrityTests(unittest.TestCase):
         )
         titles = re.findall(r"^test\('([^']+)'", source, flags=re.MULTILINE)
         required = check_browser_report.MATRIX["rr-oidc-session-v1"]
-        self.assertEqual(len(titles), 13)
-        self.assertEqual(len(required), 13)
+        self.assertEqual(len(titles), 14)
+        self.assertEqual(len(required), 14)
         for prefix in required:
             self.assertEqual(sum(title.startswith(prefix) for title in titles), 1)
         for title in titles:
