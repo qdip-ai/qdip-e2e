@@ -198,6 +198,15 @@ jobs:
           echo 'OIDC_PRODUCTION_AUTH=NOT_TESTED'
           echo 'HIGH_AVAILABILITY_SLA=NOT_TESTED'
 
+      - name: Upload disposable RR viewport screenshot evidence (never real Zitadel screenshots)
+        if: always() && env.RR_E2E_CONTRACT_MODE == 'rr-oidc-session-v1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-oidc-isolated-responsive-browser-screenshots
+          path: observatory/test-results/**/rr-*-history.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload sanitized stage statuses only
         if: always()
         uses: actions/upload-artifact@v4
