@@ -13,7 +13,7 @@ BASE = "http://127.0.0.1:8000/api/v1/remote-plugins"
 
 def main() -> None:
     assert os.environ.get("GITHUB_ACTIONS") == "true"
-    headers = {"x-api-key": os.environ["E2E_KEY_A"]}
+    headers = {"x-api-key": os.environ["E2E_CALLER_KEY"]}
     with httpx.Client(timeout=40) as client:
         for _ in range(35):
             resp = client.get(BASE + "/capabilities", headers=headers)
