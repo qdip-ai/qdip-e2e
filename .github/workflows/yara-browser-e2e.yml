@@ -1,0 +1,162 @@
+name: Yara centralized real-browser E2E
+
+# Public qdip-e2e runner only. Private Yara repository never runs GitHub Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      yara_sha:
+        description: "Exact 40-character commit SHA of qdip-ai/qdip-personal-secretary"
+        type: string
+        required: true
+      target_url:
+        description: "Real Yara target URL (public smoke may use production; full requires isolated exact-SHA QA)"
+        type: string
+        required: true
+        default: https://yara.qdip.ai
+      scope:
+        description: "public is an unauthenticated smoke only; full requires live Zitadel and deployed SHA attestation"
+        type: choice
+        required: true
+        default: public
+        options:
+          - public
+          - full
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qdip-yara-browser-e2e
+  cancel-in-progress: false
+
+jobs:
+  yara-browser:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+      YARA_E2E_BASE_URL: ${{ inputs.target_url }}
+      YARA_E2E_EXPECTED_SHA: ${{ inputs.yara_sha }}
+      YARA_E2E_SCOPE: ${{ inputs.scope }}
+    steps:
+      - name: Checkout independent qdip-e2e suite
+        uses: actions/checkout@v4
+        with:
+          path: suite
+          persist-credentials: false
+
+      - name: Verify input syntax and isolated full-test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$YARA_E2E_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'YARA_SOURCE_SHA_INVALID'; exit 1; }
+          node suite/scripts/yara-browser-gate.mjs validate
+
+      - name: Require existing restricted source-read token
+        env:
+          QDIP_READ_TOKEN: ${{ secrets.QDIP_READ_TOKEN }}
+        run: test -n "$QDIP_READ_TOKEN"
+
+      - name: Checkout private Yara at immutable commit
+        uses: actions/checkout@v4
+        with:
+          repository: qdip-ai/qdip-personal-secretary
+          token: ${{ secrets.QDIP_READ_TOKEN }}
+          ref: ${{ inputs.yara_sha }}
+          path: yara
+          persist-credentials: false
+
+      - name: Confirm immutable checkout and test contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C yara rev-parse HEAD)"
+          test "$actual" = "$YARA_E2E_EXPECTED_SHA" || { echo 'YARA_SOURCE_SHA_MISMATCH'; exit 1; }
+          node --check suite/scripts/yara-browser-gate.mjs
+          node --check suite/scripts/yara-browser-report.mjs
+          node --check yara/playwright.config.cjs
+          node --check yara/tests/e2e/yara-browser.spec.cjs
+          test -f yara/pnpm-lock.yaml
+          echo "YARA_PINNED_SOURCE_SHA=$actual"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.7
+          run_install: false
+
+      - name: Install pinned private Yara browser tests
+        working-directory: yara
+        run: pnpm install --frozen-lockfile
+
+      - name: Install real Chromium and WebKit
+        working-directory: yara
+        run: pnpm exec playwright install --with-deps chromium webkit
+
+      - name: Check real QA deploy source SHA before authenticated testing
+        if: inputs.scope == 'full'
+        run: node suite/scripts/yara-browser-gate.mjs attest
+
+      - name: Validate existing encrypted Zitadel test identity
+        if: inputs.scope == 'full'
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$QDIP_E2E_ZITADEL_TEST_LOGIN"
+          test -n "$QDIP_E2E_ZITADEL_TEST_PASSWORD"
+
+      - name: Create private QA session via genuine Zitadel browser login
+        if: inputs.scope == 'full'
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          YARA_SOURCE_DIR: ${{ github.workspace }}/yara
+          YARA_E2E_QA_STATE_FILE: ${{ runner.temp }}/yara-qa-storage-state.json
+        run: node suite/scripts/yara-browser-gate.mjs login
+
+      - name: Real browser smoke / authenticated read-only matrix
+        shell: bash
+        env:
+          YARA_E2E_QA_STATE_FILE: ${{ runner.temp }}/yara-qa-storage-state.json
+          YARA_E2E_QA_CONFIRMED: ${{ inputs.scope == 'full' && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          cd yara
+          set +e
+          if [[ "$YARA_E2E_SCOPE" == 'public' ]]; then
+            pnpm exec playwright test --grep '@public' --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
+          else
+            pnpm exec playwright test --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
+          fi
+          browser_exit=$?
+          set -e
+          node ../suite/scripts/yara-browser-report.mjs "$RUNNER_TEMP/yara-playwright.json" "$YARA_E2E_SCOPE"
+          test "$browser_exit" -eq 0
+
+      - name: Upload public login screenshots only
+        if: success() && inputs.scope == 'public'
+        uses: actions/upload-artifact@v4
+        with:
+          name: yara-public-login-browser-evidence
+          path: yara/test-results/**/login.png
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Preserve confidentiality and evidence boundary
+        if: always()
+        run: |
+          echo 'YARA_FULL_SCREENSHOTS_PUBLIC_ARTIFACT=FORBIDDEN'
+          echo 'YARA_AUTH_SESSION_AND_RAW_LOGS=EPHEMERAL_RUNNER_ONLY'
+          if [[ "$YARA_E2E_SCOPE" == 'public' ]]; then
+            echo 'YARA_CANDIDATE_SHA_BROWSER_QUALIFICATION=NOT_TESTED'
+          else
+            echo 'YARA_NATIVE_SAFARI=NOT_TESTED (Linux WebKit only)'
+          fi
