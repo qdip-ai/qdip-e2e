@@ -40,12 +40,12 @@ if(mode==='validate'){
   const login=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
   const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
   if(!login||!password)fail('YARA_ZITADEL_TEST_IDENTITY_MISSING');
-  const yaraDir=path.resolve(process.env.YARA_SOURCE_DIR||'');
+  const runnerDir=path.resolve(process.env.YARA_E2E_RUNNER_DIR||'');
   const stateFile=path.resolve(process.env.YARA_E2E_QA_STATE_FILE||'');
   const temp=path.resolve(process.env.RUNNER_TEMP||'');
   if(!stateFile.startsWith(temp+path.sep))fail('YARA_AUTH_STATE_MUST_BE_EPHEMERAL');
-  const requireYara=createRequire(path.join(yaraDir,'package.json'));
-  const {chromium}=requireYara('@playwright/test');
+  const requireRunner=createRequire(path.join(runnerDir,'package.json'));
+  const {chromium}=requireRunner('@playwright/test');
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext({serviceWorkers:'block',ignoreHTTPSErrors:false});
   const page=await context.newPage();
