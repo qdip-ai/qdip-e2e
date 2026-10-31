@@ -39,3 +39,7 @@ installed; the exact-SHA full gate and private visual evidence are separate.
 
 Draft Yara PR #220 still contains the previous copies of these test files; retire
 those copies in that separate PR to keep qdip-e2e as the single maintained owner.
+
+On a same-repository PR that changes the centralized Yara runner or tests,
+the public smoke runs automatically with no Yara SHA input. It tests the live
+site only, cannot qualify the candidate source SHA, and never reads QA secrets.
