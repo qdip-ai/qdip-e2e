@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,readFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -67,4 +67,16 @@ test('Yara live Zitadel step fails closed without sealed QA credentials',()=>{
   });
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/YARA_ZITADEL_TEST_IDENTITY_MISSING/);
+});
+
+
+test('Yara runner executes centralized browser matrix without private checkout',()=>{
+  const workflow=readFileSync(join(root,'.github','workflows','yara-browser-e2e.yml'),'utf8');
+  assert.doesNotMatch(workflow,/QDIP_READ_TOKEN|repository:\s*qdip-ai\/qdip-personal-secretary/);
+  assert.match(workflow,/suite\/yara\/tests\/e2e\/yara-browser\.spec\.cjs/);
+  assert.match(workflow,/node_modules\/\.bin\/playwright test/);
+  assert.match(workflow,/yara-browser-gate\.mjs attest/);
+  assert.match(workflow,/yara-browser-report\.mjs/);
+  assert.ok(existsSync(join(root,'yara','playwright.config.cjs')));
+  assert.ok(existsSync(join(root,'yara','tests','e2e','yara-browser.spec.cjs')));
 });
