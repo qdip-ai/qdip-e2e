@@ -1,0 +1,50 @@
+name: AutoDev recovery browser E2E
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: autodev-recovery-browser
+  cancel-in-progress: false
+jobs:
+  public-staging-browser:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check Playwright source
+        run: node --check scripts/autodev_recovery_browser.mjs
+      - name: Install isolated Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/autodev-browser"
+          cp scripts/autodev_recovery_browser.mjs "$RUNNER_TEMP/autodev-browser/"
+          cd "$RUNNER_TEMP/autodev-browser"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser smoke of real staging on three viewports
+        env:
+          QDIP_E2E_AUTODEV_MODE: smoke
+          QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/autodev-browser/screenshots
+          CI: 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/autodev-browser"
+          node autodev_recovery_browser.mjs
+      - name: Public-only anonymous UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autodev-anonymous-browser-smoke
+          path: ${{ runner.temp }}/autodev-browser/screenshots
+          if-no-files-found: ignore
+          retention-days: 7

@@ -267,3 +267,71 @@ authentication is rejected rather than downgraded. Manual invocation:
 Actions -> QDIP independent real E2E -> Run workflow, enter the pinned
 Core/Web refs and select `rr-oidc-session-v1`. The same missing
 `QDIP_READ_TOKEN` private-read prerequisite applies.
+
+
+## AutoDev claimed-run recovery — isolated Mongo integration
+
+Run `scripts/autodev_claimed_recovery_mongo.py` using the existing QDIP
+test sandbox with **a local MongoDB replica set** and the exact Core checkout
+under test. It exercises the actual
+`scripts.autodev.ai_attempt_review` implementation with real majority-read
+Mongo collections, not mock persistence.
+
+```sh
+# In the existing isolated test sandbox, after checking out qdip-core:
+QDIP_E2E_CORE_ROOT=/path/to/qdip-core \
+QDIP_E2E_LOCAL_MONGO_PORT=27027 \
+python3 scripts/autodev_claimed_recovery_mongo.py
+```
+
+The script only connects to `127.0.0.1`; it generates a random
+`qdip_autodev_recovery_e2e_*` database and deletes **only that database**
+afterwards. No staging/production Mongo credentials, real RR run IDs,
+Zitadel sessions, new test accounts or additional roles are required.
+
+Coverage: exact claimed-run eligibility; read-only review; confirmed
+one-shot closure; immutable Broker claim preservation; persisted
+`FAILED`/no-charge audit; `retryAuthorized=false`; owner-fenced slot release;
+idempotent request; refusal on wrong run, wrong confirmation, saved result,
+missing/foreign claim and foreign slot.
+
+**Scope limit:** Mongo integration proves the *recovery engine and
+persistence*, not the UI. Browser qualification is a separate gate below.
+
+### AutoDev recovery browser E2E
+
+The browser suite is owned by **qdip-e2e**:
+`scripts/autodev_recovery_browser.mjs` plus the manual public-repo workflow
+`.github/workflows/autodev-recovery-browser.yml`. The default `smoke` mode
+opens real `https://autodev.qdip.ai` in Chromium at desktop (1440×900),
+mobile portrait (390×844), and mobile landscape (844×390). It checks rendering,
+page errors, horizontal overflow, and saves viewport screenshots. The public
+GitHub workflow runs **only this anonymous smoke**, without new secrets or
+any auth test.
+
+For recovery UI tests, reuse an **existing authenticated browser storageState**
+file from the current private QDIP test sandbox; the runner never signs in,
+creates a user, changes roles, mints tokens, or mocks backend responses:
+
+```sh
+# In the existing isolated browser test environment, with @playwright/test:
+QDIP_E2E_AUTODEV_MODE=recovery-read \
+QDIP_E2E_AUTODEV_STORAGE_STATE=/private/existing-operator-session.json \
+QDIP_E2E_AUTODEV_RUN_ID=rr388-<exact-20-hex> \
+node scripts/autodev_recovery_browser.mjs
+```
+
+`recovery-read` checks the *real* Controller review and actual PWA button,
+empty/wrong/exact runId confirmation states, and ensures **zero** closure POSTs
+on all three viewports. To run one authorized, irreversible closure, set
+`QDIP_E2E_AUTODEV_MODE=recovery-close` and
+`QDIP_E2E_AUTODEV_NO_CHARGE_RUN` equal to the exact `RUN_ID`.
+Only this mode clicks Confirm once and requires a 200 acknowledgement,
+one exact idempotent POST, `providerRetried=false`, and fresh Controller
+readback with no unresolved run. A failed POST is not retried.
+
+The session file stays private and must already be valid. The browser suite
+does **not** test Zitadel again. Missing session or missing eligible claimed
+run is **BLOCKED**, never treated as PASS. Browser HTTP readback does not
+replace the independent Mongo audit/slot verification. No new test users,
+secrets, roles, services or auth fixtures are introduced.
