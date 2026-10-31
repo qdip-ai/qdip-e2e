@@ -131,7 +131,7 @@ async function signIn(context) {
   await pass.press('Enter'); // One password attempt. No fallback to another identity.
   try {
    await page.waitForURL(url => url.origin === SITE, {timeout:45000});
-   await page.waitForFunction(tokenFromStore, {timeout:18000});
+   await page.waitForFunction(tokenFromStore, null, {timeout:18000});
   } catch { throw Error('OIDC_MFA_OR_CALLBACK_BLOCKED'); }
   const token = await page.evaluate(tokenFromStore);
   await signedStageCloser(token);
@@ -232,7 +232,7 @@ async function operator(browser) {
    await close.click();
    const input = page.getByRole('textbox',{name:'Точний runId для закриття'});
    await input.waitFor({state:'visible'});
-   const confirm = page.getByRole('button',{name:'Підтвердити'});
+   const confirm = page.locator('.portfolio__cancel-confirm').getByRole('button',{name:'Підтвердити'});
    check(await confirm.isDisabled(), 'CLOSURE_NOT_DISABLED_WITHOUT_CONFIRMATION');
    await input.fill('rr388-'+'0'.repeat(20));
    check(await confirm.isDisabled(), 'CLOSURE_ACCEPTED_WRONG_RUN');
