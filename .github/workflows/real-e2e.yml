@@ -2,23 +2,6 @@ name: QDIP independent real E2E
 run-name: QDIP E2E ${{ github.event.client_payload.backend_sha || inputs.backend_ref || github.sha }}
 
 on:
-  # Trusted feature-branch qualification of this exact browser matrix.
-  # Never run credential-bearing E2E on pull_request code or other branches.
-  push:
-    branches: [feat/rr-browser-acceptance-matrix]
-    paths:
-      - scripts/rr_oidc_session_browser.spec.ts
-      - scripts/provision_tenants.py
-      - scripts/http_sdk_e2e.py
-      - scripts/check_remote_worker_failure.py
-      - tests/test_sdk_credential_fixture.py
-      - scripts/rr_live_zitadel_test_user.mjs
-      - scripts/check_browser_report.py
-      - scripts/run_real_e2e.sh
-      - scripts/provision_tenants.py
-      - scripts/http_sdk_e2e.py
-      - scripts/check_remote_worker_failure.py
-      - .github/workflows/real-e2e.yml
   repository_dispatch:
     types: [qdip-core-updated, rr-pr-ready]
   workflow_dispatch:
@@ -69,7 +52,7 @@ jobs:
       RR_TEST_MONGODB_URL: mongodb://127.0.0.1:27019/?replicaSet=rrtest&directConnection=true
       DIP_API_BASE_URL: http://127.0.0.1:8000
       RR_REFERENCE_OPERATOR_ENABLED: 'true'
-      RR_E2E_ONLY: ${{ github.event.action == 'rr-pr-ready' && '1' || github.event_name == 'workflow_dispatch' && '1' || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix') && '1' || '0' }}
+      RR_E2E_ONLY: ${{ github.event.action == 'rr-pr-ready' && '1' || github.event_name == 'workflow_dispatch' && '1' || '0' }}
       RR_SOURCE_POLICIES_JSON: '{"rr-e2e-org-a":{"source_system":"rr-civilian-workshop-example","allowed_source_versions":["v1"],"max_source_age_seconds":120,"max_future_skew_seconds":0}}'
       RR_E2E_CONTRACT_MODE: ${{ github.event.client_payload.rr_contract_mode || inputs.rr_contract_mode || 'rr-oidc-session-v1' }}
     steps:
@@ -148,7 +131,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-core
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ github.event.client_payload.backend_sha || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && '80148158e5f9eaf762a9fc531385df1e0f1a3ffa') || inputs.backend_ref || 'dev' }}
+          ref: ${{ github.event.client_payload.backend_sha || inputs.backend_ref || 'dev' }}
           path: backend
           persist-credentials: false
 
@@ -157,7 +140,7 @@ jobs:
         with:
           repository: qdip-ai/qdip-web
           token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || (github.event_name == 'push' && github.ref == 'refs/heads/feat/rr-browser-acceptance-matrix' && 'b1334308ee01006f236faaaf23a09d929609293c') || inputs.observatory_ref || 'dev' }}
+          ref: ${{ github.event.client_payload.observatory_sha || github.event.client_payload.observatory_ref || inputs.observatory_ref || 'dev' }}
           path: observatory
           persist-credentials: false
 
