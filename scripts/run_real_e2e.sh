@@ -104,8 +104,15 @@ elif [[ "$RR_E2E_CONTRACT_MODE" == "rr-plugin-v1" ]]; then
   cp suite/scripts/rr_plugin_browser.spec.ts observatory/e2e/rr_plugin_real_e2e.spec.ts
 fi
 python suite/scripts/safe_stage.py --timeout 180 sdk-install -- bash suite/scripts/start_remote_worker.sh
-python suite/scripts/safe_stage.py --timeout 180 sdk-e2e -- python suite/scripts/http_sdk_e2e.py
-python suite/scripts/safe_stage.py --timeout 80 sdk-negative -- python suite/scripts/check_remote_worker_failure.py
+# SDK caller/Worker qualification is independent of the existing RR
+# operator Core/Mongo UI. Collect browser evidence even when SDK fails, but
+# never promote the overall workflow to PASS or claim SDK gate success.
+if python suite/scripts/safe_stage.py --timeout 180 sdk-e2e -- python suite/scripts/http_sdk_e2e.py; then
+  python suite/scripts/safe_stage.py --timeout 80 sdk-negative -- python suite/scripts/check_remote_worker_failure.py
+else
+  printf 'FAIL\\n' > "$RUNNER_TEMP/rr-sdk-e2e.failed"
+  echo 'RR_INDEPENDENT_SDK_E2E=FAIL; continuing to browser evidence; overall qualification remains FAIL'
+fi
 echo '127.0.0.1 observatory.localhost' | sudo tee -a /etc/hosts >/dev/null
 test -s "$RR_E2E_API_REQUEST_PATH"
 (
@@ -121,6 +128,10 @@ test -s "$RR_E2E_API_REQUEST_PATH"
       --project=chromium --workers=1 --retries=0 --reporter=json --forbid-only
 )
 python suite/scripts/safe_stage.py --timeout 40 test-report -- python suite/scripts/check_browser_report.py
+if [[ -f "$RUNNER_TEMP/rr-sdk-e2e.failed" ]]; then
+  echo 'QDIP_REAL_NATIVE_E2E=FAIL (SDK/Worker gate failed; independent browser evidence does not override it)' >&2
+  exit 1
+fi
 if [[ -f "$RUNNER_TEMP/rr-web-unit.failed" ]]; then
   echo 'QDIP_REAL_NATIVE_E2E=FAIL (Web unit tests failed; browser evidence does not override release gate)' >&2
   exit 1
