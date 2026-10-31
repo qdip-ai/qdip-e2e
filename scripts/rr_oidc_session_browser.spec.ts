@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { createHmac } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 // This spec is owned by the independent E2E suite and copied to the checked-out
 // qdip-web/e2e directory ONLY when the rr-oidc-session-v1 contract is required.
@@ -131,6 +131,33 @@ async function markOperatorSession(page: import('@playwright/test').Page) {
     mark('session-authenticated', value.authenticated === true)
   }
 }
+
+test('signed RR browser never receives server-only SDK credentials', async ({ page }) => {
+  // These ephemeral credentials belong to the disposable Core/Worker services.
+  // Test only booleans; never include secret values in assertions or artifacts.
+  const keys = [
+    process.env.E2E_CALLER_KEY, process.env.E2E_WORKER_KEY,
+    process.env.DIP_API_KEY, process.env.DIP_ADMIN_API_KEY,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+  expect(keys).toHaveLength(4)
+  await installIsolatedOidcSession(page)
+  let exposedInRequest = false
+  page.on('request', (request) => {
+    const metadata = request.url() + JSON.stringify(request.headers())
+    if (keys.some((key) => metadata.includes(key))) exposedInRequest = true
+  })
+  await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('rr-production-operator')).toBeVisible()
+  const html = await page.content()
+  const storage = await page.evaluate(() =>
+    JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, cookies: document.cookie })
+  )
+  const session = await page.request.get(`${ORIGIN}/api/auth/session`)
+  expect(session.status()).toBe(200)
+  const sessionBody = await session.text()
+  expect(keys.some((key) => [html, storage, sessionBody].some((part) => part.includes(key)))).toBe(false)
+  expect(exposedInRequest).toBe(false)
+})
 
 test('anonymous RR workspace is role-gated; no public optimizer or preview leaks', async ({ page }) => {
   await page.goto(PAGE, { waitUntil: 'domcontentloaded' })
@@ -280,7 +307,12 @@ test('tampered isolated OIDC session never authorizes the Web BFF', async ({ pag
   expect(((await status.json()) as {authenticated: boolean}).authenticated).toBe(false)
 })
 
-test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export', async ({ page }) => {
+async function verifyFullBrowserJourney(
+  page: Page, viewport: { label: string; width: number; height: number },
+) {
+  // Genuine browser rendering with real Core/Mongo, but an isolated signed
+  // test session — this does NOT assert a live Zitadel login or RR PostgreSQL.
+  await page.setViewportSize({ width: viewport.width, height: viewport.height })
   test.setTimeout(240_000)
   const original = actualInput()
   await installIsolatedOidcSession(page)
@@ -298,6 +330,10 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   })
   const panel = page.getByTestId('rr-production-operator')
   await expect(panel).toBeVisible()
+  await expect(page.getByTestId('rr-kernel-only-workspace')).toBeVisible()
+  const initialWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(initialWidth, 'RR page overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
+
   await expect(panel.getByRole('button', { name: 'Sign out' })).toBeVisible()
 
   const field = panel.getByLabel('Kernel execution JSON')
@@ -370,6 +406,26 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   await expect(summary.getByTestId('rr-kernel-schedule')).not.toContainText('sensor-service')
   mark('replan-presentation', true)
 
+  // The 64-character input digest is verification evidence, not a client
+  // credential. Its line must scroll within the panel and copy exactly.
+  const digestLine = summary.getByTestId('rr-kernel-evidence').getByTestId('rr-input-digest-scroll')
+  await expect(digestLine).toBeVisible()
+  await expect(digestLine).toHaveCSS('overflow-x', 'auto')
+  const digest = (await digestLine.textContent())?.trim() ?? ''
+  expect(digest).toMatch(/^[a-f0-9]{64}$/)
+  if (viewport.label === 'mobile-portrait') {
+    const dimensions = await digestLine.evaluate((el) => ({
+      visible: el.clientWidth,
+      content: el.scrollWidth,
+    }))
+    expect(dimensions.content).toBeGreaterThan(dimensions.visible)
+  }
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN })
+  await summary.getByRole('button', { name: 'Copy input digest' }).click()
+  await expect(summary.getByTestId('rr-input-digest-copy-status')).toHaveText('Input digest copied')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(digest)
+  mark('digest-scroll-and-clipboard-exact', true)
+
   const historyResponse = page.waitForResponse((r) =>
     r.url().endsWith(`/decisions/${original.payload.decision_id}/history`)
   )
@@ -379,6 +435,17 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   const history = await actualHistory.json() as { executions: unknown[] }
   mark('history-two-executions', Array.isArray(history.executions) && history.executions.length === 2)
   expect(history.executions).toHaveLength(2)
+
+  // These screenshots are exclusively of the disposable synthetic runner.
+  // Never capture OAuth credentials or production patient/customer records.
+  await page.screenshot({
+    path: test.info().outputPath('rr-' + viewport.label + '-history.png'),
+    fullPage: true, animations: 'disabled',
+  })
+  const historyWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  // Preserve failure screenshots for precise root-cause inspection rather
+  // than masking mobile overflow or asserting only a desktop layout.
+  expect(historyWidth, 'RR history overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
 
   const replayResponse = page.waitForResponse((r) =>
     r.url().endsWith(`/executions/${successorId}/replay-verification`)
@@ -437,6 +504,18 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   const afterLogout = await page.request.get(`${ROUTE}/executions/${successorId}/presentation`)
   mark('logout-revocation-http', afterLogout.status())
   expect(afterLogout.status()).toBe(401)
+}
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [desktop]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"desktop","width":1440,"height":900})
+})
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [mobile portrait]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"mobile-portrait","width":390,"height":844})
+})
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [mobile landscape]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"mobile-landscape","width":844,"height":390})
 })
 
 /**

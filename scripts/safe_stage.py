@@ -18,7 +18,7 @@ ALLOWED = {
     "backend-start", "backend-http", "rr-plugin-http", "backend-restart", "backend-restart-verify",
     "observatory-install", "observatory-lint", "observatory-typecheck",
     "observatory-unit", "observatory-build", "browser-install", "browser-e2e",
-    "sdk-install", "sdk-e2e", "sdk-negative", "rr-auth-revocation", "test-report",
+    "sdk-install", "sdk-admission-restart", "sdk-admission", "sdk-e2e", "sdk-negative", "rr-auth-revocation", "test-report",
     "rr-actor-unit", "rr-actor-ruff", "core-quality", "observatory-format", "rr-replay-load",
 }
 

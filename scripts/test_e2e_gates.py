@@ -107,8 +107,12 @@ class IsolatedOidcFixtureTests(unittest.TestCase):
         self.assertIn('"qdip-e2e-studio-only"', provision)
         self.assertIn("isolated signed Studio-only role cannot access RR operator", browser)
         required = check_browser_report.MATRIX["rr-oidc-session-v1"]
-        self.assertEqual(len(required), 11)
+        self.assertEqual(len(required), 14)
         self.assertIn("isolated signed Studio-only role cannot access RR operator", required)
+        self.assertEqual(
+            len([x for x in required if "isolated signed-session browser → real Core" in x]),
+            3,
+        )
         test_report = report("rr-oidc-session-v1")
         self.assertTrue(check_browser_report.validate(test_report, "rr-oidc-session-v1"))
         test_report["suites"][0]["specs"] = [
@@ -122,7 +126,7 @@ class EconomicV2BrowserMatrixTests(unittest.TestCase):
     def test_real_core_economic_preflight_is_a_mandatory_case(self) -> None:
         source = (Path(__file__).parent / "rr_oidc_session_browser.spec.ts").read_text(encoding="utf-8")
         required = check_browser_report.MATRIX["rr-oidc-session-v1"]
-        self.assertEqual(len(required), 11)
+        self.assertEqual(len(required), 14)
         label = "economic-v2 preview reaches real Core but cannot execute"
         self.assertIn(label, required)
         self.assertIn("test('" + label, source)

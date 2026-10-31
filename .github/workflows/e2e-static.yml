@@ -43,6 +43,7 @@ jobs:
           node --experimental-strip-types --check scripts/rr_plugin_browser.spec.ts
           node --check scripts/doctor_p1_repair_live_user.mjs
           node --check scripts/doctor_roleless_qa1_live.mjs
+          node --check scripts/rr_live_zitadel_test_user.mjs
           node --check scripts/dzvin_two_qa_company_gate.mjs
           node --check scripts/doctor_p1_mobile_stage.mjs
           node --check scripts/doctor_p1_audit_stage.mjs
@@ -64,6 +65,7 @@ jobs:
       - name: Validate scoped E2E required-case coverage without claiming global PASS
         run: |
           python -m unittest discover -s tests -p 'test_case_coverage.py' -v
+          python -m unittest discover -s tests -p 'test_sdk_credential_fixture.py' -v
           python scripts/case_coverage.py --check >/dev/null
       - name: Validate SHA-pinned watcher and stale-run result isolation
         run: python -m unittest discover -s tests -p 'test_runner_integrity.py' -v

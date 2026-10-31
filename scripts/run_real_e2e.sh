@@ -104,8 +104,26 @@ elif [[ "$RR_E2E_CONTRACT_MODE" == "rr-plugin-v1" ]]; then
   cp suite/scripts/rr_plugin_browser.spec.ts observatory/e2e/rr_plugin_real_e2e.spec.ts
 fi
 python suite/scripts/safe_stage.py --timeout 180 sdk-install -- bash suite/scripts/start_remote_worker.sh
-python suite/scripts/safe_stage.py --timeout 180 sdk-e2e -- python suite/scripts/http_sdk_e2e.py
-python suite/scripts/safe_stage.py --timeout 80 sdk-negative -- python suite/scripts/check_remote_worker_failure.py
+# The current Core is default-deny for unreviewed remote Workers. Derive the
+# exact persisted Worker digest, restart ONLY this disposable localhost API with
+# its allowlist, and exercise real platform-admin approval before any invoke.
+# No production credential, trust wildcard, or private code path is involved.
+export QDIP_TRUSTED_REMOTE_MANIFESTS="$(cd backend && python ../suite/scripts/admit_disposable_sdk_worker.py digest)"
+[[ "$QDIP_TRUSTED_REMOTE_MANIFESTS" =~ ^[a-f0-9]{64}$ ]] || exit 2
+python suite/scripts/safe_stage.py --timeout 120 sdk-admission-restart -- bash suite/scripts/restart_fastapi.sh
+(
+  cd backend
+  python ../suite/scripts/safe_stage.py --timeout 90 sdk-admission -- python ../suite/scripts/admit_disposable_sdk_worker.py approve
+)
+# SDK caller/Worker qualification is independent of the existing RR
+# operator Core/Mongo UI. Collect browser evidence even when SDK fails, but
+# never promote the overall workflow to PASS or claim SDK gate success.
+if python suite/scripts/safe_stage.py --timeout 180 sdk-e2e -- python suite/scripts/http_sdk_e2e.py; then
+  python suite/scripts/safe_stage.py --timeout 80 sdk-negative -- python suite/scripts/check_remote_worker_failure.py
+else
+  printf 'FAIL\\n' > "$RUNNER_TEMP/rr-sdk-e2e.failed"
+  echo 'RR_INDEPENDENT_SDK_E2E=FAIL; continuing to browser evidence; overall qualification remains FAIL'
+fi
 echo '127.0.0.1 observatory.localhost' | sudo tee -a /etc/hosts >/dev/null
 test -s "$RR_E2E_API_REQUEST_PATH"
 (
@@ -115,12 +133,16 @@ test -s "$RR_E2E_API_REQUEST_PATH"
     export NEXT_PUBLIC_STUDIO_URL=http://studio.localhost:3000
     export NEXT_PUBLIC_OBSERVATORY_URL=http://observatory.localhost:3000
   fi
-  python ../suite/scripts/safe_stage.py --timeout 350 \
+  python ../suite/scripts/safe_stage.py --timeout 850 \
     --output "$RUNNER_TEMP/qdip-browser-report.json" browser-e2e -- \
     pnpm exec playwright test "$SPEC" "${BROWSER_CONFIG_ARGS[@]}" \
       --project=chromium --workers=1 --retries=0 --reporter=json --forbid-only
 )
 python suite/scripts/safe_stage.py --timeout 40 test-report -- python suite/scripts/check_browser_report.py
+if [[ -f "$RUNNER_TEMP/rr-sdk-e2e.failed" ]]; then
+  echo 'QDIP_REAL_NATIVE_E2E=FAIL (SDK/Worker gate failed; independent browser evidence does not override it)' >&2
+  exit 1
+fi
 if [[ -f "$RUNNER_TEMP/rr-web-unit.failed" ]]; then
   echo 'QDIP_REAL_NATIVE_E2E=FAIL (Web unit tests failed; browser evidence does not override release gate)' >&2
   exit 1

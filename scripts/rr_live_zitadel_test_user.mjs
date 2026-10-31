@@ -98,6 +98,39 @@ async function main() {
     requireStage(rrSession.authenticated === true, 'REAL_USER_RR_SESSION_DENIED')
     console.log('LIVE_ZITADEL_REAL_USER_RR_OPERATOR_LOGIN=PASS')
 
+    // Real Zitadel login + the currently deployed operator UI in three
+    // browser viewports. READ-ONLY: production is never an E2E write target.
+    // Browser UI and network are not mocked. Do not capture screenshots,
+    // HTML, personal data, cookies or tokens from this real-account session.
+    for (const viewport of [
+      {label:'DESKTOP', width:1440, height:900},
+      {label:'MOBILE_PORTRAIT', width:390, height:844},
+      {label:'MOBILE_LANDSCAPE', width:844, height:390},
+    ]) {
+      await page.setViewportSize({width:viewport.width, height:viewport.height})
+      await page.goto(RR + '/en/readiness-recovery', {
+        waitUntil:'domcontentloaded', timeout:30000,
+      })
+      const panel = page.getByTestId('rr-production-operator')
+      await panel.waitFor({state:'visible',timeout:15000}).catch(() => {})
+      requireStage(await panel.isVisible().catch(() => false),
+        'LIVE_RR_' + viewport.label + '_OPERATOR_PANEL_MISSING')
+      for (const label of ['Kernel execution JSON', 'Kernel replan JSON']) {
+        requireStage(await panel.getByLabel(label).isVisible().catch(() => false),
+          'LIVE_RR_' + viewport.label + '_INPUT_MISSING')
+      }
+      for (const label of ['Create execution', 'Replan from predecessor', 'History']) {
+        requireStage(await panel.getByRole('button', {name:label,exact:true})
+          .isVisible().catch(() => false),
+          'LIVE_RR_' + viewport.label + '_CONTROL_MISSING')
+      }
+      const width = await page.evaluate(() => document.documentElement.scrollWidth)
+      requireStage(width <= viewport.width + 1,
+        'LIVE_RR_' + viewport.label + '_HORIZONTAL_OVERFLOW')
+      console.log('LIVE_RR_REAL_ZITADEL_BROWSER_' + viewport.label + '=PASS')
+    }
+    await page.setViewportSize({width:1280,height:800})
+
     // Acquire a real *access* token, not an ID token or QDIP session cookie.
     // Run only in this public-repo workflow whose existing GitHub Secrets
     // already supply the TEST account. No new Zitadel user/app is created.
