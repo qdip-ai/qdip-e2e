@@ -52,6 +52,11 @@ jobs:
           node --check scripts/mock_zitadel.mjs
           node --experimental-strip-types --check scripts/rr_oidc_exchange_browser.spec.ts
           node --experimental-strip-types --check scripts/rr_oidc_exchange_playwright.config.ts
+      - name: Validate Yara centralized browser gate and fail-closed report
+        run: |
+          node --check scripts/yara-browser-gate.mjs
+          node --check scripts/yara-browser-report.mjs
+          node --test tests/yara_browser_contract.test.mjs
       - name: Validate optional Cloudflare report evaluator and deterministic Security Gate
         run: node --test tests/security_gate.test.mjs tests/deterministic_security_gate.test.mjs
       - name: Validate fail-closed browser result checker
