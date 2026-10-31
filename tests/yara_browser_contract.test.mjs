@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,readFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -19,9 +19,9 @@ function report(scope,mutation=()=>{}){
     projectName:p,status:'expected',results:[{status:'passed'}],
   }))});
   const specs=[cases('@public login')];
-  if(scope==='full')specs.push(cases('@auth Today'));
+  if(scope==='full'){specs.push(cases('@auth Today'));specs.push(cases('@delegation lifecycle'));}
   const fixture={suites:[{specs}],stats:{
-    expected:scope==='full'?12:6,unexpected:0,skipped:0,
+    expected:scope==='full'?18:6,unexpected:0,skipped:0,
   }};
   mutation(fixture);
   const tmp=mkdtempSync(join(tmpdir(),'yara-test-'));
@@ -37,10 +37,15 @@ test('Yara browser report requires all six public browsers',()=>{
   assert.match(p.stdout,/6\/6/);
   assert.match(p.stdout,/CANDIDATE_AUTH=NOT_TESTED/);
 });
-test('Yara browser report requires twelve public and authenticated browsers',()=>{
+test('Yara browser report requires eighteen public, authenticated and delegation browsers',()=>{
   const p=report('full');
   assert.equal(p.status,0,p.stderr);
-  assert.match(p.stdout,/12\/12/);
+  assert.match(p.stdout,/18\/18/);
+});
+test('Yara full report refuses missing or skipped delegation lifecycle',()=>{
+  assert.notEqual(report('full',x=>x.suites[0].specs.pop()).status,0);
+  assert.notEqual(report('full',x=>x.suites[0].specs[2].tests.pop()).status,0);
+  assert.notEqual(report('full',x=>{x.suites[0].specs[2].tests[0].results[0].status='failed'}).status,0);
 });
 test('Yara browser report rejects missing, skipped or duplicated cases',()=>{
   assert.notEqual(report('public',x=>x.suites[0].specs[0].tests.pop()).status,0);
@@ -67,4 +72,24 @@ test('Yara live Zitadel step fails closed without sealed QA credentials',()=>{
   });
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/YARA_ZITADEL_TEST_IDENTITY_MISSING/);
+});
+
+
+test('Yara runner executes centralized browser matrix without private checkout',()=>{
+  const workflow=readFileSync(join(root,'.github','workflows','yara-browser-e2e.yml'),'utf8');
+  assert.doesNotMatch(workflow,/QDIP_READ_TOKEN|repository:\s*qdip-ai\/qdip-personal-secretary/);
+  assert.match(workflow,/suite\/yara\/tests\/e2e\/yara-browser\.spec\.cjs/);
+  assert.match(workflow,/node_modules\/\.bin\/playwright test/);
+  assert.match(workflow,/yara-browser-gate\.mjs attest/);
+  assert.match(workflow,/yara-browser-report\.mjs/);
+  assert.ok(existsSync(join(root,'yara','playwright.config.cjs')));
+  assert.ok(existsSync(join(root,'yara','tests','e2e','yara-browser.spec.cjs')));
+});
+
+test('Yara public PR browser smoke needs no Yara source SHA',()=>{
+  const r=invoke('yara-browser-gate.mjs',['validate'],{
+    YARA_E2E_EXPECTED_SHA:'',YARA_E2E_SCOPE:'public',
+    YARA_E2E_BASE_URL:'https://yara.qdip.ai',
+  });
+  assert.equal(r.status,0,r.stderr);
 });

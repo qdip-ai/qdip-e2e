@@ -18,7 +18,7 @@ function validUrl(){
   return parsed;
 }
 const base=validUrl();
-if(!/^[0-9a-f]{40}$/.test(sha||''))fail('YARA_SHA_INVALID');
+if((scope==='full'||sha) && !/^[0-9a-f]{40}$/.test(sha||''))fail('YARA_SHA_INVALID');
 if(!['public','full'].includes(scope))fail('YARA_SCOPE_INVALID');
 if(scope==='full' && base.origin==='https://yara.qdip.ai')
   fail('YARA_FULL_GATE_REQUIRES_ISOLATED_QA_DEPLOYMENT');
@@ -40,12 +40,12 @@ if(mode==='validate'){
   const login=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
   const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
   if(!login||!password)fail('YARA_ZITADEL_TEST_IDENTITY_MISSING');
-  const yaraDir=path.resolve(process.env.YARA_SOURCE_DIR||'');
+  const runnerDir=path.resolve(process.env.YARA_E2E_RUNNER_DIR||'');
   const stateFile=path.resolve(process.env.YARA_E2E_QA_STATE_FILE||'');
   const temp=path.resolve(process.env.RUNNER_TEMP||'');
   if(!stateFile.startsWith(temp+path.sep))fail('YARA_AUTH_STATE_MUST_BE_EPHEMERAL');
-  const requireYara=createRequire(path.join(yaraDir,'package.json'));
-  const {chromium}=requireYara('@playwright/test');
+  const requireRunner=createRequire(path.join(runnerDir,'package.json'));
+  const {chromium}=requireRunner('@playwright/test');
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext({serviceWorkers:'block',ignoreHTTPSErrors:false});
   const page=await context.newPage();
@@ -69,7 +69,27 @@ if(mode==='validate'){
       'input[name="loginname"]','input[name="username"]',
       'input[name="email"]','input[type="email"]','input[type="text"]'
     ]);
-    if(!user)fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
+    if(!user){
+      // Diagnostic metadata only: never print query parameters, cookies,
+      // user names, credentials or page content from the identity provider.
+      const location=new URL(page.url());
+      const inputs=await page.locator('input').evaluateAll(nodes=>nodes.map(n=>({
+        type:n.getAttribute('type'),name:n.getAttribute('name'),autocomplete:n.getAttribute('autocomplete')
+      })).slice(0,10));
+      console.error('YARA_ZITADEL_LOGIN_LOCATION='+location.origin+location.pathname);
+      // Presence/shape only, never query values (may include OAuth state/PKCE).
+      const clientId=location.searchParams.get('client_id');
+      console.error('YARA_OIDC_QUERY_SHAPE='+JSON.stringify({
+        hasValidClientId:!!clientId&&clientId!=='undefined'&&clientId!=='null',
+        hasRedirectUri:location.searchParams.has('redirect_uri'),
+        hasResponseType:location.searchParams.has('response_type'),
+        title:await page.title()
+      }));
+      console.error('YARA_ZITADEL_LOGIN_INPUT_SHAPE='+JSON.stringify(inputs));
+      if(!clientId||clientId==='undefined'||clientId==='null')
+        fail('YARA_QA_OIDC_CLIENT_ID_NOT_CONFIGURED');
+      fail('YARA_ZITADEL_LOGIN_FORM_NOT_REACHED');
+    }
     await user.fill(login);
     let pass=await firstVisible(['input[autocomplete="current-password"]','input[type="password"]'],1300);
     if(!pass){
