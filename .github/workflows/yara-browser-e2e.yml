@@ -125,10 +125,12 @@ jobs:
       - name: Real browser smoke / authenticated read-only matrix
         shell: bash
         env:
-          YARA_E2E_QA_STATE_FILE: ${{ runner.temp }}/yara-qa-storage-state.json
           YARA_E2E_QA_CONFIRMED: ${{ inputs.scope == 'full' && '1' || '0' }}
         run: |
           set -euo pipefail
+          if [[ "$YARA_E2E_SCOPE" == 'full' ]]; then
+            export YARA_E2E_QA_STATE_FILE="$RUNNER_TEMP/yara-qa-storage-state.json"
+          fi
           cd yara
           set +e
           if [[ "$YARA_E2E_SCOPE" == 'public' ]]; then
