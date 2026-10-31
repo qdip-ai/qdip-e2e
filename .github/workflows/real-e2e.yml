@@ -11,6 +11,9 @@ on:
       - scripts/rr_live_zitadel_test_user.mjs
       - scripts/check_browser_report.py
       - scripts/run_real_e2e.sh
+      - scripts/provision_tenants.py
+      - scripts/http_sdk_e2e.py
+      - scripts/check_remote_worker_failure.py
       - .github/workflows/real-e2e.yml
   repository_dispatch:
     types: [qdip-core-updated, rr-pr-ready]
