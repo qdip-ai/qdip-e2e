@@ -64,3 +64,135 @@ test.describe('@auth read-only QA account',()=>{
     // No calendar writes, task submissions or changes to any external provider.
   });
 });
+
+
+async function browserApi(page, url, method='GET', data){
+  return page.evaluate(async ({url,method,data})=>{
+    const response=await fetch(url,{
+      method,credentials:'same-origin',cache:'no-store',
+      headers:data===undefined?{}:{'content-type':'application/json'},
+      body:data===undefined?undefined:JSON.stringify(data)
+    });
+    return {status:response.status,body:await response.json().catch(()=>null),
+      cacheControl:response.headers.get('cache-control')};
+  },{url,method,data});
+}
+
+test.describe('@delegation real authorized QA lifecycle',()=>{
+  test.use({storageState:authState||{cookies:[],origins:[]}});
+  test('@delegation create, replay, consent denial, cancel and durable audit via browser BFF',async({page},info)=>{
+    test.setTimeout(90_000);
+    if(!authState||process.env.YARA_E2E_QA_CONFIRMED!=='1')
+      throw Error('DELEGATION_E2E_BLOCKED: genuine isolated QA account required');
+    // This spec performs real database writes; do not aim at production or
+    // an arbitrary preview. The full gate also independently attests Git SHA.
+    if(new URL(process.env.YARA_E2E_BASE_URL||'').origin!==
+      'https://yara-qa-web-sandbox.up.railway.app'||process.env.YARA_E2E_SCOPE!=='full')
+      throw Error('DELEGATION_E2E_BLOCKED: dedicated Yara QA only');
+
+    const response=await page.goto('/',{waitUntil:'domcontentloaded'});
+    expect(response?.status()).toBe(200);
+    await expect(page.locator('#assistant-command')).toBeVisible();
+    const root='/api/secretary/v1/delegations';
+    const clientRequestId=require('node:crypto').randomUUID();
+    const actionId=require('node:crypto').randomUUID();
+    const input={clientRequestId,instruction:'QA browser synthetic delegation '+clientRequestId,
+      source:'typed'};
+    let createdId=null,closed=false;
+
+    // A cross-origin request must be rejected before reaching the API or DB.
+    const forbidden=await page.request.post(root,{
+      headers:{origin:'https://not-yara.invalid','content-type':'application/json'},
+      data:input,failOnStatusCode:false
+    });
+    expect(forbidden.status()).toBe(403);
+
+    try{
+      const invalid=await browserApi(page,root,'POST',{...input,instruction:''});
+      expect(invalid.status).toBe(400);
+
+      const created=await browserApi(page,root,'POST',input);
+      expect(created.status).toBe(201);
+      expect(created.body).toMatchObject({status:'RECEIVED',revision:0,accepted:true});
+      expect(created.body).not.toHaveProperty('autonomousExecutionStarted');
+      expect(created.body.id).toMatch(/^[0-9a-f-]{36}$/i);
+      createdId=created.body.id;
+
+      const replay=await browserApi(page,root,'POST',input);
+      expect(replay.status).toBe(201);
+      expect(replay.body.id).toBe(createdId);
+      expect(replay.body.status).toBe('RECEIVED');
+
+      const conflicting=await browserApi(page,root,'POST',{
+        ...input,instruction:'QA browser changed intent'
+      });
+      expect(conflicting.status).toBe(409);
+
+      const all=await browserApi(page,root);
+      expect(all.status).toBe(200);
+      expect(all.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({id:createdId,status:'RECEIVED',revision:0})
+      ]));
+      expect(all.cacheControl).toContain('no-store');
+
+      const detail=await browserApi(page,root+'/'+createdId);
+      expect(detail.status).toBe(200);
+      expect(detail.body).toMatchObject({id:createdId,status:'RECEIVED',revision:0});
+      expect(detail.body.actions).toEqual([]);
+      expect(detail.body.history).toEqual(expect.arrayContaining([
+        expect.objectContaining({action:'DELEGATION_RECEIVED'})
+      ]));
+
+      // Consent requires a genuine, immutable executor-prepared action.
+      // No browser endpoint can prepare one or execute provider writes.
+      const invented=await browserApi(page,
+        root+'/'+createdId+'/actions/'+actionId+'/decision','POST',
+        {action:'APPROVE',expectedRevision:0});
+      expect(invented.status).toBe(409);
+      const rejected=await browserApi(page,
+        root+'/'+createdId+'/actions/'+actionId+'/decision','POST',
+        {action:'REJECT',expectedRevision:0});
+      expect(rejected.status).toBe(409);
+      for(const suffix of ['/start','/complete','/actions/'+actionId+'/execute',
+        '/actions/'+actionId+'/propose']){
+        const denied=await browserApi(page,root+'/'+createdId+suffix,'POST',{});
+        expect(denied.status).toBe(404);
+      }
+      const invalidId=await browserApi(page,root+'/not-a-uuid');
+      expect(invalidId.status).toBe(404);
+      const missing=await browserApi(page,root+'/'+require('node:crypto').randomUUID());
+      expect(missing.status).toBe(404);
+
+      const stale=await browserApi(page,root+'/'+createdId+'/cancel','POST',{expectedRevision:1});
+      expect(stale.status).toBe(409);
+      const cancelled=await browserApi(page,root+'/'+createdId+'/cancel','POST',
+        {expectedRevision:0});
+      expect(cancelled.status).toBe(201);
+      expect(cancelled.body).toMatchObject({id:createdId,status:'CANCELLED',
+        revision:1,externalActionsAlreadyExecuted:false});
+      closed=true;
+
+      const doubleCancel=await browserApi(page,root+'/'+createdId+'/cancel','POST',
+        {expectedRevision:1});
+      expect(doubleCancel.status).toBe(409);
+      const persisted=await browserApi(page,root+'/'+createdId);
+      expect(persisted.status).toBe(200);
+      expect(persisted.body).toMatchObject({id:createdId,status:'CANCELLED',revision:1});
+      expect(persisted.body.history.map(x=>x.action)).toEqual(expect.arrayContaining([
+        'DELEGATION_RECEIVED','DELEGATION_CANCELLED'
+      ]));
+      await checkOverflow(page);
+      console.log('YARA_QA_DELEGATION_BROWSER_LIFECYCLE=PASS '+info.project.name);
+    }finally{
+      // Stop incomplete synthetic QA requests; never leave a running action.
+      if(createdId&&!closed){
+        const detail=await browserApi(page,root+'/'+createdId).catch(()=>null);
+        if(detail?.status===200&&!['COMPLETED','CANCELLED','FAILED'].includes(detail.body?.status)){
+          const cleanup=await browserApi(page,root+'/'+createdId+'/cancel','POST',
+            {expectedRevision:detail.body.revision}).catch(()=>null);
+          if(cleanup?.status!==201)throw Error('DELEGATION_E2E_QA_CLEANUP_FAILED');
+        }
+      }
+    }
+  });
+});
