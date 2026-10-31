@@ -12,7 +12,7 @@ class CaseCoverageTests(unittest.TestCase):
                                .read_text(encoding="utf-8"))
         result = summary(matrix, titles)
         self.assertEqual(result["scope"], SCOPE)
-        self.assertEqual((result["requiredCases"], result["mappedCases"]), (11, 11))
+        self.assertEqual((result["requiredCases"], result["mappedCases"]), (13, 13))
         self.assertEqual(result["executionOutcome"], "NOT_EVALUATED")
         self.assertEqual(result["productionReadiness"], "NOT_EVALUATED")
         self.assertIn("NOT_GLOBAL_QDIP", result["scopeKind"])
