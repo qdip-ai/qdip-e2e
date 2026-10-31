@@ -1,0 +1,9 @@
+# Runs the existing real-site browser E2E in an existing shared Railway sandbox.
+# One-shot runner; no new infrastructure, no provider requests or credentials.
+FROM mcr.microsoft.com/playwright:v1.56.1-noble
+WORKDIR /app
+COPY scripts/autodev_recovery_browser.mjs ./autodev_recovery_browser.mjs
+RUN npm init -y >/dev/null && npm install --no-audit --no-fund --no-save @playwright/test@1.56.1
+ENV QDIP_E2E_AUTODEV_MODE=smoke
+ENV QDIP_E2E_BROWSER_EVIDENCE_DIR=/tmp/qdip-e2e-autodev
+CMD ["node","autodev_recovery_browser.mjs"]
