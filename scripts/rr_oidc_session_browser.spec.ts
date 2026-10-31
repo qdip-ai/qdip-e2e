@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { createHmac } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 // This spec is owned by the independent E2E suite and copied to the checked-out
 // qdip-web/e2e directory ONLY when the rr-oidc-session-v1 contract is required.
@@ -280,7 +280,12 @@ test('tampered isolated OIDC session never authorizes the Web BFF', async ({ pag
   expect(((await status.json()) as {authenticated: boolean}).authenticated).toBe(false)
 })
 
-test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export', async ({ page }) => {
+async function verifyFullBrowserJourney(
+  page: Page, viewport: { label: string; width: number; height: number },
+) {
+  // Genuine browser rendering with real Core/Mongo, but an isolated signed
+  // test session — this does NOT assert a live Zitadel login or RR PostgreSQL.
+  await page.setViewportSize({ width: viewport.width, height: viewport.height })
   test.setTimeout(240_000)
   const original = actualInput()
   await installIsolatedOidcSession(page)
@@ -298,6 +303,10 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   })
   const panel = page.getByTestId('rr-production-operator')
   await expect(panel).toBeVisible()
+  await expect(page.getByTestId('rr-kernel-only-workspace')).toBeVisible()
+  const initialWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(initialWidth, 'RR page overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
+
   await expect(panel.getByRole('button', { name: 'Sign out' })).toBeVisible()
 
   const field = panel.getByLabel('Kernel execution JSON')
@@ -380,6 +389,15 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   mark('history-two-executions', Array.isArray(history.executions) && history.executions.length === 2)
   expect(history.executions).toHaveLength(2)
 
+  // These screenshots are exclusively of the disposable synthetic runner.
+  // Never capture OAuth credentials or production patient/customer records.
+  const historyWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(historyWidth, 'RR history overflows ' + viewport.label).toBeLessThanOrEqual(viewport.width + 1)
+  await page.screenshot({
+    path: test.info().outputPath('rr-' + viewport.label + '-history.png'),
+    fullPage: true, animations: 'disabled',
+  })
+
   const replayResponse = page.waitForResponse((r) =>
     r.url().endsWith(`/executions/${successorId}/replay-verification`)
   )
@@ -437,6 +455,18 @@ test('isolated signed-session browser → real Core → CP-SAT → Mongo → rep
   const afterLogout = await page.request.get(`${ROUTE}/executions/${successorId}/presentation`)
   mark('logout-revocation-http', afterLogout.status())
   expect(afterLogout.status()).toBe(401)
+}
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [desktop]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"desktop","width":1440,"height":900})
+})
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [mobile portrait]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"mobile-portrait","width":390,"height":844})
+})
+
+test('isolated signed-session browser → real Core → CP-SAT → Mongo → replan → verified export [mobile landscape]', async ({ page }) => {
+  await verifyFullBrowserJourney(page, {"label":"mobile-landscape","width":844,"height":390})
 })
 
 /**
