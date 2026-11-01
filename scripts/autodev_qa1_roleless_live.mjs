@@ -159,6 +159,18 @@ async function main(){
     'QA1_DENIED_CODING_MODEL_EXPOSED');
   require_((await page.locator('.security-view__notice select').count())===0,
     'QA1_DENIED_SECURITY_MODEL_EXPOSED');
+  for(const [viewport,width,height] of [
+    ['DESKTOP',1440,900],['MOBILE_PORTRAIT',390,844],['MOBILE_LANDSCAPE',844,390]
+  ]){
+    await page.setViewportSize({width,height});
+    require_(await page.locator('button.live-monitor__login').isVisible(),
+      'QA1_DENIED_LOGIN_NOT_VISIBLE');
+    require_((await page.locator('.mission-home').count())===0,
+      'QA1_DENIED_PROTECTED_VIEW_EXPOSED');
+    require_(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
+      'QA1_DENIED_HORIZONTAL_OVERFLOW');
+    console.log('AUTODEV_QA1_DENIED_VIEWPORT_'+viewport+'=PASS');
+  }
   console.log('AUTODEV_QA1_DENIED_SESSION_CLEARED=PASS');
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
   console.log('AUTODEV_QA1_NO_FAKE_RUNS_OR_COMMANDS=PASS');
