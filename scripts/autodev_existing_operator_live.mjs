@@ -144,6 +144,38 @@ async function main(){
    assert(await work.inputValue()==='ollama/qwen2.5-coder:1.5b',
     'OPERATOR_WORK_SELECT_NOT_PERSISTED');
    await work.screenshot({path:resolve(EVIDENCE,'work-'+name+'.png')});
+   // Real signed-operator PWA; inspect the exact RR #388 control, read-only.
+   const rr=page.locator('.portfolio__command-line').filter({
+    has:page.locator('a[href="https://github.com/qdip-ai/qdip-core/issues/388"]'),
+   }).first();
+   await rr.waitFor({state:'visible',timeout:20000});
+   const actions=rr.locator('.portfolio__command-ai-launch');
+   const close=actions.locator('button.portfolio__review-action');
+   await close.waitFor({state:'visible'});
+   assert((await close.innerText()).trim()==='Завершити завислу операцію'||
+    (await close.innerText()).trim()==='Close stalled operation',
+    'OPERATOR_RR_CLOSE_ACTION_NOT_VISIBLE');
+   const bounds=await close.evaluate(button=>{
+    const rect=button.getBoundingClientRect();
+    const container=button.parentElement.getBoundingClientRect();
+    const all=[...button.parentElement.querySelectorAll('button')]
+     .map(el=>el.getBoundingClientRect()).sort((a,b)=>a.left-b.left);
+    const text=document.createRange();
+    text.selectNodeContents(button);
+    const label=text.getBoundingClientRect();
+    return {
+     contained:rect.left>=container.left-1&&rect.right<=container.right+1,
+     noOverlap:all.length<2||all[0].right<=all[1].left+1,
+     textFits:label.left>=rect.left-2&&label.right<=rect.right+2&&
+      label.top>=rect.top-2&&label.bottom<=rect.bottom+2,
+     noScroll:button.scrollWidth<=button.clientWidth+1&&
+      button.scrollHeight<=button.clientHeight+1,
+    };
+   });
+   assert(bounds.contained&&bounds.noOverlap&&bounds.textFits&&bounds.noScroll,
+    'OPERATOR_RR_CLOSE_BUTTON_OVERFLOW');
+   await actions.screenshot({path:resolve(EVIDENCE,'rr388-actions-'+name+'.png')});
+   console.log('AUTODEV_EXISTING_OPERATOR_RR388_LAYOUT_'+name+'=PASS');
    const securityTab=page.locator('nav.bottom-nav button').filter({
     hasText:/^(Безпека|Security)$/}).first();
    if(!(await securityTab.isVisible())){
