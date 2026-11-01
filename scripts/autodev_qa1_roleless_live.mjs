@@ -71,6 +71,12 @@ async function main(){
   const entry=page.locator('button.live-monitor__login');
   await entry.waitFor({state:'visible',timeout:15000});
   require_(!(await entry.isDisabled()),'QA1_ZITADEL_SIGNIN_DISABLED');
+  const issuerDocuments=[];
+  page.on('response',response=>{
+    const u=new URL(response.url());
+    if(u.origin===ISSUER&&response.request().resourceType()==='document')
+      issuerDocuments.push({path:u.pathname,status:response.status()});
+  });
   let pkce=null;
   page.on('request', request=>{
    try{
@@ -109,7 +115,15 @@ async function main(){
       const heading=(await frame.locator('h1,h2').first().textContent().catch(()=>''))||'';
       frames.push({origin:u.origin,path:u.pathname,heading:heading.trim().slice(0,80),inputs});
     }
-    console.log('AUTODEV_QA1_PUBLIC_FORM_SHAPE='+JSON.stringify(frames));
+    const publicPage=await page.evaluate(()=>({
+      ready:document.readyState,
+      title:document.title.slice(0,70),
+      text:(document.body?.innerText||'').trim().slice(0,240),
+      rootTags:[...document.body?.children||[]].slice(0,8).map(e=>e.tagName)
+    })).catch(()=>({ready:'unavailable'}));
+    console.log('AUTODEV_QA1_PUBLIC_PAGE_DIAGNOSTIC='+JSON.stringify({
+      documents:issuerDocuments.slice(-8),publicPage,frames
+    }));
   }
   require_(Boolean(username),'QA1_LOGIN_FORM_MISSING');
   await username.fill(USER);
@@ -125,10 +139,10 @@ async function main(){
   try{
    await page.waitForURL(url=>url.origin===SITE,{timeout:42000});
    await page.waitForFunction(()=>{
-     for(let i=0;i<sessionStorage.length;i++){
-       const key=sessionStorage.key(i);
+     for(let i=0;i<localStorage.length;i++){
+       const key=localStorage.key(i);
        if(key?.startsWith('oidc.user:')){
-        try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+        try{const user=JSON.parse(localStorage.getItem(key)||'{}');
           if(typeof user.access_token==='string'&&user.access_token.length>0)return true;}catch{}
        }
      }
@@ -136,10 +150,10 @@ async function main(){
    },null,{timeout:18000});
   }catch{throw Error('QA1_REAL_LOGIN_MFA_OR_CALLBACK_BLOCKED');}
   const token=await page.evaluate(()=>{
-   for(let i=0;i<sessionStorage.length;i++){
-    const key=sessionStorage.key(i);
+   for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
     if(key?.startsWith('oidc.user:')){
-     try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+     try{const user=JSON.parse(localStorage.getItem(key)||'{}');
       if(typeof user.access_token==='string')return user.access_token;}catch{}
     }
    }
