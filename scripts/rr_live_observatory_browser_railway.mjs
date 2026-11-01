@@ -3,9 +3,9 @@ import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const target = 'https://observatory.qdip.ai/en/readiness-recovery';
-if (process.env.RAILWAY_PROJECT_ID !== '36fa5cee-0a3a-4f9b-9a7a-00f2569c2ead'
- || process.env.RAILWAY_ENVIRONMENT_ID !== '7bce3f1c-81a3-4756-a0c2-50e3aae5b25d'
- || process.env.RAILWAY_SERVICE_ID !== 'fd9368b7-d23e-4888-bfe4-3b591d5d6850') {
+if (process.env.RAILWAY_PROJECT_ID !== 'b4c18e5e-9ae8-461c-921c-0ac97049be2e'
+ || process.env.RAILWAY_ENVIRONMENT_ID !== '73a05860-cec4-4678-b3bf-1d32ac363a85'
+ || process.env.RAILWAY_SERVICE_ID !== '4eedd306-8438-4255-af64-997547697057') {
  console.error('RR_BROWSER_WRONG_SANDBOX'); process.exit(2);
 }
 const viewports = [
