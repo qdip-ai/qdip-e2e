@@ -146,6 +146,19 @@ async function main(){
   const body=await denied.json().catch(()=>null);
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
+  // Independent admission/readiness routes must share the same server-side
+  // Zitadel role gate after synchronized Controller/Broker/Issuer rollout.
+  for(const route of ['/v1/autodev/manual-launch/readiness',
+                       '/v1/autodev/manual-launch/commands']){
+    const response=await context.request.get(SITE+route,{
+      headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json'},
+      maxRedirects:0,failOnStatusCode:false,timeout:15000
+    });
+    require_(response.status()===403,'QA1_PROTECTED_CONTROL_ROUTE_NOT_403');
+    require_((await response.json().catch(()=>null))?.code==='NOT_AUTHORIZED',
+      'QA1_PROTECTED_CONTROL_ROUTE_NOT_AUTHORIZED');
+  }
+  console.log('AUTODEV_QA1_PROTECTED_COMMAND_ROUTES_403=PASS');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
   const attempt=await context.request.post(SITE+'/v1/autodev/attempts/request',{
     headers:{'Authorization':'Bearer '+token,'Origin':SITE,
