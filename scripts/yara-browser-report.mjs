@@ -57,7 +57,12 @@ function reportSafeFailureDiagnostic(){
             safe[key]=typeof flags[key]==='boolean'?flags[key]:null;
           const errors=(Array.isArray(value?.failures)?value.failures:[]).slice(0,3)
             .map(x=>['RANDOM_UUID_EXCEPTION','CRYPTO_EXCEPTION','TYPE_ERROR','OTHER_PAGE_ERROR'].includes(x)?x:'OTHER_PAGE_ERROR');
-          console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe,errors}));
+          const touch=value?.touch||{};
+          const taps={};
+          for(const key of ['down','up','click','buttonDown','buttonUp','buttonClick'])
+            taps[key]=Number.isSafeInteger(touch[key])&&touch[key]>=0&&touch[key]<20?touch[key]:null;
+          taps.centerButton=typeof touch.centerButton==='boolean'?touch.centerButton:null;
+          console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe,errors,taps}));
         }
       }
     }
