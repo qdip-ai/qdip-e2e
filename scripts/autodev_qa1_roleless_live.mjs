@@ -97,6 +97,20 @@ async function main(){
    'input[name="loginname"]','input[name="username"]',
    'input[name="email"]','input[type="email"]','input[type="text"]'
   ]);
+  if(!username){
+    // Public login DOM shape only: never inspect credentials, tokens, URL queries or input values.
+    const frames=[];
+    for(const frame of page.frames()){
+      const u=new URL(frame.url());
+      const inputs=await frame.locator('input').evaluateAll(els=>els.slice(0,10).map(el=>({
+        type:el.getAttribute('type')||'',name:el.getAttribute('name')||'',
+        autocomplete:el.getAttribute('autocomplete')||''
+      }))).catch(()=>[]);
+      const heading=(await frame.locator('h1,h2').first().textContent().catch(()=>''))||'';
+      frames.push({origin:u.origin,path:u.pathname,heading:heading.trim().slice(0,80),inputs});
+    }
+    console.log('AUTODEV_QA1_PUBLIC_FORM_SHAPE='+JSON.stringify(frames));
+  }
   require_(Boolean(username),'QA1_LOGIN_FORM_MISSING');
   await username.fill(USER);
   let password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],1000);
