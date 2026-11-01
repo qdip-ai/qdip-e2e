@@ -7,7 +7,7 @@
 import { chromium } from '@playwright/test';
 import { createPublicKey, verify } from 'node:crypto';
 
-const SITE='https://autodev-mission-control-pwa-staging.up.railway.app';
+const SITE='https://autodev.qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const PROJECT='394565917515719957';
 const ORG='368555767923594379';
