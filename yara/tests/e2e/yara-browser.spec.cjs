@@ -318,7 +318,7 @@ test.describe('@delegation-ui real QA user workflow',()=>{
       // Capture only the synthetic delegation panel, not unrelated personal
       // task titles or the QA user's account header.
       const dest=info.outputPath('delegation-ui.png');
-      await panel.screenshot({path:dest,animations:'disabled'});
+      await card.screenshot({path:dest,animations:'disabled'});
       await info.attach('delegation-ui',{path:dest,contentType:'image/png'});
       console.log('YARA_QA_DELEGATION_UI=PASS '+info.project.name);
     }finally{
