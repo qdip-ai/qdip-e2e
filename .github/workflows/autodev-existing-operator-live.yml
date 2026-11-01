@@ -1,0 +1,69 @@
+name: AutoDev existing TEST2 operator model-controls E2E
+on:
+  push:
+    branches:
+      - test/autodev-model-controls
+    paths:
+      - scripts/autodev_existing_operator_live.mjs
+      - .github/workflows/autodev-existing-operator-live.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: autodev-existing-operator-live
+  cancel-in-progress: false
+jobs:
+  existing-operator-model-controls:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate existing TEST2 binding without printing identifiers
+        env:
+          LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$LOGIN" || -z "$PASSWORD" ]]; then
+            echo EXISTING_TEST2_CREDENTIAL_BINDING=MISSING
+            exit 1
+          fi
+          echo EXISTING_TEST2_CREDENTIAL_BINDING=PRESENT
+      - name: Check read-only operator test source
+        run: node --check scripts/autodev_existing_operator_live.mjs
+      - name: Install isolated Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/autodev-operator"
+          cp scripts/autodev_existing_operator_live.mjs "$RUNNER_TEMP/autodev-operator/"
+          cd "$RUNNER_TEMP/autodev-operator"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Existing signed operator role and 3-viewport real model E2E
+        env:
+          QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/autodev-operator/widgets
+          CI: 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/autodev-operator"
+          node autodev_existing_operator_live.mjs
+      - name: Public-safe CROPPED model-control screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autodev-existing-operator-model-widgets
+          path: ${{ runner.temp }}/autodev-operator/widgets
+          if-no-files-found: ignore
+          retention-days: 3
