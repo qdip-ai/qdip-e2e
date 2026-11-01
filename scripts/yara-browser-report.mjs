@@ -62,6 +62,17 @@ function reportSafeFailureDiagnostic(){
           for(const key of ['down','up','click','buttonDown','buttonUp','buttonClick'])
             taps[key]=Number.isSafeInteger(touch[key])&&touch[key]>=0&&touch[key]<20?touch[key]:null;
           taps.centerButton=typeof touch.centerButton==='boolean'?touch.centerButton:null;
+          for(const kind of ['down','up']){
+            const state=touch[kind+'State']||{};
+            taps[kind+'State']={
+              buttonTop:Number.isFinite(state.buttonTop)?Math.round(state.buttonTop):null,
+              buttonBottom:Number.isFinite(state.buttonBottom)?Math.round(state.buttonBottom):null,
+              scrollY:Number.isFinite(state.scrollY)?Math.round(state.scrollY):null,
+              tabbarPosition:['static','fixed','sticky','absent'].includes(state.tabbarPosition)?state.tabbarPosition:'other',
+              textareaFocused:typeof state.textareaFocused==='boolean'?state.textareaFocused:null,
+              targetIsButton:typeof state.targetIsButton==='boolean'?state.targetIsButton:null
+            };
+          }
           console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe,errors,taps}));
         }
       }
