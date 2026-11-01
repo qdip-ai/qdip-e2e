@@ -37,6 +37,24 @@ class RunnerIntegrityTests(unittest.TestCase):
         for title in titles:
             self.assertEqual(sum(title.startswith(prefix) for prefix in required), 1)
 
+    def test_sdk_admission_subprocess_uses_executable_not_assignment(self) -> None:
+        """safe_stage executes argv directly, so env assignments need env(1)."""
+        import shlex
+        source = (Path(__file__).resolve().parents[1] / "scripts/run_real_e2e.sh").read_text()
+        digest = next(line.strip() for line in source.splitlines()
+                      if "admit_disposable_sdk_worker.py digest" in line)
+        approval = next(line.strip() for line in source.splitlines()
+                        if "admit_disposable_sdk_worker.py approve" in line)
+        self.assertIn(
+            "PYTHONPATH=. python ../suite/scripts/admit_disposable_sdk_worker.py digest",
+            digest,
+        )
+        self.assertEqual(
+            shlex.split(approval.split("-- ", 1)[1])[:3],
+            ["env", "PYTHONPATH=.", "python"],
+        )
+        self.assertIn("admit_disposable_sdk_worker.py approve", approval)
+
     def test_suite_fingerprint_ignores_generated_cache_and_untracked_files(self) -> None:
         first = watch_core.fingerprint()
         root = Path(__file__).resolve().parents[1]
