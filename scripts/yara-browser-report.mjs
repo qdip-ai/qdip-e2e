@@ -26,6 +26,41 @@ const projects=['desktop-chromium','mobile-portrait-chromium','mobile-landscape-
   'desktop-webkit','mobile-portrait-webkit','mobile-landscape-webkit'];
 const expected=scope==='full'?24:6;
 const seen=new Set();
+function reportSafeFailureDiagnostic(){
+  for(const spec of specs)for(const t of spec.tests||[]){
+    if(t.status!=='unexpected')continue;
+    const result=t.results?.[0]||{};
+    const chunks=[...(result.stdout||[]),...(result.stderr||[])];
+    const output=chunks.map(x=>typeof x==='string'?x:(typeof x?.text==='string'?x.text:'')).join('');
+    for(const line of output.split('\n')){
+      for(const kind of ['YARA_VIEWPORT_OVERFLOW','YARA_QA_UI_NO_POST_DIAGNOSTIC']){
+        const marker=kind+'=';
+        const offset=line.indexOf(marker);
+        if(offset<0)continue;
+        let value;
+        try{value=JSON.parse(line.slice(offset+marker.length));}catch{continue;}
+        if(kind==='YARA_VIEWPORT_OVERFLOW'){
+          const phase=['public-login','public-privacy','today','tasks','plans','delegation-api','delegation-ui'].includes(value?.phase)?value.phase:'unknown';
+          const size=value?.size||{};
+          const nums={viewport:Number(size.viewport)||0,document:Number(size.document)||0,body:Number(size.body)||0};
+          const outside=(Array.isArray(value?.outside)?value.outside:[]).slice(0,6).map(x=>({
+            tag:/^[A-Z]{1,12}$/.test(x?.tag)?x.tag:'OTHER',
+            className:/^[a-zA-Z0-9_-]{1,48}$/.test(x?.className)?x.className:'other',
+            right:Number.isFinite(x?.right)?Math.round(x.right):0
+          }));
+          console.error('YARA_SAFE_OVERFLOW='+JSON.stringify({project:t.projectName,phase,size:nums,outside}));
+        }else{
+          const flags=value?.flags||{};
+          const safe={};
+          for(const key of ['inputHasValue','buttonPresent','buttonDisabled','alertVisible',
+            'delegationVisible','serviceWorkerActive','pathIsRoot'])
+            safe[key]=typeof flags[key]==='boolean'?flags[key]:null;
+          console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe}));
+        }
+      }
+    }
+  }
+}
 function failMatrix(reason){
   // Only authored test-class names, bounded project IDs and status enums.
   // No authenticated page output, response bodies, cookies or token metadata.
@@ -37,6 +72,7 @@ function failMatrix(reason){
     result:['passed','failed','timedOut','skipped','interrupted'].includes(t.result)?t.result:'other',
     line:t.errorLine,errorClass:t.errorClass
   }))));
+  reportSafeFailureDiagnostic();
   throw Error(reason);
 }
 for(const t of tests){
