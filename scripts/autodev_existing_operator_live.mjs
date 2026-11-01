@@ -11,8 +11,8 @@ const SITE='https://autodev.qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const PROJECT='394565917515719957', ORG='368555767923594379';
 const CLIENT='395658023814660262';
-const USER=process.env.QDIP_E2E_ZITADEL_TEST2_LOGIN;
-const PASSWORD=process.env.QDIP_E2E_ZITADEL_TEST2_PASSWORD;
+const USER=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
+const PASSWORD=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
 const EVIDENCE=resolve(process.env.QDIP_E2E_BROWSER_EVIDENCE_DIR||'/tmp/autodev-operator-controls');
 const VIEWS=[['DESKTOP',1440,900],['MOBILE_PORTRAIT',390,844],['MOBILE_LANDSCAPE',844,390]];
 const assert=(ok,code)=>{if(!ok)throw Error(code)};
@@ -53,13 +53,13 @@ async function verifyExistingOperator(token){
   assert(claims.email.toLowerCase()===USER.toLowerCase(),'OPERATOR_SUBJECT_MISMATCH');
  const roles=claims['urn:zitadel:iam:org:project:'+PROJECT+':roles'];
  assert(typeof roles?.autodev_operator?.[ORG]==='string'&&
-  roles.autodev_operator[ORG].length>0,'EXISTING_TEST2_NOT_AUTODEV_OPERATOR');
- console.log('AUTODEV_EXISTING_TEST2_REAL_OPERATOR_ROLE=PASS');
+  roles.autodev_operator[ORG].length>0,'EXISTING_TEST_NOT_AUTODEV_OPERATOR');
+ console.log('AUTODEV_EXISTING_TEST_REAL_OPERATOR_ROLE=PASS');
 }
 async function main(){
  assert(typeof USER==='string'&&USER.length>0&&
   typeof PASSWORD==='string'&&PASSWORD.length>0,
-  'EXISTING_TEST2_CREDENTIAL_BINDING_MISSING');
+  'EXISTING_TEST_CREDENTIAL_BINDING_MISSING');
  mkdirSync(EVIDENCE,{recursive:true});
  const browser=await chromium.launch({headless:true});
  const context=await browser.newContext({viewport:{width:1440,height:900},
@@ -83,7 +83,7 @@ async function main(){
   await page.waitForURL(u=>u.origin===ISSUER,{timeout:30000});
   assert(pkce?.client===CLIENT&&pkce.method==='S256'&&
    pkce.redirect===SITE+'/auth/callback','OPERATOR_PKCE_CONFIG_MISMATCH');
-  console.log('AUTODEV_EXISTING_TEST2_PKCE=PASS');
+  console.log('AUTODEV_EXISTING_TEST_PKCE=PASS');
   const username=await formField(page,['input[autocomplete="username"]',
    'input[name="loginName"]','input[name="loginname"]','input[name="email"]',
    'input[type="email"]','input[type="text"]']);
@@ -123,7 +123,7 @@ async function main(){
    failOnStatusCode:false,maxRedirects:0,timeout:16000,
   });
   assert(monitor.status()===200,'EXISTING_OPERATOR_BACKEND_MONITOR_NOT_200');
-  console.log('AUTODEV_EXISTING_TEST2_BACKEND_ROLE=PASS');
+  console.log('AUTODEV_EXISTING_TEST_BACKEND_ROLE=PASS');
   let postCount=0,jsErrors=0;
   page.on('request',req=>{
    if(req.method()==='POST'&&new URL(req.url()).pathname.startsWith('/v1/autodev/'))
