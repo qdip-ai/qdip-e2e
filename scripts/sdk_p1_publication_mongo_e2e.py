@@ -232,6 +232,43 @@ async def main() -> None:
             pending = await api.list_pending_plugin_submissions()
             check("suspended_record_left_review_queue",
                   all(row["plugin_name"] != name_a for row in pending["items"]))
+            # A Worker with no external app URL is a legitimate SDK plugin.
+            # Its live publisher/application ownership, not a DNS record,
+            # must advance it to security review without public URL approval.
+            owner_headless = TenantContext(
+                organization_id="e2e-headless-org",
+                key_id="e2e-worker-headless", plugin_id="p1-test",
+                scopes=["plugins:register"], allowed_capabilities=["p1.plan"],
+            )
+            headless_name = remote_catalog_id("e2e-headless-org", "p1-test")
+            await db["plugin_publications"].insert_one(
+                row("e2e-headless-org", "e2e-worker-headless")
+            )
+            headless_submission = await api.submit_plugin_for_review(
+                headless_name, input_a.model_copy(update={
+                    "application_launch_url": None,
+                }), owner=owner_headless, authorization="Bearer test-only",
+            )
+            check("headless_pending_identity_proof",
+                  headless_submission["status"] == "PENDING_OWNERSHIP_VERIFICATION"
+                  and headless_submission["domain_proof"] is None)
+            headless_verified = await api.verify_own_plugin_domain(
+                headless_name, api.VerifyDomainInput(expected_revision=1),
+                owner=owner_headless, authorization="Bearer test-only",
+            )
+            check("headless_owned_app_advances_to_security_review",
+                  headless_verified["status"] == "PENDING_SECURITY_REVIEW"
+                  and headless_verified["catalog"]["launch_url_verified"] is False
+                  and headless_verified["expected_revision"] == 2)
+            headless_audit = await db["plugin_publication_submission_audit"].find(
+                {"plugin_name": headless_name}
+            ).to_list(length=10)
+            check("headless_audit_and_private_catalog",
+                  {item["action"] for item in headless_audit}
+                  == {"REQUEST_REVIEW", "HEADLESS_APPLICATION_VERIFIED"}
+                  and (await db["plugin_publications"].find_one(
+                      {"_id": headless_name}
+                  ))["published"] is False)
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
         print("QDIP_SDK_P1_REAL_WORKER_EXECUTION=NOT_TESTED", flush=True)
