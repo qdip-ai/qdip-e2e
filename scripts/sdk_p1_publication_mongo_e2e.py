@@ -170,21 +170,52 @@ async def main() -> None:
                 check("other_org_cannot_claim_our_domain", exc.status_code == 409)
             else:
                 raise AssertionError("domain squatting accepted")
-            revoked_workers = []
-            async def record_local_revoke(tenant_id, plugin_id):
-                stored = await db["plugin_publications"].find_one({"_id": name_a})
-                if stored["security"]["state"] != "quarantined":
-                    raise AssertionError("Worker disconnected before Mongo commit")
-                revoked_workers.append((tenant_id, plugin_id))
-            with patch("app.remote_plugins.bridge.hub.revoke_plugin",
-                       new=record_local_revoke):
-                decision = await api.moderate_plugin_submission(
-                    name_a, api.ModerationInput(expected_revision=2, action="suspend",
-                        reason="Reviewer quarantined untrusted plugin"),
-                    x_qdip_actor="e2e-reviewer",
-                )
-            check("suspension_revokes_local_worker_after_commit",
-                  revoked_workers == [("e2e-org-a", "p1-test")])
+            # Register two real in-process Core Hub leases; only the WebSocket
+            # transport is replaced with a deterministic socket recorder.
+            from time import monotonic
+            from app.remote_plugins.bridge import (
+                WorkerManifest, Pending, RemoteUnavailable,
+            )
+            class CaptureSocket:
+                def __init__(self):
+                    self.sent = []
+                async def send_json(self, frame):
+                    self.sent.append(frame)
+            manifest = WorkerManifest(
+                type="REGISTER", protocol_version="0.1", plugin_id="p1-test",
+                plugin_version="0.1.0", capabilities=[{
+                    "id": "p1.plan", "version": "1",
+                    "output_type": "decision_spec", "schema_version": "1.0.0",
+                }],
+            )
+            socket_a, socket_b = CaptureSocket(), CaptureSocket()
+            active_a = await api.hub.register(socket_a, owner_a, manifest)
+            active_b = await api.hub.register(socket_b, owner_b, manifest)
+            check("both_tenant_worker_leases_active",
+                  active_a.active and active_b.active)
+            inflight = asyncio.get_running_loop().create_future()
+            active_a.pending["e2e-running"] = Pending(
+                attempt_id="e2e-attempt", future=inflight,
+                expires=monotonic() + 30,
+            )
+            decision = await api.moderate_plugin_submission(
+                name_a, api.ModerationInput(expected_revision=2, action="suspend",
+                    reason="Reviewer quarantined untrusted plugin"),
+                x_qdip_actor="e2e-reviewer",
+            )
+            check("suspension_revokes_live_core_hub_worker",
+                  not active_a.active and active_b.active
+                  and not await api.hub.is_registered("e2e-org-a", "p1-test", "0.1.0"))
+            check("suspension_sends_inflight_cancel",
+                  socket_a.sent == [{
+                      "type": "CANCEL", "execution_id": "e2e-running",
+                      "attempt_id": "e2e-attempt",
+                  }])
+            check("inflight_future_cancelled", inflight.done()
+                  and isinstance(inflight.exception(), RemoteUnavailable))
+            check("other_tenant_connection_untouched",
+                  await api.hub.is_registered("e2e-org-b", "p1-test", "0.1.0"))
+            await api.hub.disconnect(active_b)
             check("audited_admin_suspension",
                   decision["status"] == "SUSPENDED"
                   and decision["expected_revision"] == 3)
