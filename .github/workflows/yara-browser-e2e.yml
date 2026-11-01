@@ -55,7 +55,7 @@ jobs:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
       YARA_E2E_BASE_URL: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'https://yara-qa-web-sandbox.up.railway.app' || inputs.target_url || 'https://yara.qdip.ai' }}
-      YARA_E2E_EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && '4320495f7c26281c5690c098fdb1026ecfa10386' || inputs.yara_sha || '' }}
+      YARA_E2E_EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'f822883e69cf8138f163b9e2c7bd1f7dd77574d1' || inputs.yara_sha || '' }}
       YARA_E2E_SCOPE: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 104 && 'full' || inputs.scope || 'public' }}
     steps:
       - name: Checkout independent qdip-e2e suite
