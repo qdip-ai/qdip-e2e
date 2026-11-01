@@ -92,6 +92,10 @@ async def main() -> None:
             outcomes = [a, b]
             good = [x for x in outcomes if isinstance(x, dict)]
             denied = [x for x in outcomes if isinstance(x, HTTPException)]
+            print("SDK_P1_CONCURRENT_OUTCOMES=" + ",".join(
+                "OK" if isinstance(item, dict) else
+                ("HTTP_" + str(item.status_code) if isinstance(item, HTTPException)
+                 else type(item).__name__) for item in outcomes), flush=True)
             check("concurrent_first_writer_wins",
                   len(good) == 1 and len(denied) == 1 and denied[0].status_code == 409)
             read = await api.get_own_plugin_submission(name_a, owner=owner_a,
