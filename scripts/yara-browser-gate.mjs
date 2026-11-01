@@ -20,8 +20,10 @@ function validUrl(){
 const base=validUrl();
 if(!/^[0-9a-f]{40}$/.test(sha||''))fail('YARA_SHA_INVALID');
 if(!['public','full'].includes(scope))fail('YARA_SCOPE_INVALID');
-if(scope==='full' && base.origin==='https://yara.qdip.ai')
-  fail('YARA_FULL_GATE_REQUIRES_ISOLATED_QA_DEPLOYMENT');
+// These credentials may only be submitted to the existing owner-controlled
+// Railway QA Web service. A generic *.up.railway.app hostname is untrusted.
+if(scope==='full' && base.hostname!=='yara-qa-web-sandbox.up.railway.app')
+  fail('YARA_FULL_GATE_TARGET_UNAPPROVED');
 if(mode==='validate'){
   console.log('YARA_INPUTS_VALIDATED=PASS');
 }else if(mode==='attest'){
