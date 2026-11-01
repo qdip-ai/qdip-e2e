@@ -71,12 +71,6 @@ async function main(){
   const entry=page.locator('button.live-monitor__login');
   await entry.waitFor({state:'visible',timeout:15000});
   require_(!(await entry.isDisabled()),'QA1_ZITADEL_SIGNIN_DISABLED');
-  const issuerDocuments=[];
-  page.on('response',response=>{
-    const u=new URL(response.url());
-    if(u.origin===ISSUER&&response.request().resourceType()==='document')
-      issuerDocuments.push({path:u.pathname,status:response.status()});
-  });
   let pkce=null;
   page.on('request', request=>{
    try{
@@ -103,28 +97,6 @@ async function main(){
    'input[name="loginname"]','input[name="username"]',
    'input[name="email"]','input[type="email"]','input[type="text"]'
   ]);
-  if(!username){
-    // Public login DOM shape only: never inspect credentials, tokens, URL queries or input values.
-    const frames=[];
-    for(const frame of page.frames()){
-      const u=new URL(frame.url());
-      const inputs=await frame.locator('input').evaluateAll(els=>els.slice(0,10).map(el=>({
-        type:el.getAttribute('type')||'',name:el.getAttribute('name')||'',
-        autocomplete:el.getAttribute('autocomplete')||''
-      }))).catch(()=>[]);
-      const heading=(await frame.locator('h1,h2').first().textContent().catch(()=>''))||'';
-      frames.push({origin:u.origin,path:u.pathname,heading:heading.trim().slice(0,80),inputs});
-    }
-    const publicPage=await page.evaluate(()=>({
-      ready:document.readyState,
-      title:document.title.slice(0,70),
-      text:(document.body?.innerText||'').trim().slice(0,240),
-      rootTags:[...document.body?.children||[]].slice(0,8).map(e=>e.tagName)
-    })).catch(()=>({ready:'unavailable'}));
-    console.log('AUTODEV_QA1_PUBLIC_PAGE_DIAGNOSTIC='+JSON.stringify({
-      documents:issuerDocuments.slice(-8),publicPage,frames
-    }));
-  }
   require_(Boolean(username),'QA1_LOGIN_FORM_MISSING');
   await username.fill(USER);
   let password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],1000);
@@ -175,25 +147,19 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
-  const finalPwa=await page.goto(SITE,{waitUntil:'domcontentloaded'});
-  const warning=await page.locator('.live-monitor__warning').waitFor({state:'visible',timeout:18000})
-    .then(()=>true).catch(()=>false);
-  if(!warning){
-    // Never log the user's identity, token, cookies, URL parameters or page text.
-    const state=await page.evaluate(()=>({
-      mainClass:document.querySelector('main')?.className||'',
-      loginVisible:[...document.querySelectorAll('button.live-monitor__login')]
-        .some(el=>el.getClientRects().length>0),
-      alertCount:document.querySelectorAll('[role="alert"]').length,
-      tokenStored:[...Array(localStorage.length).keys()]
-        .some(i=>localStorage.key(i)?.startsWith('oidc.user:')),
-      protectedViews:document.querySelectorAll('.mission-home').length
-    }));
-    console.log('AUTODEV_QA1_DENIED_UI_DIAGNOSTIC='+JSON.stringify({
-      http:finalPwa?.status(),path:new URL(page.url()).pathname,...state
-    }));
-  }
-  require_(warning,'QA1_DENIED_UI_WARNING_MISSING');
+  // The application deliberately discards a denied OIDC user. After reload,
+  // unauthorised users must see sign-in, never protected mission content.
+  await page.goto(SITE,{waitUntil:'domcontentloaded'});
+  await page.locator('button.live-monitor__login').waitFor({state:'visible',timeout:18000});
+  const retainedToken=await page.evaluate(()=>
+    [...Array(localStorage.length).keys()]
+      .some(i=>localStorage.key(i)?.startsWith('oidc.user:')));
+  require_(!retainedToken,'QA1_DENIED_OIDC_TOKEN_RETAINED');
+  require_((await page.locator('.live-monitor__runs select').count())===0,
+    'QA1_DENIED_CODING_MODEL_EXPOSED');
+  require_((await page.locator('.security-view__notice select').count())===0,
+    'QA1_DENIED_SECURITY_MODEL_EXPOSED');
+  console.log('AUTODEV_QA1_DENIED_SESSION_CLEARED=PASS');
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
   console.log('AUTODEV_QA1_NO_FAKE_RUNS_OR_COMMANDS=PASS');
   console.log('AUTODEV_QA1_LIVE_NEGATIVE_ZITADEL_E2E=PASS');
