@@ -1,5 +1,10 @@
 name: AutoDev QA1 real Zitadel no-operator E2E
 on:
+  push:
+    branches:
+      - test/autodev-model-controls
+    paths:
+      - .github/workflows/autodev-qa1-roleless-live.yml
   workflow_dispatch:
 permissions:
   contents: read
