@@ -132,6 +132,65 @@ async def main() -> None:
             check("no_secret_in_response",
                   "submitter_key_id" not in read and "tenant_id" not in read
                   and "publisher_subject" not in read)
+            # DNS network is deterministic in this test; the real Mongo
+            # reservation, CAS and audit transactions are not mocked.
+            proof = read.get("domain_proof")
+            check("private_dns_challenge",
+                  isinstance(proof, dict)
+                  and proof["record_name"] == "_qdip-plugin.developer.example.org"
+                  and "domain_proof" not in rows["items"][0])
+            async def verified_dns(_proof):
+                return True
+            st.enter_context(patch.object(api, "verify_dns_txt", verified_dns))
+            ownership = await api.verify_own_plugin_domain(
+                name_a, api.VerifyDomainInput(expected_revision=1),
+                owner=owner_a, authorization="Bearer test-only",
+            )
+            check("dns_to_security_review",
+                  ownership["status"] == "PENDING_SECURITY_REVIEW"
+                  and ownership["expected_revision"] == 2
+                  and ownership["catalog"]["launch_url_verified"] is True)
+            claim = await db["plugin_publisher_domains"].find_one(
+                {"_id": "developer.example.org"}
+            )
+            check("exclusive_domain_claim",
+                  claim["plugin_name"] == name_a
+                  and claim["tenant_id"] == "e2e-org-a")
+            other = await api.submit_plugin_for_review(
+                name_b, input_a, owner=owner_b, authorization="Bearer test-only",
+            )
+            check("other_org_can_submit_own_plugin",
+                  other["status"] == "PENDING_OWNERSHIP_VERIFICATION")
+            try:
+                await api.verify_own_plugin_domain(
+                    name_b, api.VerifyDomainInput(expected_revision=1),
+                    owner=owner_b, authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("other_org_cannot_claim_our_domain", exc.status_code == 409)
+            else:
+                raise AssertionError("domain squatting accepted")
+            decision = await api.moderate_plugin_submission(
+                name_a, api.ModerationInput(expected_revision=2, action="suspend",
+                    reason="Reviewer quarantined untrusted plugin"),
+                x_qdip_actor="e2e-reviewer",
+            )
+            check("audited_admin_suspension",
+                  decision["status"] == "SUSPENDED"
+                  and decision["expected_revision"] == 3)
+            record = await db["plugin_publications"].find_one({"_id": name_a})
+            check("suspend_quarantines_worker",
+                  record["published"] is False
+                  and record["security"]["state"] == "quarantined")
+            audit = await db["plugin_publication_submission_audit"].find(
+                {"plugin_name": name_a}).to_list(length=10)
+            check("transactional_review_audit",
+                  len(audit) == 3
+                  and {row["action"] for row in audit}
+                  == {"REQUEST_REVIEW", "DNS_DOMAIN_VERIFIED", "SUSPEND"})
+            pending = await api.list_pending_plugin_submissions()
+            check("suspended_record_left_review_queue",
+                  all(row["plugin_name"] != name_a for row in pending["items"]))
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
         print("QDIP_SDK_P1_REAL_WORKER_EXECUTION=NOT_TESTED", flush=True)
