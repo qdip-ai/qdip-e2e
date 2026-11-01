@@ -68,49 +68,27 @@ jobs:
           [[ "$YARA_E2E_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'YARA_SOURCE_SHA_INVALID'; exit 1; }
           node suite/scripts/yara-browser-gate.mjs validate
 
-      - name: Require existing restricted source-read token
-        env:
-          QDIP_READ_TOKEN: ${{ secrets.QDIP_READ_TOKEN }}
-        run: test -n "$QDIP_READ_TOKEN"
-
-      - name: Checkout private Yara at immutable commit
-        uses: actions/checkout@v4
-        with:
-          repository: qdip-ai/qdip-personal-secretary
-          token: ${{ secrets.QDIP_READ_TOKEN }}
-          ref: ${{ env.YARA_E2E_EXPECTED_SHA }}
-          path: yara
-          persist-credentials: false
-
-      - name: Confirm immutable checkout and test contracts
+      - name: Check centralized browser suite syntax
         shell: bash
         run: |
           set -euo pipefail
-          actual="$(git -C yara rev-parse HEAD)"
-          test "$actual" = "$YARA_E2E_EXPECTED_SHA" || { echo 'YARA_SOURCE_SHA_MISMATCH'; exit 1; }
           node --check suite/scripts/yara-browser-gate.mjs
           node --check suite/scripts/yara-browser-report.mjs
-          node --check yara/playwright.config.cjs
-          node --check yara/tests/e2e/yara-browser.spec.cjs
-          test -f yara/pnpm-lock.yaml
-          echo "YARA_PINNED_SOURCE_SHA=$actual"
+          node --check suite/scripts/yara-playwright.config.cjs
+          node --check suite/scripts/yara-browser.spec.cjs
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.7
-          run_install: false
-
-      - name: Install pinned private Yara browser tests
-        working-directory: yara
-        run: pnpm install --frozen-lockfile
-
-      - name: Install real Chromium and WebKit
-        working-directory: yara
-        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Install pinned isolated browser runner and engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd suite
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.56.1
+          npx playwright install --with-deps chromium webkit
 
       - name: Check real QA deploy source SHA before authenticated testing
         if: inputs.scope == 'full'
@@ -132,7 +110,6 @@ jobs:
         env:
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
           QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
-          YARA_SOURCE_DIR: ${{ github.workspace }}/yara
           YARA_E2E_QA_STATE_FILE: ${{ runner.temp }}/yara-qa-storage-state.json
         run: node suite/scripts/yara-browser-gate.mjs login
 
@@ -145,16 +122,16 @@ jobs:
           if [[ "$YARA_E2E_SCOPE" == 'full' ]]; then
             export YARA_E2E_QA_STATE_FILE="$RUNNER_TEMP/yara-qa-storage-state.json"
           fi
-          cd yara
+          cd suite
           set +e
           if [[ "$YARA_E2E_SCOPE" == 'public' ]]; then
-            pnpm exec playwright test --grep '@public' --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
+            npx playwright test --config scripts/yara-playwright.config.cjs --grep '@public' --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
           else
-            pnpm exec playwright test --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
+            npx playwright test --config scripts/yara-playwright.config.cjs --reporter=json > "$RUNNER_TEMP/yara-playwright.json" 2> "$RUNNER_TEMP/yara-playwright.stderr"
           fi
           browser_exit=$?
           set -e
-          node ../suite/scripts/yara-browser-report.mjs "$RUNNER_TEMP/yara-playwright.json" "$YARA_E2E_SCOPE"
+          node scripts/yara-browser-report.mjs "$RUNNER_TEMP/yara-playwright.json" "$YARA_E2E_SCOPE"
           test "$browser_exit" -eq 0
 
       - name: Upload public login screenshots only
@@ -162,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: yara-public-login-browser-evidence
-          path: yara/test-results/**/login.png
+          path: suite/test-results/**/login.png
           if-no-files-found: error
           retention-days: 7
 
