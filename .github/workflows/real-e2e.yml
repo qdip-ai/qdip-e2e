@@ -2,6 +2,8 @@ name: QDIP independent real E2E
 run-name: QDIP E2E ${{ github.event.client_payload.backend_sha || inputs.backend_ref || github.sha }}
 
 on:
+  push:
+    branches: ['fix/rr-sdk-admission-syspath']
   repository_dispatch:
     types: [qdip-core-updated, rr-pr-ready]
   workflow_dispatch:
