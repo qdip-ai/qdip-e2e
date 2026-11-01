@@ -124,6 +124,16 @@ async function main(){
   });
   assert(monitor.status()===200,'EXISTING_OPERATOR_BACKEND_MONITOR_NOT_200');
   console.log('AUTODEV_EXISTING_TEST_BACKEND_ROLE=PASS');
+  // Read-only; record whether this existing test identity can exercise
+  // stage-closer recovery. Never mint roles or execute a destructive POST.
+  const closer=await context.request.get(SITE+'/v1/autodev/stage-closer/whoami',{
+   headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json'},
+   failOnStatusCode:false,maxRedirects:0,timeout:16000,
+  });
+  assert([200,403].includes(closer.status()),'OPERATOR_STAGE_CLOSER_PROBE_UNEXPECTED');
+  console.log('AUTODEV_EXISTING_OPERATOR_STAGE_CLOSER_ROLE='+
+   (closer.status()===200?'GRANTED':'DENIED'));
+
   let postCount=0,jsErrors=0;
   page.on('request',req=>{
    if(req.method()==='POST'&&new URL(req.url()).pathname.startsWith('/v1/autodev/'))
