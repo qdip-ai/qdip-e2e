@@ -247,6 +247,20 @@ test.describe('@delegation-ui real QA user workflow',()=>{
         const onEvent=event=>{
           const kind={pointerdown:'down',pointerup:'up',click:'click'}[event.type];
           signals[kind]++;
+          if(kind==='down'||kind==='up'){
+            const button=[...document.querySelectorAll('button')].find(b=>
+              /^(Delegate|Доручити)$/.test(b.textContent?.trim()||''));
+            const rect=button?.getBoundingClientRect();
+            const nav=document.querySelector('.tabbar');
+            signals[kind+'State']={
+              buttonTop:rect?Math.round(rect.top):null,
+              buttonBottom:rect?Math.round(rect.bottom):null,
+              scrollY:Math.round(window.scrollY),
+              tabbarPosition:nav?getComputedStyle(nav).position:'absent',
+              textareaFocused:document.activeElement?.id==='assistant-command',
+              targetIsButton:event.composedPath().includes(button)
+            };
+          }
           if(event.composedPath().some(el=>el.tagName==='BUTTON'&&
             /^(Delegate|Доручити)$/.test(el.textContent?.trim()||''))){
             const key={down:'buttonDown',up:'buttonUp',click:'buttonClick'}[kind];
