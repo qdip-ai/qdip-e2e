@@ -53,9 +53,11 @@ function reportSafeFailureDiagnostic(){
           const flags=value?.flags||{};
           const safe={};
           for(const key of ['inputHasValue','buttonPresent','buttonDisabled','alertVisible',
-            'delegationVisible','serviceWorkerActive','pathIsRoot'])
+            'delegationVisible','serviceWorkerActive','pathIsRoot','hasRandomUUID','secureContext'])
             safe[key]=typeof flags[key]==='boolean'?flags[key]:null;
-          console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe}));
+          const errors=(Array.isArray(value?.failures)?value.failures:[]).slice(0,3)
+            .map(x=>['RANDOM_UUID_EXCEPTION','CRYPTO_EXCEPTION','TYPE_ERROR','OTHER_PAGE_ERROR'].includes(x)?x:'OTHER_PAGE_ERROR');
+          console.error('YARA_SAFE_UI_NO_POST='+JSON.stringify({project:t.projectName,flags:safe,errors}));
         }
       }
     }
