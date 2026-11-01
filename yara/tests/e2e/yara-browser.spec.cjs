@@ -241,6 +241,26 @@ test.describe('@delegation-ui real QA user workflow',()=>{
       },{timeout:15000});
       const delegateButton=page.getByRole('button',{name:/^(Delegate|Доручити)$/});
       await expect(delegateButton).toBeEnabled();
+      await page.evaluate(()=>{
+        const signals={down:0,up:0,click:0,buttonDown:0,buttonUp:0,buttonClick:0,centerButton:false};
+        window.__qaDelegateTouch=signals;
+        const onEvent=event=>{
+          const kind={pointerdown:'down',pointerup:'up',click:'click'}[event.type];
+          signals[kind]++;
+          if(event.composedPath().some(el=>el.tagName==='BUTTON'&&
+            /^(Delegate|Доручити)$/.test(el.textContent?.trim()||''))){
+            const key={down:'buttonDown',up:'buttonUp',click:'buttonClick'}[kind];
+            signals[key]++;
+          }
+        };
+        for(const type of ['pointerdown','pointerup','click'])
+          document.addEventListener(type,onEvent,{capture:true,once:false});
+        const btn=[...document.querySelectorAll('button')].find(b=>
+          /^(Delegate|Доручити)$/.test(b.textContent?.trim()||''));
+        if(btn){const box=btn.getBoundingClientRect();
+          signals.centerButton=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2)?.closest('button')===btn;
+        }
+      });
       await delegateButton.click();
       let receipt;
       try{receipt=await createResponse;}catch{
@@ -257,7 +277,8 @@ test.describe('@delegation-ui real QA user workflow',()=>{
           secureContext:isSecureContext,
           pathIsRoot:location.pathname==='/'
         }));
-        console.error('YARA_QA_UI_NO_POST_DIAGNOSTIC='+JSON.stringify({project:info.project.name,flags,failures:failures.slice(0,3)}));
+        const touch=await page.evaluate(()=>window.__qaDelegateTouch||null);
+        console.error('YARA_QA_UI_NO_POST_DIAGNOSTIC='+JSON.stringify({project:info.project.name,flags,failures:failures.slice(0,3),touch}));
         throw Error('YARA_DELEGATION_UI_CLICK_DID_NOT_TRIGGER_HTTP_REQUEST');
       }
       console.log('YARA_QA_UI_CREATE_HTTP='+receipt.status()+' '+info.project.name);
