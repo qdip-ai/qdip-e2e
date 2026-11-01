@@ -220,6 +220,13 @@ test.describe('@delegation-ui real QA user workflow',()=>{
         'https://yara-qa-web-sandbox.up.railway.app'||
       process.env.YARA_E2E_SCOPE!=='full')
       throw Error('YARA_UI_MUTATION_E2E_REQUIRES_EXACT_SHA_ISOLATED_QA');
+    const failures=[];
+    page.on('pageerror',e=>{
+      const m=e.message||'';
+      failures.push(m.includes('randomUUID')?'RANDOM_UUID_EXCEPTION':
+        m.includes('crypto')?'CRYPTO_EXCEPTION':
+        e.name==='TypeError'?'TYPE_ERROR':'OTHER_PAGE_ERROR');
+    });
     const response=await page.goto('/',{waitUntil:'domcontentloaded'});
     expect(response?.status()).toBe(200);
     const composer=page.locator('#assistant-command');
@@ -246,9 +253,11 @@ test.describe('@delegation-ui real QA user workflow',()=>{
           alertVisible:Boolean(document.querySelector('[role="alert"]')),
           delegationVisible:Boolean(document.querySelector('section[aria-label="Доручення"],section[aria-label="Delegations"]')),
           serviceWorkerActive:Boolean(navigator.serviceWorker?.controller),
+          hasRandomUUID:typeof crypto?.randomUUID==='function',
+          secureContext:isSecureContext,
           pathIsRoot:location.pathname==='/'
         }));
-        console.error('YARA_QA_UI_NO_POST_DIAGNOSTIC='+JSON.stringify({project:info.project.name,flags}));
+        console.error('YARA_QA_UI_NO_POST_DIAGNOSTIC='+JSON.stringify({project:info.project.name,flags,failures:failures.slice(0,3)}));
         throw Error('YARA_DELEGATION_UI_CLICK_DID_NOT_TRIGGER_HTTP_REQUEST');
       }
       console.log('YARA_QA_UI_CREATE_HTTP='+receipt.status()+' '+info.project.name);
