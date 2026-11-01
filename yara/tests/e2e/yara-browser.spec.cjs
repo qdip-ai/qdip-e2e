@@ -232,8 +232,25 @@ test.describe('@delegation-ui real QA user workflow',()=>{
         const url=new URL(r.url());
         return url.pathname==='/api/secretary/v1/delegations'&&r.request().method()==='POST';
       },{timeout:15000});
-      await page.getByRole('button',{name:/^(Delegate|Доручити)$/}).click();
-      const receipt=await createResponse;
+      const delegateButton=page.getByRole('button',{name:/^(Delegate|Доручити)$/});
+      await expect(delegateButton).toBeEnabled();
+      await delegateButton.click();
+      let receipt;
+      try{receipt=await createResponse;}catch{
+        const flags=await page.evaluate(()=>({
+          inputHasValue:Boolean(document.querySelector('#assistant-command')?.value),
+          buttonPresent:!![...document.querySelectorAll('button')].find(b=>
+            /^(Delegate|Доручити)$/.test(b.textContent?.trim()||'')),
+          buttonDisabled:[...document.querySelectorAll('button')].find(b=>
+            /^(Delegate|Доручити)$/.test(b.textContent?.trim()||''))?.disabled??null,
+          alertVisible:Boolean(document.querySelector('[role="alert"]')),
+          delegationVisible:Boolean(document.querySelector('section[aria-label="Доручення"],section[aria-label="Delegations"]')),
+          serviceWorkerActive:Boolean(navigator.serviceWorker?.controller),
+          pathIsRoot:location.pathname==='/'
+        }));
+        console.error('YARA_QA_UI_NO_POST_DIAGNOSTIC='+JSON.stringify({project:info.project.name,flags}));
+        throw Error('YARA_DELEGATION_UI_CLICK_DID_NOT_TRIGGER_HTTP_REQUEST');
+      }
       console.log('YARA_QA_UI_CREATE_HTTP='+receipt.status()+' '+info.project.name);
       expect(receipt.status()).toBe(201);
       const panel=page.getByRole('region',{name:/^(Delegations|Доручення)$/});
@@ -254,12 +271,16 @@ test.describe('@delegation-ui real QA user workflow',()=>{
       await checkOverflow(page,'delegation-ui');
       // Genuine QA viewport evidence stays in the ephemeral runner: screenshots
       // with the authenticated test identity must never be public artifacts.
-      await capture(page,info,'delegation-ui');
+      // Capture only the synthetic delegation panel, not unrelated personal
+      // task titles or the QA user's account header.
+      const dest=info.outputPath('delegation-ui.png');
+      await panel.screenshot({path:dest,animations:'disabled'});
+      await info.attach('delegation-ui',{path:dest,contentType:'image/png'});
       console.log('YARA_QA_DELEGATION_UI=PASS '+info.project.name);
     }finally{
       // If a UI assertion fails after creation, cancel only our own exact
       // synthetic request using the real authenticated browser BFF.
-      if(accepted&&!closed){
+      if(!closed){
         const list=await browserApi(page,'/api/secretary/v1/delegations').catch(()=>null);
         const item=Array.isArray(list?.body)?list.body.find(x=>x.instruction===instruction):null;
         if(item&&!['COMPLETED','FAILED','CANCELLED'].includes(item.status)){
