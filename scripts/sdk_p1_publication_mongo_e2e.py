@@ -249,23 +249,27 @@ async def main() -> None:
                     "application_launch_url": None,
                 }), owner=owner_headless, authorization="Bearer test-only",
             )
-            check("headless_pending_identity_proof",
-                  headless_submission["status"] == "PENDING_OWNERSHIP_VERIFICATION"
-                  and headless_submission["domain_proof"] is None)
-            headless_verified = await api.verify_own_plugin_domain(
-                headless_name, api.VerifyDomainInput(expected_revision=1),
-                owner=owner_headless, authorization="Bearer test-only",
-            )
-            check("headless_owned_app_advances_to_security_review",
-                  headless_verified["status"] == "PENDING_SECURITY_REVIEW"
-                  and headless_verified["catalog"]["launch_url_verified"] is False
-                  and headless_verified["expected_revision"] == 2)
+            check("headless_goes_directly_to_security_review",
+                  headless_submission["status"] == "PENDING_SECURITY_REVIEW"
+                  and headless_submission["domain_proof"] is None
+                  and headless_submission["catalog"]["launch_url_verified"] is False)
+            try:
+                await api.verify_own_plugin_domain(
+                    headless_name, api.VerifyDomainInput(expected_revision=1),
+                    owner=owner_headless, authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("headless_cannot_fabricate_domain_proof",
+                      exc.status_code == 409)
+            else:
+                raise AssertionError("Headless Worker accepted DNS domain proof")
             headless_audit = await db["plugin_publication_submission_audit"].find(
                 {"plugin_name": headless_name}
             ).to_list(length=10)
             check("headless_audit_and_private_catalog",
-                  {item["action"] for item in headless_audit}
-                  == {"REQUEST_REVIEW", "HEADLESS_APPLICATION_VERIFIED"}
+                  len(headless_audit) == 1
+                  and headless_audit[0]["action"] == "REQUEST_REVIEW"
+                  and headless_audit[0]["status"] == "PENDING_SECURITY_REVIEW"
                   and (await db["plugin_publications"].find_one(
                       {"_id": headless_name}
                   ))["published"] is False)
