@@ -5,6 +5,7 @@ on:
       - test/autodev-model-controls
     paths:
       - .github/workflows/autodev-qa1-roleless-live.yml
+      - scripts/autodev_qa1_roleless_live.mjs
   workflow_dispatch:
 permissions:
   contents: read
