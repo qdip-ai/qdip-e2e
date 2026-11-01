@@ -11,7 +11,7 @@ function validUrl(){
   let parsed;
   try{parsed=new URL(originText)}catch{fail('YARA_E2E_URL_INVALID')}
   if(parsed.protocol!=='https:' || parsed.username || parsed.password ||
-    parsed.search || parsed.hash || parsed.pathname!=='/' ||
+    parsed.port || parsed.search || parsed.hash || parsed.pathname!=='/' ||
     !(parsed.hostname==='qdip.ai'||parsed.hostname.endsWith('.qdip.ai') ||
       parsed.hostname.endsWith('.up.railway.app')))
     fail('YARA_E2E_URL_UNTRUSTED');
