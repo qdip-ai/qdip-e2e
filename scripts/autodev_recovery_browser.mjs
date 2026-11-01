@@ -90,16 +90,35 @@ async function modelControls(browser){
    try{
     const response=await page.goto(SITE,{waitUntil:'networkidle',timeout:30000});
     check(response?.status()===200,'PWA_HTTP_NOT_200');
+    const provider=page.locator('.live-monitor__runs select').filter({
+     has:page.locator('option[value="copilot"]')
+    }).first();
+    await provider.waitFor({state:'visible',timeout:20000});
     const work=page.locator('.live-monitor__runs select').filter({
-     has:page.locator('option[value="ollama/qwen2.5-coder:1.5b"]')
+     has:page.locator('option[value="claude-sonnet-5.5"]')
     }).first();
     await work.waitFor({state:'visible',timeout:20000});
-    check((await work.locator('option').evaluateAll(options=>
-      options.map(option=>option.value))).includes('claude-sonnet-5.5'),
-      'WORK_CLAUDE_OPTION_MISSING');
-    await work.selectOption('ollama/qwen2.5-coder:1.5b');
-    check(await work.inputValue()==='ollama/qwen2.5-coder:1.5b',
+    check(await provider.inputValue()==='copilot','COPILOT_PROVIDER_NOT_SELECTED');
+    check(await work.inputValue()==='claude-sonnet-5.5','COPILOT_MODEL_NOT_PINNED');
+    await provider.selectOption('anthropic');
+    const anthropic=page.locator('.live-monitor__runs select').filter({
+     has:page.locator('option[value="anthropic/claude-sonnet-5.5"]')
+    }).first();
+    check(await anthropic.inputValue()==='anthropic/claude-sonnet-5.5',
+      'ANTHROPIC_PROVIDER_NOT_DISTINCT');
+    await provider.selectOption('ollama');
+    const ollama=page.locator('.live-monitor__runs select').filter({
+     has:page.locator('option[value="ollama/qwen2.5-coder:1.5b"]')
+    }).first();
+    await ollama.selectOption('ollama/qwen2.5-coder:1.5b');
+    check(await ollama.inputValue()==='ollama/qwen2.5-coder:1.5b',
       'WORK_MODEL_SELECTION_FAILED');
+    const local=page.getByRole('switch',{name:/Виконувати локально|Run locally/});
+    check(await local.getAttribute('aria-checked')==='false','DEFAULT_ROUTING_NOT_RAILWAY');
+    await local.click();
+    check(await local.getAttribute('aria-checked')==='true','LOCAL_SWITCH_DID_NOT_CHANGE');
+    await local.click();
+    check(await local.getAttribute('aria-checked')==='false','RAILWAY_SWITCH_DID_NOT_RESTORE');
     await page.locator('nav.bottom-nav button').filter({
      hasText:/^(Безпека|Security)$/
     }).click();
