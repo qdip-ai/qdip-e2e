@@ -5,10 +5,13 @@ workflow `Yara centralized real-browser E2E`. Yara's own Railway
 `qdip-ci-sandbox-yara` is for build, unit tests and disposable PostgreSQL.
 No new E2E service, copy of test cases or Actions in the private Yara repository.
 
-The workflow checks out `qdip-ai/qdip-personal-secretary` at a **40-character
-immutable SHA** using the existing read-only `QDIP_READ_TOKEN`, installs its
-frozen pnpm lock and executes **the Playwright files from that exact checkout**:
-`playwright.config.cjs` and `tests/e2e/yara-browser.spec.cjs`.
+The workflow owns its browser tests directly in this repository:
+`scripts/yara-playwright.config.cjs` and `scripts/yara-browser.spec.cjs`.
+It installs a pinned isolated Playwright runner, without checking out the
+private Yara repository or requiring `QDIP_READ_TOKEN`. The selected 40-character
+Yara SHA is **an attestation input**, not proof of what production runs:
+`scope=full` compares it to the deployed isolated QA application's
+`/api/build-identity` response before executing authenticated tests.
 
 1. `scope=public`: run anonymous login/privacy page smoke and overflow on
    desktop 1440x900, portrait 390x844 and landscape 844x390 in Chromium and
