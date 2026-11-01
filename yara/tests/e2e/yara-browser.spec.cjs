@@ -199,3 +199,59 @@ test.describe('@delegation real authorized QA lifecycle',()=>{
     }
   });
 });
+
+
+test.describe('@delegation-ui real QA user workflow',()=>{
+  test.use({storageState:authState||{cookies:[],origins:[]}});
+  test('@delegation-ui single composer creates visible server receipt and cancels with audit',async({page},info)=>{
+    test.setTimeout(90_000);
+    if(!authState||process.env.YARA_E2E_QA_CONFIRMED!=='1'||
+      new URL(process.env.YARA_E2E_BASE_URL||'').origin!==
+        'https://yara-qa-web-sandbox.up.railway.app'||
+      process.env.YARA_E2E_SCOPE!=='full')
+      throw Error('YARA_UI_MUTATION_E2E_REQUIRES_EXACT_SHA_ISOLATED_QA');
+    const response=await page.goto('/',{waitUntil:'domcontentloaded'});
+    expect(response?.status()).toBe(200);
+    const composer=page.locator('#assistant-command');
+    await expect(composer).toBeVisible();
+    const instruction='QA visual delegation '+require('node:crypto').randomUUID();
+    let accepted=false,closed=false;
+    try{
+      await composer.fill(instruction);
+      await page.getByRole('button',{name:/^(Delegate|Доручити)$/}).click();
+      const panel=page.getByRole('region',{name:/^(Delegations|Доручення)$/});
+      await expect(panel).toBeVisible();
+      const card=panel.locator('article').filter({hasText:instruction});
+      await expect(card).toBeVisible();
+      accepted=true;
+      await expect(card).toContainText(/(Accepted; executor not started|Прийнято; виконавець ще не почав)/);
+      await card.getByRole('button',{name:/^(Details|Деталі)$/}).click();
+      await expect(card).toContainText('DELEGATION_RECEIVED');
+      const cancel=card.getByRole('button',{name:/^(Cancel|Скасувати)$/});
+      page.once('dialog',dialog=>dialog.accept());
+      await cancel.click();
+      await expect(card).toContainText(/^(?!$).*(Cancelled|Скасовано)/);
+      closed=true;
+      await expect(card.getByRole('button',{name:/^(Cancel|Скасувати)$/})).toHaveCount(0);
+      await expect(composer).toHaveCount(0);
+      await checkOverflow(page);
+      // Genuine QA viewport evidence stays in the ephemeral runner: screenshots
+      // with the authenticated test identity must never be public artifacts.
+      await capture(page,info,'delegation-ui');
+      console.log('YARA_QA_DELEGATION_UI=PASS '+info.project.name);
+    }finally{
+      // If a UI assertion fails after creation, cancel only our own exact
+      // synthetic request using the real authenticated browser BFF.
+      if(accepted&&!closed){
+        const list=await browserApi(page,'/api/secretary/v1/delegations').catch(()=>null);
+        const item=Array.isArray(list?.body)?list.body.find(x=>x.instruction===instruction):null;
+        if(item&&!['COMPLETED','FAILED','CANCELLED'].includes(item.status)){
+          const response=await browserApi(page,
+            '/api/secretary/v1/delegations/'+encodeURIComponent(item.id)+'/cancel',
+            'POST',{expectedRevision:item.revision}).catch(()=>null);
+          if(response?.status!==201)throw Error('YARA_QA_DELEGATION_UI_CLEANUP_FAILED');
+        }
+      }
+    }
+  });
+});
