@@ -64,6 +64,17 @@ async function publicSmoke(browser){
    check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
     'HORIZONTAL_OVERFLOW');
    check(errors.length===0,'BROWSER_JS_ERROR');
+   const unauthorized=await page.evaluate(async()=>{
+    const status=await fetch('/v1/autodev/local/status',{cache:'no-store'});
+    const pair=await fetch('/v1/autodev/local/pair',{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({requestId:'123e4567-e89b-42d3-a456-426614174000'}),
+    });
+    return [status.status,pair.status];
+   });
+   check(unauthorized[0]===403&&unauthorized[1]===403,
+     'UNAUTHENTICATED_LOCAL_PAIRING_EXPOSED');
+   console.log('AUTODEV_LOCAL_PAIR_AUTH_DENIAL_'+tag(name)+'=PASS');
    await screenshot(page,'smoke-'+name);
    console.log('AUTODEV_BROWSER_SMOKE_'+tag(name)+'=PASS');
   }finally{await context.close();}
