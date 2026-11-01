@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,readFileSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -67,4 +67,24 @@ test('Yara live Zitadel step fails closed without sealed QA credentials',()=>{
   });
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/YARA_ZITADEL_TEST_IDENTITY_MISSING/);
+});
+
+test('Yara browser workflow owns its executable suite and does not reference absent private tests',()=>{
+  const workflow=readFileSync(join(root,'.github/workflows/yara-browser-e2e.yml'),'utf8');
+  const config=join(root,'scripts/yara-playwright.config.cjs');
+  const spec=join(root,'scripts/yara-browser.spec.cjs');
+  assert.equal(existsSync(config),true);
+  assert.equal(existsSync(spec),true);
+  assert.match(workflow,/--config scripts\\/yara-playwright\\.config\\.cjs/);
+  assert.match(workflow,/node --check suite\\/scripts\\/yara-browser\\.spec\\.cjs/);
+  assert.doesNotMatch(workflow,/yara\\/playwright\\.config\\.cjs|yara\\/tests\\/e2e\\/yara-browser\\.spec\\.cjs/);
+  assert.doesNotMatch(workflow,/QDIP_READ_TOKEN|pnpm exec playwright/);
+  const source=readFileSync(spec,'utf8');
+  assert.match(source,/'@public /);
+  assert.match(source,/'@auth /);
+  assert.match(source,/\\\\bVHV\\\\b/);
+  const runner=readFileSync(config,'utf8');
+  for(const size of ['1440, height: 900','390, height: 844','844, height: 390'])
+    assert.ok(runner.includes(size),size);
+  assert.match(runner,/\['chromium', 'webkit'\]/);
 });
