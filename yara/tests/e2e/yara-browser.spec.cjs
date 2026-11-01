@@ -90,9 +90,12 @@ test.describe('@delegation real authorized QA lifecycle',()=>{
       'https://yara-qa-web-sandbox.up.railway.app'||process.env.YARA_E2E_SCOPE!=='full')
       throw Error('DELEGATION_E2E_BLOCKED: dedicated Yara QA only');
 
-    const response=await page.goto('/',{waitUntil:'domcontentloaded'});
+    // This case tests the real authenticated browser-to-BFF API boundary.
+    // Dashboard readiness is exercised separately by the @auth visual cases.
+    // The public privacy page provides the correct HTTPS origin without
+    // waiting for unrelated dashboard, calendar or assistant initialization.
+    const response=await page.goto('/privacy',{waitUntil:'domcontentloaded'});
     expect(response?.status()).toBe(200);
-    await expect(page.locator('#assistant-command')).toBeVisible();
     const root='/api/secretary/v1/delegations';
     const clientRequestId=require('node:crypto').randomUUID();
     const actionId=require('node:crypto').randomUUID();
