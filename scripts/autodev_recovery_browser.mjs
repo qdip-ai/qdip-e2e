@@ -55,6 +55,12 @@ async function publicSmoke(browser){
    check(response?.status()===200,'PWA_HTTP_NOT_200');
    await page.locator('header.app-global-header').waitFor({state:'visible',timeout:12000});
    check((await page.title()).startsWith('QDIP AutoDev'),'PWA_TITLE_INVALID');
+   await page.locator('button.live-monitor__login').waitFor({state:'visible',timeout:12000});
+   check(await page.locator('.live-monitor__runs select').count()===0,
+    'ANONYMOUS_WORK_SELECTOR_EXPOSED');
+   check(await page.locator('.security-view__notice select').count()===0,
+    'ANONYMOUS_SECURITY_SELECTOR_EXPOSED');
+   console.log('AUTODEV_ANON_SELECTOR_DENIAL_'+tag(name)+'=PASS');
    check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
     'HORIZONTAL_OVERFLOW');
    check(errors.length===0,'BROWSER_JS_ERROR');
