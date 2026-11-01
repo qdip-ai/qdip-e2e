@@ -175,8 +175,25 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
-  await page.goto(SITE,{waitUntil:'domcontentloaded'});
-  await page.waitForSelector('.live-monitor__warning',{timeout:18000});
+  const finalPwa=await page.goto(SITE,{waitUntil:'domcontentloaded'});
+  const warning=await page.locator('.live-monitor__warning').waitFor({state:'visible',timeout:18000})
+    .then(()=>true).catch(()=>false);
+  if(!warning){
+    // Never log the user's identity, token, cookies, URL parameters or page text.
+    const state=await page.evaluate(()=>({
+      mainClass:document.querySelector('main')?.className||'',
+      loginVisible:[...document.querySelectorAll('button.live-monitor__login')]
+        .some(el=>el.getClientRects().length>0),
+      alertCount:document.querySelectorAll('[role="alert"]').length,
+      tokenStored:[...Array(localStorage.length).keys()]
+        .some(i=>localStorage.key(i)?.startsWith('oidc.user:')),
+      protectedViews:document.querySelectorAll('.mission-home').length
+    }));
+    console.log('AUTODEV_QA1_DENIED_UI_DIAGNOSTIC='+JSON.stringify({
+      http:finalPwa?.status(),path:new URL(page.url()).pathname,...state
+    }));
+  }
+  require_(warning,'QA1_DENIED_UI_WARNING_MISSING');
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
   console.log('AUTODEV_QA1_NO_FAKE_RUNS_OR_COMMANDS=PASS');
   console.log('AUTODEV_QA1_LIVE_NEGATIVE_ZITADEL_E2E=PASS');
