@@ -43,6 +43,18 @@ test.describe('authorized read-only Yara', () => {
     }
     const visible = await page.locator('body').innerText();
     expect(visible).not.toMatch(/\bVHV\b/i);
+    // Client-only migration: preserve previously selected EN locale after rename.
+    await page.evaluate(() => {
+      localStorage.removeItem('qdip-yara-locale');
+      localStorage.setItem('qdip-vhv-locale', 'en');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    const keys = await page.evaluate(() => ({
+      current: localStorage.getItem('qdip-yara-locale'),
+      retired: localStorage.getItem('qdip-vhv-locale'),
+    }));
+    expect(keys).toEqual({ current: 'en', retired: null });
     // No authenticated screenshots in the public qdip-e2e repository.
   });
 });
