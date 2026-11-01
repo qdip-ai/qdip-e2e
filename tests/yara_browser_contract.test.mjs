@@ -56,7 +56,10 @@ test('Yara full gate never qualifies production or untrusted HTTP',()=>{
     ...base,YARA_E2E_BASE_URL:'http://yara-qa.up.railway.app',
   }).status,0);
   assert.equal(invoke('yara-browser-gate.mjs',['validate'],{
-    ...base,YARA_E2E_BASE_URL:'https://yara-qa.up.railway.app',
+    ...base,YARA_E2E_BASE_URL:'https://yara-qa-web-sandbox.up.railway.app',
+  }).status,0);
+  assert.notEqual(invoke('yara-browser-gate.mjs',['validate'],{
+    ...base,YARA_E2E_BASE_URL:'https://attacker-owned.up.railway.app',
   }).status,0);
 });
 test('Yara live Zitadel step fails closed without sealed QA credentials',()=>{
