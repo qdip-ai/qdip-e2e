@@ -18,7 +18,10 @@ Yara SHA is **an attestation input**, not proof of what production runs:
    Linux WebKit. By default target `https://yara.qdip.ai`. **This does not
    prove the unmerged source SHA was deployed**; it is never merge evidence.
    Login screenshots of the anonymous screen are retained for 7 days.
-2. `scope=full`: require an isolated QA URL **not production**, plus its
+2. `scope=full`: only the verified existing QA hostname
+   `https://yara-qa-web-sandbox.up.railway.app` is accepted, to prevent
+   submitting a real Zitadel test identity to an attacker-owned Railway URL.
+   Require an exact-SHA deployment at that isolated QA URL, plus its
    server-side `GET /api/build-identity` JSON `{"sha":"<SHA>"}` identical
    to checked-out commit. Fail closed if the endpoint, QA deployment or SHA is
    missing. Requires the already-existing encrypted `QDIP_E2E_ZITADEL_TEST_LOGIN`
