@@ -170,11 +170,21 @@ async def main() -> None:
                 check("other_org_cannot_claim_our_domain", exc.status_code == 409)
             else:
                 raise AssertionError("domain squatting accepted")
-            decision = await api.moderate_plugin_submission(
-                name_a, api.ModerationInput(expected_revision=2, action="suspend",
-                    reason="Reviewer quarantined untrusted plugin"),
-                x_qdip_actor="e2e-reviewer",
-            )
+            revoked_workers = []
+            async def record_local_revoke(tenant_id, plugin_id):
+                stored = await db["plugin_publications"].find_one({"_id": name_a})
+                if stored["security"]["state"] != "quarantined":
+                    raise AssertionError("Worker disconnected before Mongo commit")
+                revoked_workers.append((tenant_id, plugin_id))
+            with patch("app.remote_plugins.bridge.hub.revoke_plugin",
+                       new=record_local_revoke):
+                decision = await api.moderate_plugin_submission(
+                    name_a, api.ModerationInput(expected_revision=2, action="suspend",
+                        reason="Reviewer quarantined untrusted plugin"),
+                    x_qdip_actor="e2e-reviewer",
+                )
+            check("suspension_revokes_local_worker_after_commit",
+                  revoked_workers == [("e2e-org-a", "p1-test")])
             check("audited_admin_suspension",
                   decision["status"] == "SUSPENDED"
                   and decision["expected_revision"] == 3)
