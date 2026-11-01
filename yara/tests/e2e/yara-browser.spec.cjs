@@ -18,9 +18,19 @@ function qaState(){
   return null;
 }
 const authState=qaState();
-async function checkOverflow(page){
+async function checkOverflow(page,phase='unknown'){
   const size=await page.evaluate(()=>({viewport:window.innerWidth,
     document:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
+  if(size.document>size.viewport+2||size.body>size.viewport+2){
+    // Only static DOM selectors and geometry. Never print text, account details,
+    // cookies, auth requests, or any contents of the private QA workspace.
+    const outside=await page.evaluate(()=>[...document.querySelectorAll('body *')]
+      .filter(el=>el.getBoundingClientRect().right>window.innerWidth+2)
+      .slice(0,6).map(el=>({tag:el.tagName,
+        className:String(el.classList[0]||'').slice(0,48),
+        right:Math.round(el.getBoundingClientRect().right)})));
+    console.error('YARA_VIEWPORT_OVERFLOW='+JSON.stringify({phase,size,outside}));
+  }
   expect(size.document,'Document overflows horizontally').toBeLessThanOrEqual(size.viewport+2);
   expect(size.body,'Body overflows horizontally').toBeLessThanOrEqual(size.viewport+2);
 }
@@ -36,11 +46,11 @@ test('@public real login, privacy, responsive overflow',async({page},info)=>{
   await expect(page.locator('#login-heading')).toBeVisible();
   await expect(page.locator('button.login-submit')).toBeEnabled();
   await expect(page.locator('.yara-site-header')).toBeVisible();
-  await checkOverflow(page);await capture(page,info,'login');
+  await checkOverflow(page,'public-login');await capture(page,info,'login');
   const privacy=await page.goto('/privacy',{waitUntil:'domcontentloaded'});
   expect(privacy?.status()).toBe(200);
   await expect(page.locator('main')).toBeVisible();
-  await checkOverflow(page);
+  await checkOverflow(page,'public-privacy');
 });
 test.describe('@auth read-only QA account',()=>{
   test.use({storageState:authState||{cookies:[],origins:[]}});
@@ -53,14 +63,14 @@ test.describe('@auth read-only QA account',()=>{
     await expect(page.locator('main.shell')).toBeVisible();
     await expect(page.locator('#assistant-command')).toBeVisible();
     await expect(page.locator('.yara-site-header')).toBeVisible();
-    await checkOverflow(page);await capture(page,info,'today');
+    await checkOverflow(page,'today');await capture(page,info,'today');
     const tabs=page.locator('nav.tabbar');await expect(tabs).toBeVisible();
     await tabs.getByRole('button',{name:/^(Tasks|Справи)$/}).click();
     await expect(page.locator('main.shell h1')).toContainText(/^(Tasks|Справи)$/);
-    await checkOverflow(page);await capture(page,info,'tasks');
+    await checkOverflow(page,'tasks');await capture(page,info,'tasks');
     await tabs.getByRole('button',{name:/^(Plans|Плани)$/}).click();
     await expect(page.locator('main.shell h1')).toContainText(/^(Plans|Плани)$/);
-    await checkOverflow(page);await capture(page,info,'plans');
+    await checkOverflow(page,'plans');await capture(page,info,'plans');
     // No calendar writes, task submissions or changes to any external provider.
   });
 });
@@ -184,7 +194,7 @@ test.describe('@delegation real authorized QA lifecycle',()=>{
       expect(persisted.body.history.map(x=>x.action)).toEqual(expect.arrayContaining([
         'DELEGATION_RECEIVED','DELEGATION_CANCELLED'
       ]));
-      await checkOverflow(page);
+      await checkOverflow(page,'delegation-api');
       console.log('YARA_QA_DELEGATION_BROWSER_LIFECYCLE=PASS '+info.project.name);
     }finally{
       // Stop incomplete synthetic QA requests; never leave a running action.
@@ -218,7 +228,14 @@ test.describe('@delegation-ui real QA user workflow',()=>{
     let accepted=false,closed=false;
     try{
       await composer.fill(instruction);
+      const createResponse=page.waitForResponse(r=>{
+        const url=new URL(r.url());
+        return url.pathname==='/api/secretary/v1/delegations'&&r.request().method()==='POST';
+      },{timeout:15000});
       await page.getByRole('button',{name:/^(Delegate|Доручити)$/}).click();
+      const receipt=await createResponse;
+      console.log('YARA_QA_UI_CREATE_HTTP='+receipt.status()+' '+info.project.name);
+      expect(receipt.status()).toBe(201);
       const panel=page.getByRole('region',{name:/^(Delegations|Доручення)$/});
       await expect(panel).toBeVisible();
       const card=panel.locator('article').filter({hasText:instruction});
@@ -234,7 +251,7 @@ test.describe('@delegation-ui real QA user workflow',()=>{
       closed=true;
       await expect(card.getByRole('button',{name:/^(Cancel|Скасувати)$/})).toHaveCount(0);
       await expect(composer).toHaveCount(0);
-      await checkOverflow(page);
+      await checkOverflow(page,'delegation-ui');
       // Genuine QA viewport evidence stays in the ephemeral runner: screenshots
       // with the authenticated test identity must never be public artifacts.
       await capture(page,info,'delegation-ui');
