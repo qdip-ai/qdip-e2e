@@ -147,6 +147,19 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
+  const attempt=await context.request.post(SITE+'/v1/autodev/attempts/request',{
+    headers:{'Authorization':'Bearer '+token,'Origin':SITE,
+      'Content-Type':'application/json','Accept':'application/json'},
+    data:{snapshotId:'qa1-no-operator-probe',
+      requestId:'qa1-ollama-denial-probe',model:'ollama/qwen2.5-coder:1.5b'},
+    maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(attempt.status()===403,'QA1_OLLAMA_ATTEMPT_HTTP_NOT_403');
+  const attemptBody=await attempt.json().catch(()=>null);
+  require_(attemptBody?.code==='NOT_AUTHORIZED',
+    'QA1_OLLAMA_ATTEMPT_DENIAL_NOT_BACKEND');
+  console.log('AUTODEV_QA1_OLLAMA_ATTEMPT_DENIED_BEFORE_DISPATCH=PASS');
+
   // The application deliberately discards a denied OIDC user. After reload,
   // unauthorised users must see sign-in, never protected mission content.
   await page.goto(SITE,{waitUntil:'domcontentloaded'});
