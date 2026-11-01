@@ -1,6 +1,12 @@
 name: AutoDev existing test operator model-controls E2E
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/autodev_existing_operator_live.mjs
+      - .github/workflows/autodev-existing-operator-live.yml
   push:
     branches:
       - test/autodev-model-controls
