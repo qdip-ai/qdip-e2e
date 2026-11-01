@@ -24,13 +24,13 @@ const tests=specs.flatMap(s=>(s.tests||[]).map(t=>({
 })));
 const projects=['desktop-chromium','mobile-portrait-chromium','mobile-landscape-chromium',
   'desktop-webkit','mobile-portrait-webkit','mobile-landscape-webkit'];
-const expected=scope==='full'?18:6;
+const expected=scope==='full'?24:6;
 const seen=new Set();
 function failMatrix(reason){
   // Only authored test-class names, bounded project IDs and status enums.
   // No authenticated page output, response bodies, cookies or token metadata.
   console.error('YARA_BROWSER_CASE_STATUSES='+JSON.stringify(tests.map(t=>({
-    type:t.name.includes('@public')?'public':t.name.includes('@delegation')?'delegation':
+    type:t.name.includes('@public')?'public':t.name.includes('@delegation-ui')?'delegation-ui':t.name.includes('@delegation')?'delegation':
       t.name.includes('@auth')?'auth':'unexpected',
     project:projects.includes(t.project)?t.project:'unexpected',
     status:['expected','unexpected','skipped'].includes(t.status)?t.status:'other',
@@ -40,7 +40,7 @@ function failMatrix(reason){
   throw Error(reason);
 }
 for(const t of tests){
-  const type=t.name.includes('@public')?'public':t.name.includes('@delegation')?'delegation':t.name.includes('@auth')?'auth':'unexpected';
+  const type=t.name.includes('@public')?'public':t.name.includes('@delegation-ui')?'delegation-ui':t.name.includes('@delegation')?'delegation':t.name.includes('@auth')?'auth':'unexpected';
   const key=type+':'+t.project;
   if(!projects.includes(t.project)||type==='unexpected'||seen.has(key) ||
     (scope==='public'&&type!=='public') ||
@@ -49,7 +49,7 @@ for(const t of tests){
   seen.add(key);
 }
 for(const name of projects){
-  if(!seen.has('public:'+name)||(scope==='full'&&(!seen.has('auth:'+name)||!seen.has('delegation:'+name))))
+  if(!seen.has('public:'+name)||(scope==='full'&&(!seen.has('auth:'+name)||!seen.has('delegation:'+name)||!seen.has('delegation-ui:'+name))))
     failMatrix('YARA_BROWSER_REQUIRED_CASE_MISSING');
 }
 if(tests.length!==expected || data.stats?.unexpected!==0 ||
