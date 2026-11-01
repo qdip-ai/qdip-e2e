@@ -1,4 +1,4 @@
-name: AutoDev existing TEST2 operator model-controls E2E
+name: AutoDev existing test operator model-controls E2E
 on:
   push:
     branches:
@@ -24,18 +24,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate existing TEST2 binding without printing identifiers
+      - name: Validate existing TEST binding without printing identifiers
         env:
-          LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
-          PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "$LOGIN" || -z "$PASSWORD" ]]; then
-            echo EXISTING_TEST2_CREDENTIAL_BINDING=MISSING
+            echo EXISTING_TEST_CREDENTIAL_BINDING=MISSING
             exit 1
           fi
-          echo EXISTING_TEST2_CREDENTIAL_BINDING=PRESENT
+          echo EXISTING_TEST_CREDENTIAL_BINDING=PRESENT
       - name: Check read-only operator test source
         run: node --check scripts/autodev_existing_operator_live.mjs
       - name: Install isolated Playwright Chromium
@@ -50,8 +50,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Existing signed operator role and 3-viewport real model E2E
         env:
-          QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
-          QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
           QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/autodev-operator/widgets
           CI: 'true'
         shell: bash
