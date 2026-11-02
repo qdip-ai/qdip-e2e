@@ -38,6 +38,60 @@ async function qaCookie(browser){
     return cookie;
   }finally{await cx.close();}
 }
+async function verifyMoodUiSubmit(browser,cookie){
+  assert(process.env.DZVIN_UI_SAVE_ACK==='1','UI_WRITE_APPROVAL_REQUIRED');
+  const timeZone='Africa/Nairobi';
+  const cx=await browser.newContext({
+    viewport:{width:1440,height:900},timezoneId:timeZone,serviceWorkers:'block'
+  });
+  try{
+    await cx.addCookies([{
+      name:cookie.name,value:cookie.value,domain:new URL(UI).hostname,path:cookie.path,
+      httpOnly:true,secure:true,sameSite:cookie.sameSite,
+      ...(cookie.expires>0?{expires:cookie.expires}:{})
+    }]);
+    const before=await cx.request.get(UI+'/api/backend/mood-record?page=1&limit=50&order=newest');
+    assert(before.status()===200,'UI_PREWRITE_BACKEND_READ');
+    const existing=await before.json();
+    assert(Array.isArray(existing)&&existing.length>=1,'UI_PREWRITE_MOOD_FIXTURE_MISSING');
+    const page=await cx.newPage();
+    const rendered=await page.goto(UI+'/en/mood-tracker',{waitUntil:'domcontentloaded',timeout:50000});
+    assert(rendered?.status()===200,'UI_SAVE_PAGE_UNAVAILABLE');
+    await page.locator('main').first().waitFor({state:'visible',timeout:12000});
+    await page.waitForTimeout(1100);
+    const moods=page.locator('main button[aria-pressed]');
+    assert(await moods.count()>=5,'UI_MOOD_CHOICE_MISSING');
+    await moods.nth(3).click();
+    assert(await moods.nth(3).getAttribute('aria-pressed')==='true','UI_MOOD_NOT_SELECTED');
+    const sliders=page.locator('main [role="slider"]');
+    assert(await sliders.count()>=3,'UI_STRESS_ENERGY_FOCUS_SLIDERS_MISSING');
+    for(const index of [0,1,2]){
+      await sliders.nth(index).focus();
+      await page.keyboard.press('End');
+      assert((await sliders.nth(index).getAttribute('aria-valuenow'))==='5',
+        'UI_SLIDER_NOT_UPDATED_'+index);
+    }
+    const save=page.getByRole('button',{name:/^save$/i}).first();
+    await save.waitFor({state:'visible',timeout:13000});
+    assert(await save.isEnabled(),'UI_SAVE_DISABLED_DAILY_WINDOW');
+    const responsePromise=page.waitForResponse(r=>r.url().includes('/api/backend/mood-record')&&r.request().method()==='POST',{timeout:35000});
+    await save.click();
+    const post=await responsePromise;
+    assert(post.status()===201,'UI_SAVE_POST_'+post.status());
+    const created=await post.json();
+    assert(created?.moodLevel===4&&created.stressLevel===5&&created.energyLevel===5&&created.focusLevel===5,
+      'UI_SAVE_PAYLOAD_OR_RESULT_INVALID');
+    const after=await cx.request.get(UI+'/api/backend/mood-record?page=1&limit=50&order=newest');
+    assert(after.status()===200,'UI_POSTSAVE_BACKEND_READ');
+    const data=await after.json();
+    assert(Array.isArray(data)&&data.length>existing.length&&data.some(r=>r.id===created.id),
+      'UI_SAVE_NOT_PERSISTED');
+    await page.locator('#mood-records-list time[datetime]').first().waitFor({state:'visible',timeout:15000});
+    await page.locator('#mood-records-list time[datetime]').nth(1).waitFor({state:'visible',timeout:20000});
+    console.log('QA_UI_MOOD_SELECTION_ALL_SLIDERS_POST_PERSISTED_HISTORY=PASS');
+    await page.locator('main').first().screenshot({path:'/tmp/dzvin-mood-ui-evidence/mood-ui-save-nairobi.png'});
+  }finally{await cx.close();}
+}
 async function main(){
   assert(process.env.DZVIN_RAILWAY_MOOD_UI_ACK==='1','QA_RAILWAY_APPROVAL_REQUIRED');
   assert(process.env.QDIP_E2E_ZITADEL_TEST1_LOGIN&&process.env.QDIP_E2E_ZITADEL_TEST1_PASSWORD,'QA_SECRETS_MISSING');
@@ -88,6 +142,7 @@ async function main(){
       }finally{await cx.close();}
     }
     console.log('DZVIN_QA_ISOLATED_UI_3_VIEWPORTS=PASS');
+    if(process.env.DZVIN_UI_SAVE_ACK==='1')await verifyMoodUiSubmit(browser,cookie);
   }finally{await browser.close();}
 }
 main().catch(error=>{
