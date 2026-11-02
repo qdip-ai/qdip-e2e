@@ -1,0 +1,64 @@
+name: Zitadel QA21 real cross-organization E2E
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/zitadel_qa21_cross_org_live.mjs
+      - .github/workflows/zitadel-qa21-cross-org-live.yml
+
+permissions:
+  contents: read
+concurrency:
+  group: zitadel-qa21-real-cross-org
+  cancel-in-progress: false
+
+jobs:
+  qa21-cross-organization:
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate existing QA21 account binding without disclosing credentials
+        shell: bash
+        env:
+          QA21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QA21_PASSWORD_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          test "${QA21_LOGIN,,}" = 'qa-21@qdip.ai'
+          test "$QA21_PASSWORD_BOUND" = 'true'
+          node --check scripts/zitadel_qa21_cross_org_live.mjs
+          echo 'ZITADEL_QA21_SEALED_ACCOUNT_BINDING=PASS'
+      - name: Install isolated Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/zitadel-qa21
+          cp scripts/zitadel_qa21_cross_org_live.mjs /tmp/zitadel-qa21/
+          cd /tmp/zitadel-qa21
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: One real Zitadel QA21 login and read-only cross-org denial
+        shell: bash
+        env:
+          CI: 'true'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/zitadel-qa21
+          node zitadel_qa21_cross_org_live.mjs
+      - name: 'Scope: never imply bidirectional proof or owner grant'
+        if: success()
+        run: |
+          echo 'ZITADEL_QA21_MAIN_TO_QA_ORG=NOT_TESTED'
+          echo 'ZITADEL_QA21_QA_ORG_OWNER_MUST_BE_EXPLICITLY_VERIFIED'
+          echo 'ZITADEL_QA21_NO_PRODUCTION_WRITE=TRUE'
