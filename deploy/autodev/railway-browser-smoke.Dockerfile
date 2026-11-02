@@ -5,6 +5,9 @@ WORKDIR /app
 RUN npm init -y >/dev/null \
  && npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
 COPY scripts/autodev_recovery_browser.mjs /app/scripts/autodev_recovery_browser.mjs
+COPY scripts/autodev_existing_operator_live.mjs /app/scripts/autodev_existing_operator_live.mjs
+RUN node --check /app/scripts/autodev_recovery_browser.mjs \
+ && node --check /app/scripts/autodev_existing_operator_live.mjs
 ENV QDIP_E2E_AUTODEV_MODE=smoke \
     QDIP_E2E_BROWSER_EVIDENCE_DIR=/tmp/autodev-browser-evidence \
     CI=true
