@@ -1,0 +1,92 @@
+"""#407 real Chromium preview smoke; not a substitute for admin login E2E.
+
+Runs against the immutable Vercel PR preview. Never bypasses authentication,
+creates a user, or fabricates a session. Screenshots remain in the QA container.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from playwright.sync_api import sync_playwright
+
+URL = os.environ.get("QDIP_P1_PREVIEW_URL", "").rstrip("/")
+SIZES = (
+    ("desktop", 1440, 900),
+    ("mobile-portrait", 390, 844),
+    ("mobile-landscape", 844, 390),
+)
+OUTPUT = Path("/tmp/qdip-sdk-p1-browser")
+
+
+def main() -> None:
+    parsed = urlsplit(URL)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeError("QDIP_P1_PREVIEW_URL must be an HTTPS deployment URL")
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True, args=["--no-sandbox"])
+        try:
+            for label, width, height in SIZES:
+                context = browser.new_context(
+                    viewport={"width": width, "height": height},
+                    device_scale_factor=1,
+                )
+                page = context.new_page()
+                try:
+                    response = page.goto(
+                        URL + "/uk/admin/plugins",
+                        wait_until="domcontentloaded", timeout=30000,
+                    )
+                    if response is None:
+                        raise AssertionError("Browser received no page response")
+                    final = urlsplit(page.url)
+                    page.screenshot(path=str(OUTPUT / (label + ".png")), full_page=True)
+                    print(
+                        "SDK_P1_BROWSER_VIEWPORT=" + label
+                        + " http=" + str(response.status)
+                        + " final_host=" + str(final.hostname)
+                        + " screenshot=" + str(OUTPUT / (label + ".png")),
+                        flush=True,
+                    )
+                    if response.status >= 500:
+                        raise AssertionError("Preview server error")
+                    if (
+                        final.hostname != parsed.hostname
+                        and "vercel" in (final.hostname or "")
+                    ) or "Vercel Authentication" in page.title():
+                        raise RuntimeError(
+                            "PREVIEW_DEPLOYMENT_PROTECTION: browser cannot reach"
+                            " actual QDIP application through Vercel protection"
+                        )
+                    # No logged-in admin in this run. This is a negative
+                    # authorization smoke only; the full panel E2E remains open.
+                    visible_review = page.locator(
+                        'section[aria-label="Заявки сторонніх розробників"]'
+                    ).count()
+                    if visible_review:
+                        raise AssertionError("Anonymous session reached admin review UI")
+                    result = context.request.get(
+                        URL + "/api/observatory/admin/plugin-publication-submissions",
+                        timeout=15000,
+                    )
+                    if result.status not in (401, 403):
+                        raise AssertionError(
+                            "Unauthorized queue returned HTTP " + str(result.status)
+                        )
+                    print(
+                        "SDK_P1_BROWSER_ANON_QUEUE_DENIED=" + label
+                        + " http=" + str(result.status),
+                        flush=True,
+                    )
+                finally:
+                    context.close()
+            print("QDIP_SDK_P1_BROWSER_ANONYMOUS=PASS viewports=3", flush=True)
+            print("QDIP_SDK_P1_BROWSER_REAL_ZITADEL_ADMIN=NOT_TESTED", flush=True)
+        finally:
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()
