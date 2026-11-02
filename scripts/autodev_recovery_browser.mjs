@@ -85,6 +85,65 @@ async function publicSmoke(browser){
   }finally{await context.close();}
  }
 }
+/** Read-only UI acceptance against an authenticated AutoDev deployment.
+ * No route interception, no mock UI and no privileged POSTs.
+ */
+async function pickerLayout(browser){
+ check(typeof SESSION==='string'&&SESSION.length>0,'EXISTING_SESSION_FILE_REQUIRED');
+ const context=await browser.newContext({storageState:SESSION,
+  viewport:{width:1440,height:900},serviceWorkers:'block',ignoreHTTPSErrors:false});
+ try{
+  for(const [name,width,height] of VIEWS){
+   const page=await context.newPage(),errors=[],posts=[];
+   page.setDefaultTimeout(15000);
+   await page.setViewportSize({width,height});
+   page.on('pageerror',()=>errors.push(1));
+   page.on('request',req=>{
+    if(req.method()==='POST'&&new URL(req.url()).pathname.startsWith('/v1/autodev/'))
+     posts.push(1);
+   });
+   try{
+    const response=await page.goto(SITE,{waitUntil:'networkidle',timeout:30000});
+    check(response?.status()===200,'PWA_HTTP_NOT_200');
+    const panel=page.locator('.live-monitor__actions');
+    await panel.waitFor({state:'visible',timeout:20000});
+    const selects=panel.locator('.portfolio__picker-select-label select');
+    check(await selects.count()>=3,'PICKER_CONTROLS_NOT_RENDERED');
+    const measurements=await selects.evaluateAll(elements=>elements.map(el=>{
+     const css=getComputedStyle(el);
+     const rect=el.getBoundingClientRect();
+     return {appearance:css.appearance,paddingRight:css.paddingRight,
+      backgroundImage:css.backgroundImage,backgroundPosition:css.backgroundPosition,
+      width:rect.width,right:rect.right,viewport:innerWidth};
+    }));
+    check(measurements.every(x=>x.appearance==='none'&&x.paddingRight==='44px'&&
+     x.backgroundImage.startsWith('url(')&&
+     /18px/.test(x.backgroundPosition)&&x.right<=x.viewport+1),
+     'PICKER_CHEVRON_INSET_WRONG');
+    const details=panel.locator('details.portfolio__launch-unavailable');
+    await details.waitFor({state:'visible',timeout:15000});
+    check(!(await details.evaluate(el=>el.open)),'DISCLOSURE_NOT_COLLAPSED');
+    const collapsed=await details.evaluate(el=>{
+     const css=getComputedStyle(el),arrow=getComputedStyle(el.querySelector('summary'),'::after');
+     return {padding:css.paddingBottom,chevronRight:arrow.right,height:el.getBoundingClientRect().height};
+    });
+    check(collapsed.padding==='0px'&&collapsed.chevronRight==='18px',
+     'CLOSED_DISCLOSURE_SPACING_WRONG');
+    await panel.screenshot({path:resolve(DIR,'picker-collapsed-'+name+'.png')});
+    await details.locator('summary').click();
+    check(await details.evaluate(el=>el.open),'DISCLOSURE_DID_NOT_OPEN');
+    check(await details.evaluate(el=>getComputedStyle(el).paddingBottom)==='14px',
+     'OPEN_DISCLOSURE_PADDING_MISSING');
+    check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
+     'HORIZONTAL_OVERFLOW');
+    check(errors.length===0,'BROWSER_JS_ERROR');
+    check(posts.length===0,'PICKER_LAYOUT_TRIGGERED_PRIVILEGED_POST');
+    await panel.screenshot({path:resolve(DIR,'picker-expanded-'+name+'.png')});
+    console.log('AUTODEV_PICKER_LAYOUT_'+tag(name)+'=PASS');
+   }finally{await page.close();}
+  }
+ }finally{await context.close();}
+}
 async function recovery(browser){
  check(typeof SESSION==='string'&&SESSION.length>0,'EXISTING_SESSION_FILE_REQUIRED');
  check(/^rr388-[0-9a-f]{20}$/.test(RUN),'EXACT_RUN_ID_REQUIRED');
@@ -161,11 +220,12 @@ async function recovery(browser){
  }finally{await context.close();}
 }
 async function main(){
- check(['smoke','recovery-read','recovery-close'].includes(MODE),'INVALID_MODE');
+ check(['smoke','recovery-read','recovery-close','picker-layout'].includes(MODE),'INVALID_MODE');
  mkdirSync(DIR,{recursive:true});
  const browser=await chromium.launch({headless:true});
  try{
   if(MODE==='smoke')await publicSmoke(browser);
+   else if(MODE==='picker-layout')await pickerLayout(browser);
   else await recovery(browser);
   console.log('AUTODEV_BROWSER_'+tag(MODE)+'=PASS');
  }finally{await browser.close();}
