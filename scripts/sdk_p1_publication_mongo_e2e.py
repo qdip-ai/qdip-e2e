@@ -247,6 +247,7 @@ async def main() -> None:
             headless_submission = await api.submit_plugin_for_review(
                 headless_name, input_a.model_copy(update={
                     "application_launch_url": None,
+                    "slug": "e2e-headless-worker",
                 }), owner=owner_headless, authorization="Bearer test-only",
             )
             check("headless_goes_directly_to_security_review",
