@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git chromium cu
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@10.22.0
 RUN git clone -q https://github.com/qdip-ai/qdip-web.git /web \
-    && cd /web && git checkout -q 15b88149724091e0abb42f2aa5141b170e38bef7
+    && cd /web && git checkout -q a688f60f68e2c22794ab0a7badaf2df20e3135c5
 WORKDIR /web
 ENV NEXT_PUBLIC_SITE_URL=http://qdip.localhost:3000 \
     NEXT_PUBLIC_STUDIO_URL=http://studio.localhost:3000 \
