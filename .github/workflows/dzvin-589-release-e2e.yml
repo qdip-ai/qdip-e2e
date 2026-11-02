@@ -1,0 +1,111 @@
+name: Dzvin PR589 release preview browser E2E
+# Anonymous smoke on the test branch; authenticated cases only by manual approval.
+on:
+  push:
+    branches:
+      - test/dzvin-589-release-gates-20261102
+    paths:
+      - scripts/dzvin_release_public_browser_e2e.mjs
+      - scripts/dzvin_qa_current_preview_readonly_20261019.mjs
+      - .github/workflows/dzvin-589-release-e2e.yml
+  workflow_dispatch:
+    inputs:
+      run_authenticated:
+        description: "Run QA1/QA2 real Zitadel logins using existing protected test secrets"
+        type: boolean
+        default: true
+      expired_session_rotation:
+        description: "Explicitly allow disposable QA1 refresh-token rotation/two-tab test"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dzvin-589-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  DZVIN_QA_READONLY_ACK: '1'
+  DZVIN_PREVIEW_ORIGIN: https://mentality-oko83toq5-taras-gezs-projects.vercel.app
+  DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-oko83toq5-taras-gezs-projects.vercel.app
+  DZVIN_PREVIEW_DEPLOYMENT: dpl_9BcfYPFStYzKe5nEUjKv3mWTDiRf
+  DZVIN_PREVIEW_SHA: 094078dd633a4bfbc0cea9c0701f8028c83f28af
+
+jobs:
+  anonymous-responsive-security:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate test script syntax
+        run: node --check scripts/dzvin_release_public_browser_e2e.mjs
+      - name: Install disposable isolated Chromium runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dzvin-pr589"
+          cp scripts/dzvin_release_public_browser_e2e.mjs "$RUNNER_TEMP/dzvin-pr589/"
+          cd "$RUNNER_TEMP/dzvin-pr589"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Browser E2E desktop, mobile portrait/landscape, public privacy and auth denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dzvin-pr589"
+          node dzvin_release_public_browser_e2e.mjs
+      - name: Anonymous landing screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dzvin-589-public-landing-desktop-portrait-landscape
+          path: ${{ runner.temp }}/dzvin-release-anonymous-evidence/*.png
+          if-no-files-found: warn
+          retention-days: 7
+
+  qa1-qa2-authenticated:
+    # Test identities are never used in automatic push runs.
+    if: github.event.repository.private == false && github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DZVIN_QA_EXPIRED_SESSION_ACK: ${{ inputs.expired_session_rotation && '1' || '0' }}
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate authenticated script syntax
+        run: node --check scripts/dzvin_qa_current_preview_readonly_20261019.mjs
+      - name: Install disposable isolated Chromium runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dzvin-pr589-auth"
+          cp scripts/dzvin_qa_current_preview_readonly_20261019.mjs "$RUNNER_TEMP/dzvin-pr589-auth/"
+          cd "$RUNNER_TEMP/dzvin-pr589-auth"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real QA1/QA2 PKCE, owner-only diary/privacy, CSRF and opt-in expiry race
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dzvin-pr589-auth"
+          node dzvin_qa_current_preview_readonly_20261019.mjs
