@@ -2,17 +2,17 @@
   "branches": {
     "dev": {
       "last_attempt": {
-        "backend_sha": "a1b8baed964b0e88113253ebd3517de2d0b94610",
+        "backend_sha": "988da9d0948c0990c09d5222b997898d3976528a",
         "count": 1,
-        "key": "b0af8c00146da3e7157b9d74d51ef9bbfca8716f36c4f933d68c4bb3e6c8397c",
+        "key": "d8343e7a8cf9754aa32d89935a8b7f97b21671c574b141f47c01fc89e2e7a899",
         "obs_sha": "b6df32abff6893d274896ef6a01948ceed3da581",
-        "requested_at": "2026-11-02T21:11:44.705977+00:00",
+        "requested_at": "2026-11-02T21:15:22.186000+00:00",
         "rr_contract_mode": "rr-oidc-session-v1",
         "status": "DISPATCHED",
-        "suite_fingerprint": "f4c1884987d2e61398af3d3be5713edaa7334e286bee616667853eeaa6402eff",
-        "suite_sha": "5c19eb9ab4039facf12492bb3356658f92a2da2e"
+        "suite_fingerprint": "c7ddb6f8dbf96a0111da84366b1f3c2f49463d3cb6a5207352f3ea24fde3652b",
+        "suite_sha": "3c0e928e4c018d43bcdcc9540607687707b5004e"
       },
-      "seen_sha": "a1b8baed964b0e88113253ebd3517de2d0b94610",
+      "seen_sha": "988da9d0948c0990c09d5222b997898d3976528a",
       "status": "DISPATCHED"
     },
     "feat/rr-plugin-computation-ownership": {
