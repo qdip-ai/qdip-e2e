@@ -121,8 +121,22 @@ async function run() {
       const capability='qa21.e2e.credential.once';
       check(!payload.connected.some(p=>p?.id===pluginId),
         'NO_PREEXISTING_QA_TEST_CREDENTIAL');
+      // Obtain the canonical UUID through the existing owner-authorized,
+      // idempotent link API before issuance, ensuring emergency revoke works
+      // even if read-after-issue inventory becomes unavailable.
+      const bound=await ctx.request.post(OBS+'/api/observatory/organizations',{
+        headers:{Origin:OBS,'content-type':'application/json'},
+        data:JSON.stringify({organizationId:qa[0].id}),
+        maxRedirects:0,timeout:20000,
+      });
+      check(bound.status()===200,'OWN_QA_CANONICAL_BINDING_RECONFIRMED');
+      const identity=await bound.json().catch(()=>null);
+      check(identity?.linked===true && identity?.organization?.id===qa[0].id &&
+        typeof identity?.coreTenantId==='string' &&
+        /^[a-f0-9-]{36}$/i.test(identity.coreTenantId),
+        'OWN_QA_CORE_TENANT_UUID_AVAILABLE');
       let createdId=null;
-      let createdTenant=null;
+      const createdTenant=identity.coreTenantId;
       try {
         const issue=await ctx.request.post(OBS+'/api/observatory/admin/applications',{
           headers:{Origin:OBS,'content-type':'application/json'},
@@ -158,7 +172,7 @@ async function run() {
           typeof matches[0].orgId==='string' &&
           /^[a-f0-9-]{36}$/i.test(matches[0].orgId),
           'OWN_QA_KEY_INVENTORY_SCOPED');
-        createdTenant=matches[0].orgId;
+        check(matches[0].orgId===createdTenant,'KEY_TENANT_MATCHES_BOUND_QA_ORG');
       } finally {
         // Revoke immediately even if read-after-issue assertions failed.
         // No retry or second issuance: ambiguous failures remain BLOCKED.
@@ -172,9 +186,6 @@ async function run() {
             });
           console.log('ZITADEL_QA21_SDK_REVOKE_HTTP='+revoke.status());
           check(revoke.status()===200,'OWN_QA_SCOPED_KEY_REVOKED_200');
-        } else if(createdId) {
-          console.log('ZITADEL_QA21_SDK_CLEANUP=BLOCKED_MISSING_TENANT_ID');
-          process.exitCode=2;
         }
       }
       const remaining=await ctx.request.get(
