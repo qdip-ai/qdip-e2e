@@ -25,8 +25,8 @@ jobs:
           node-version: '22'
       - name: Check existing sealed QA operator binding without disclosure
         env:
-          LOGIN_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN != '' }}
-          PASSWORD_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+          LOGIN_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          PASSWORD_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
         run: |
           set -euo pipefail
           node --check scripts/autodev_recovery_browser.mjs
@@ -43,8 +43,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Authenticated real UI layout on desktop and both mobile orientations
         env:
-          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
-          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
           QDIP_E2E_AUTODEV_MODE: picker-layout
           QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/autodev-picker/screenshots
           CI: 'true'
