@@ -1,6 +1,11 @@
 name: Dzvin PR589 release preview browser E2E
-# Public anonymous smoke on PR; existing credential-backed QA only via manual approval.
+# One-time owner-authored QA1/QA2 E2E verification on scoped test branch; restore manual-only gate after run.
 on:
+  push:
+    branches:
+      - test/dzvin-589-release-gates-20261102
+    paths:
+      - .github/workflows/dzvin-589-release-e2e.yml
   pull_request:
     branches:
       - main
@@ -75,7 +80,7 @@ jobs:
 
   qa1-qa2-authenticated:
     # Test identities are never used in automatic push runs.
-    if: github.event.repository.private == false && github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true
+    if: github.event.repository.private == false && ((github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true) || (github.event_name == 'push' && github.ref == 'refs/heads/test/dzvin-589-release-gates-20261102' && github.repository == 'qdip-ai/qdip-e2e'))
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
