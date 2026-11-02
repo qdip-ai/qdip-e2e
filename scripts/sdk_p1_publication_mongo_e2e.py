@@ -539,6 +539,88 @@ async def main() -> None:
                       "_id": "still-public.example.org"
                   }))["plugin_name"] == public_plugin)
 
+            # Regression: a globally unique public catalog slug cannot be
+            # simultaneously claimed by two independently verified SDK owners.
+            # Headless plugins skip DNS but still have a real Zitadel-bound owner.
+            slug_owners = [
+                TenantContext(
+                    organization_id=org, key_id=key, plugin_id="p1-test",
+                    scopes=["plugins:register"],
+                    allowed_capabilities=["p1.plan"],
+                )
+                for org, key in (
+                    ("e2e-slug-one", "e2e-slug-one-key"),
+                    ("e2e-slug-two", "e2e-slug-two-key"),
+                )
+            ]
+            slug_names = [
+                remote_catalog_id(owner.organization_id, "p1-test")
+                for owner in slug_owners
+            ]
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-one", "e2e-slug-one-key"),
+                row("e2e-slug-two", "e2e-slug-two-key"),
+            ])
+            slug_input = input_a.model_copy(update={
+                "slug": "e2e-exclusive-slug",
+                "application_launch_url": None,
+            })
+            claimed_slug = await api.submit_plugin_for_review(
+                slug_names[0], slug_input,
+                owner=slug_owners[0], authorization="Bearer test-only",
+            )
+            check("verified_headless_slug_claimed",
+                  claimed_slug["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  }))["plugin_name"] == slug_names[0])
+            try:
+                await api.submit_plugin_for_review(
+                    slug_names[1], slug_input, owner=slug_owners[1],
+                    authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("another_verified_owner_cannot_claim_global_slug",
+                      exc.status_code == 409)
+            else:
+                raise AssertionError("Two verified publishers claimed same slug")
+            updated_slug = await api.submit_plugin_for_review(
+                slug_names[0],
+                slug_input.model_copy(update={
+                    "expected_revision": 1,
+                    "slug": "e2e-moved-slug",
+                }),
+                owner=slug_owners[0], authorization="Bearer test-only",
+            )
+            check("slug_changed_without_publication",
+                  updated_slug["expected_revision"] == 2
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  })) is None
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-moved-slug",
+                  }))["plugin_name"] == slug_names[0])
+            second_owner = await api.submit_plugin_for_review(
+                slug_names[1], slug_input,
+                owner=slug_owners[1], authorization="Bearer test-only",
+            )
+            check("released_private_slug_can_be_claimed_by_other_owner",
+                  second_owner["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  }))["plugin_name"] == slug_names[1])
+            await api.moderate_plugin_submission(
+                slug_names[1],
+                api.ModerationInput(expected_revision=1, action="reject",
+                                    reason="Not admitted by scanner"),
+                x_qdip_actor="e2e-reviewer",
+            )
+            check("rejected_private_slug_is_released",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  })) is None)
+
+
 
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
