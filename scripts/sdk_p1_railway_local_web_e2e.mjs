@@ -38,17 +38,17 @@ const outputDir = '/tmp/sdk-p1-railway-web318'
 mkdirSync(outputDir, { recursive: true })
 const browser = await chromium.launch({
   executablePath: '/usr/bin/chromium',
-  headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--host-resolver-rules=MAP observatory.localhost 127.0.0.1'],
 })
 try {
   // A genuine request to Next must deny a roleless visitor at the API boundary.
   const negative = await browser.newContext()
-  const anon = await negative.request.get(site + '/api/observatory/admin/plugin-publication-submissions')
+  const anon = await negative.request.get('http://127.0.0.1:3000/api/observatory/admin/plugin-publication-submissions', { headers: { host: 'observatory.localhost:3000' } })
   assert.equal(anon.status(), 401, 'anonymous GET must fail closed')
   const anonPost = await negative.request.post(
-    site + '/api/observatory/admin/plugin-publication-submissions/third-party-review-qa/moderate',
+    'http://127.0.0.1:3000/api/observatory/admin/plugin-publication-submissions/third-party-review-qa/moderate',
     { data: { expected_revision: 4, action: 'reject', reason: 'Test decline reason' },
-      headers: { origin: site } },
+      headers: { origin: site, host: 'observatory.localhost:3000' } },
   )
   assert.equal(anonPost.status(), 401, 'anonymous mutation must fail closed')
   await negative.close()
