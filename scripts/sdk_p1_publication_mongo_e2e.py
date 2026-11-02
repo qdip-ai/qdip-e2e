@@ -409,6 +409,69 @@ async def main() -> None:
                       "_id": "replacement.example.org"
                   }))["plugin_name"] == name_after_rejection)
 
+            # Negative case: changing a private proposal does not free a
+            # hostname still backing an already-published catalog link.
+            public_owner = TenantContext(
+                organization_id="e2e-published-url-org",
+                key_id="e2e-published-worker", plugin_id="p1-test",
+                scopes=["plugins:register"], allowed_capabilities=["p1.plan"],
+            )
+            public_plugin = remote_catalog_id("e2e-published-url-org", "p1-test")
+            public_url = "https://still-public.example.org"
+            await db["plugin_publications"].insert_one(
+                row("e2e-published-url-org", "e2e-published-worker")
+            )
+            public_request = input_a.model_copy(update={
+                "application_launch_url": public_url,
+                "slug": "published-domain-owner",
+            })
+            await api.submit_plugin_for_review(
+                public_plugin, public_request, owner=public_owner,
+                authorization="Bearer test-only",
+            )
+            await api.verify_own_plugin_domain(
+                public_plugin, api.VerifyDomainInput(expected_revision=1),
+                owner=public_owner, authorization="Bearer test-only",
+            )
+            # An already published metadata projection is possible for the
+            # first-party admin path. The test seeds only this Mongo state.
+            await db["plugin_publications"].update_one(
+                {"_id": public_plugin},
+                {"$set": {
+                    "published": True,
+                    "catalog_ui.application_launch_url": public_url,
+                    "catalog_ui.launch_url_verified": True,
+                }},
+            )
+            changed_public = await api.submit_plugin_for_review(
+                public_plugin, public_request.model_copy(update={
+                    "expected_revision": 2,
+                    "application_launch_url": "https://candidate.example.org",
+                }), owner=public_owner, authorization="Bearer test-only",
+            )
+            check("published_link_update_still_requires_new_dns",
+                  changed_public["status"] == "PENDING_OWNERSHIP_VERIFICATION"
+                  and changed_public["catalog"]["launch_url_verified"] is False)
+            check("published_host_reservation_survives_pending_url_change",
+                  (await db["plugin_publisher_domains"].find_one({
+                      "_id": "still-public.example.org"
+                  }))["plugin_name"] == public_plugin)
+            public_rejected = await api.moderate_plugin_submission(
+                public_plugin, api.ModerationInput(
+                    expected_revision=3, action="reject",
+                    reason="Unverified replacement does not change existing publication",
+                ), x_qdip_actor="e2e-reviewer",
+            )
+            check("rejected_replacement_does_not_unpublish_original_link",
+                  public_rejected["status"] == "REJECTED"
+                  and (await db["plugin_publications"].find_one({
+                      "_id": public_plugin
+                  }))["published"] is True
+                  and (await db["plugin_publisher_domains"].find_one({
+                      "_id": "still-public.example.org"
+                  }))["plugin_name"] == public_plugin)
+
+
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
         print("QDIP_SDK_P1_REAL_WORKER_EXECUTION=NOT_TESTED", flush=True)
