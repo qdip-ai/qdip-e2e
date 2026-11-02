@@ -223,12 +223,12 @@ def main() -> int:
             KEY_ID: {"value": first["id"], "isSealed": False},
         })
         delivered = True
+        rail.wait_new_deployment(previous)
         nodes, values = rail.metadata()
         require(len([n for n in nodes if n.get("name") == SECRET
                      and n.get("isSealed") is True]) == 1
                 and values.get(KEY_ID) == first["id"],
                 "First Worker credential not sealed or ID mismatch")
-        rail.wait_new_deployment(previous)
         require(registered(core, org, plugin, capability, first["id"]),
                 "Sealed Worker never REGISTERED")
         smoke(core, org, plugin, capability, fixture)
