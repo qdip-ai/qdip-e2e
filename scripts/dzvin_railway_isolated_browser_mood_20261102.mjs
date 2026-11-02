@@ -8,6 +8,7 @@ const actors=[
  {name:'QA1',email:process.env.QDIP_E2E_ZITADEL_TEST1_LOGIN,password:process.env.QDIP_E2E_ZITADEL_TEST1_PASSWORD},
  {name:'QA2',email:process.env.QDIP_E2E_ZITADEL_TEST2_LOGIN,password:process.env.QDIP_E2E_ZITADEL_TEST2_PASSWORD},
 ];
+let stage='BOOT';
 const assert=(x,code)=>{if(!x)throw Error(code)};
 async function visible(page,selectors,wait=12000){
  const until=Date.now()+wait;
@@ -53,8 +54,13 @@ async function main(){
   }
   assert(identities[0].id!==identities[1].id,'QA_SAME_SUBJECT');
   // A tag fixture lives only in disposable QA Mongo.
-  const tag=await clients[0].post('/api/user-tags',{data:{key:'qa-isolated-20261102',name:'QA Isolated Mood'}});
-  assert(tag.status()===201,'TAG_PREP_'+tag.status());
+  const existingTags=await clients[0].get('/api/user-tags');
+  assert(existingTags.status()===200,'TAGS_LIST_'+existingTags.status());
+  const tags=await existingTags.json();
+  if(!tags.some(t=>t.key==='qa-isolated-20261102')){
+    const tag=await clients[0].post('/api/user-tags',{data:{key:'qa-isolated-20261102',name:'QA Isolated Mood'}});
+    assert(tag.status()===201,'TAG_PREP_'+tag.status());
+  }
   const ctx=await browser.newContext({viewport:{width:1440,height:900},timezoneId:'Europe/Warsaw',serviceWorkers:'block'});
   ctxs.push(ctx);
   const c=identities[0].cookie;
@@ -68,12 +74,16 @@ async function main(){
   assert(before.length===0,'QA_MOOD_ALREADY_SAVED_TODAY');
   console.log('QA_PREVIEW_BFF_POINTS_TO_ISOLATED_EMPTY_MONGO=PASS');
   const page=await ctx.newPage();
+  stage='MOOD_PAGE_GOTO';console.log('QA_STAGE='+stage);
   const response=await page.goto(SITE+'/en/mood-tracker',{waitUntil:'domcontentloaded',timeout:40000});
   assert(response?.status()===200,'MOOD_PAGE_HTTP_'+response?.status());
   const html=await response.text();
   assert(html.includes('data-dpl-id="'+DPL+'"'),'PREVIEW_DEPLOYMENT_CHANGED');
+  stage='MOOD_BUTTON_VISIBLE';console.log('QA_STAGE='+stage);
+  console.log('QA_PAGE_DOM='+JSON.stringify({path:new URL(page.url()).pathname,buttonCount:await page.locator('button[aria-pressed]').count(),sliderCount:await page.locator('[role="slider"]').count(),formCount:await page.locator('form').count()}));
   await page.locator('button[aria-pressed]').first().waitFor({state:'visible',timeout:18000});
   assert(await page.locator('button[aria-pressed]').count()>=5,'MOOD_OPTIONS_MISSING');
+  stage='MOOD_BUTTON_SELECT';console.log('QA_STAGE='+stage);
   await page.locator('button[aria-pressed]').nth(3).click();
   const sliders=page.locator('[role="slider"]');
   assert(await sliders.count()>=3,'MOOD_DIMENSION_SLIDERS_MISSING');
@@ -81,13 +91,16 @@ async function main(){
    const el=sliders.nth(i);await el.focus();await el.press('Home');for(let j=0;j<steps;j++)await el.press('ArrowRight');
    assert(Number(await el.getAttribute('aria-valuenow'))===steps+1,'SLIDER_VALUE_'+i);
   }
+  stage='TAG_VISIBLE';console.log('QA_STAGE='+stage);
   const tagButton=page.getByRole('button',{name:'QA Isolated Mood',exact:true});
   await tagButton.waitFor({state:'visible',timeout:18000});
   await tagButton.click();
+  stage='SAVE_VISIBLE';console.log('QA_STAGE='+stage);
   const save=page.getByRole('button',{name:/save/i}).last();
   await save.waitFor({state:'visible',timeout:15000});
   assert(await save.isEnabled(),'SAVE_DISABLED');
   const createdWait=page.waitForResponse(r=>r.url().includes('/api/backend/mood-record')&&r.request().method()==='POST',{timeout:45000});
+  stage='SAVE_POST';console.log('QA_STAGE='+stage);
   await save.click();
   const submitted=await createdWait;
   assert(submitted.status()===201,'MOOD_SAVE_HTTP_'+submitted.status());
@@ -126,4 +139,4 @@ async function main(){
   console.log('QA_REAL_BROWSER_MOOD_E2E=PASS');
  }finally{for(const c of ctxs)await c.close();for(const api of clients)await api.dispose();await browser.close()}
 }
-main().catch(e=>{const code=e instanceof Error&&/^[A-Z0-9_]{5,100}$/.test(e.message)?e.message:'SANITIZED_QA_BROWSER_FAILURE';console.error('QA_REAL_BROWSER_MOOD_E2E=FAIL:'+code);process.exitCode=1});
+main().catch(e=>{console.error('QA_FAILURE_STAGE='+stage);const code=e instanceof Error&&/^[A-Z0-9_]{5,100}$/.test(e.message)?e.message:'SANITIZED_QA_BROWSER_FAILURE';console.error('QA_REAL_BROWSER_MOOD_E2E=FAIL:'+code);process.exitCode=1});
