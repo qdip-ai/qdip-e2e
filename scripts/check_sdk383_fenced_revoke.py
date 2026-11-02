@@ -10,39 +10,44 @@ import os
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 import httpx
 from pymongo import MongoClient
 
 BASE = "http://127.0.0.1:8000/api/v1/organizations"
 ORG = "rr-e2e-org-a"
-APPLICATION = "sdk383-e2e"
 ENVIRONMENT = "staging"
 PLUGIN = "staffing"
 
 
 def main() -> None:
-    assert (
+    if not (
         os.environ.get("GITHUB_ACTIONS") == "true"
         or os.environ.get("QDIP_SDK383_DISPOSABLE_RAILWAY_QA") == "true"
-    ), "Only native E2E runner or explicitly disposable Railway QA"
+    ):
+        raise RuntimeError("Only disposable E2E runners are supported")
     mongo_url = os.environ["MONGODB_URL"]
-    assert "127.0.0.1:27019/qdip_e2e?" in mongo_url
+    target = urlsplit(mongo_url)
+    if (target.scheme != "mongodb" or target.netloc != "127.0.0.1:27019"
+            or target.path != "/qdip_e2e" or not target.query.startswith("replicaSet=rs0")):
+        raise RuntimeError("Refusing non-disposable MongoDB target")
     admin = os.environ["API_KEY"]
     tenant = os.environ["E2E_KEY_A"]
     assert admin and tenant and admin != tenant
     nonce = secrets.token_hex(8)
+    application = f"sdk383-e2e-{nonce[:8]}"
     workers = [f"rr-e2e-sdk383-worker-{nonce}-{i}" for i in range(2)]
     caller_id = f"rr-e2e-sdk383-caller-{nonce}"
     key_ids = [*workers, caller_id]
-    lock_id = f"{ORG}/{ENVIRONMENT}/{APPLICATION}"
+    lock_id = f"{ORG}/{ENVIRONMENT}/{application}"
     tokens = [secrets.token_hex(32), secrets.token_hex(32)]
     lease_url = f"{BASE}/{ORG}/sdk-credential-reconciliation-lease"
 
     def lease(client: httpx.Client, token: str, action: str) -> httpx.Response:
         return client.post(
             lease_url, headers={"x-api-key": admin},
-            json={"application": APPLICATION, "environment": ENVIRONMENT,
+            json={"application": application, "environment": ENVIRONMENT,
                   "token": token, "action": action},
         )
 
@@ -51,7 +56,7 @@ def main() -> None:
         return client.post(
             f"{BASE}/{org}/keys/{key_id}/revoke-fenced",
             headers={"x-api-key": api_key} if api_key else {},
-            json={"application": APPLICATION, "environment": ENVIRONMENT,
+            json={"application": application, "environment": ENVIRONMENT,
                   "plugin_id": PLUGIN, "token": token},
         )
 
@@ -73,14 +78,14 @@ def main() -> None:
             {"id": key_id, "org_id": ORG, "environment": ENVIRONMENT,
              "plugin_id": PLUGIN, "scopes": ["plugins:register"],
              "allowed_capabilities": ["staffing.plan"],
-             "name": f"{APPLICATION}/{ENVIRONMENT}/staffing.plan/worker/{nonce}-{i}",
+             "name": f"{application}/{ENVIRONMENT}/staffing.plan/worker/{nonce}-{i}",
              "revoked_at": None}
             for i, key_id in enumerate(workers)
         ]
         rows.append({
             **rows[0], "id": caller_id,
             "scopes": ["plugins:execute"],
-            "name": f"{APPLICATION}/{ENVIRONMENT}/staffing.plan/smoke/{nonce}",
+            "name": f"{application}/{ENVIRONMENT}/staffing.plan/smoke/{nonce}",
         })
         keys.insert_many(rows)
         try:
