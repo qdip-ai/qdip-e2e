@@ -102,7 +102,7 @@ async function main(){
   const guide=page.locator('[role="dialog"][aria-modal="true"]').first();
   if(await guide.isVisible().catch(()=>false)){
     for(let step=0;step<4;step++){
-      const next=guide.getByRole('button',{name:/next|done/i}).last();
+      const next=guide.getByRole('button',{name:/next|got it/i}).last();
       await next.waitFor({state:'visible',timeout:6000});
       await next.click();
     }
