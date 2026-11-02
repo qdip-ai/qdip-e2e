@@ -139,6 +139,10 @@ async def main() -> None:
                   isinstance(proof, dict)
                   and proof["record_name"] == "_qdip-plugin.developer.example.org"
                   and "domain_proof" not in rows["items"][0])
+            check("unverified_dns_cannot_preempt_global_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "disposable-p1",
+                  })) is None)
             async def verified_dns(_proof):
                 return True
             st.enter_context(patch.object(api, "verify_dns_txt", verified_dns))
@@ -156,8 +160,13 @@ async def main() -> None:
             check("exclusive_domain_claim",
                   claim["plugin_name"] == name_a
                   and claim["tenant_id"] == "e2e-org-a")
+            check("verified_dns_reserves_global_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "disposable-p1"
+                  }))["plugin_name"] == name_a)
             other = await api.submit_plugin_for_review(
-                name_b, input_a, owner=owner_b, authorization="Bearer test-only",
+                name_b, input_a.model_copy(update={"slug": "disposable-p1-b"}),
+                owner=owner_b, authorization="Bearer test-only",
             )
             check("other_org_can_submit_own_plugin",
                   other["status"] == "PENDING_OWNERSHIP_VERIFICATION")
@@ -247,6 +256,7 @@ async def main() -> None:
             headless_submission = await api.submit_plugin_for_review(
                 headless_name, input_a.model_copy(update={
                     "application_launch_url": None,
+                    "slug": "e2e-headless-worker",
                 }), owner=owner_headless, authorization="Bearer test-only",
             )
             check("headless_goes_directly_to_security_review",
@@ -273,6 +283,74 @@ async def main() -> None:
                   and (await db["plugin_publications"].find_one(
                       {"_id": headless_name}
                   ))["published"] is False)
+
+            # SDK #399: an authenticated publisher submission is NOT security
+            # admission. Verify the actual shared Mongo dispatch gate, not a
+            # duplicated test policy or a fake "approved" response.
+            from app.plugins import security_review
+            from app.plugins.registration_catalog import registration_digest
+            st.enter_context(patch.object(security_review, "get_database", lambda: db))
+            headless_record = await db["plugin_publications"].find_one(
+                {"_id": headless_name}
+            )
+            headless_digest = registration_digest(headless_record["registration"])
+
+            async def assert_dispatch_denied(label: str, expected):
+                try:
+                    await security_review.assert_remote_allowed(
+                        "e2e-headless-org", "p1-test",
+                        plugin_version="0.1.0",
+                        worker_key_id="e2e-worker-headless",
+                        capabilities={"p1.plan": "1"},
+                    )
+                except expected:
+                    check(label, True)
+                else:
+                    check(label, False)
+
+            await assert_dispatch_denied(
+                "developer_submission_does_not_admit_worker",
+                security_review.PluginNotApproved,
+            )
+            # Forging a scanner verdict or source digest in a Mongo security
+            # document must not authorize a third-party Worker.
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {"security": {
+                    "state": "approved", "approval_source": "independent_scan",
+                    "approved_manifest_sha256": headless_digest,
+                    "last_scan": {"result": "no_signatures"},
+                    "critical_block": False,
+                }}},
+            )
+            await assert_dispatch_denied(
+                "self_claimed_scan_is_not_runtime_admission",
+                security_review.PluginNotApproved,
+            )
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {
+                    "security.approval_source": "trusted_first_party_manual",
+                }},
+            )
+            with patch.dict(os.environ, {"QDIP_TRUSTED_REMOTE_MANIFESTS": ""}):
+                await assert_dispatch_denied(
+                    "manual_state_without_deployed_allowlist_is_denied",
+                    security_review.PluginNotApproved,
+                )
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {"security.state": "quarantined"}},
+            )
+            await assert_dispatch_denied(
+                "quarantine_blocks_even_fake_approval",
+                security_review.PluginQuarantined,
+            )
+            check("gate_did_not_publish_third_party",
+                  (await db["plugin_publications"].find_one(
+                      {"_id": headless_name}
+                  ))["published"] is False)
+
 
             # Regression: when the publisher abandons a verified URL in a
             # revision, the old domain cannot remain locked forever. A new
@@ -441,6 +519,7 @@ async def main() -> None:
                     "published": True,
                     "catalog_ui.application_launch_url": public_url,
                     "catalog_ui.launch_url_verified": True,
+                    "catalog_ui.slug": "published-domain-owner",
                 }},
             )
             changed_public = await api.submit_plugin_for_review(
@@ -470,6 +549,154 @@ async def main() -> None:
                   and (await db["plugin_publisher_domains"].find_one({
                       "_id": "still-public.example.org"
                   }))["plugin_name"] == public_plugin)
+
+            check("rejected_pending_change_keeps_published_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "published-domain-owner",
+                  }))["plugin_name"] == public_plugin)
+
+            # Regression: a globally unique public catalog slug cannot be
+            # simultaneously claimed by two independently verified SDK owners.
+            # Headless plugins skip DNS but still have a real Zitadel-bound owner.
+            slug_owners = [
+                TenantContext(
+                    organization_id=org, key_id=key, plugin_id="p1-test",
+                    scopes=["plugins:register"],
+                    allowed_capabilities=["p1.plan"],
+                )
+                for org, key in (
+                    ("e2e-slug-one", "e2e-slug-one-key"),
+                    ("e2e-slug-two", "e2e-slug-two-key"),
+                )
+            ]
+            slug_names = [
+                remote_catalog_id(owner.organization_id, "p1-test")
+                for owner in slug_owners
+            ]
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-one", "e2e-slug-one-key"),
+                row("e2e-slug-two", "e2e-slug-two-key"),
+            ])
+            slug_input = input_a.model_copy(update={
+                "slug": "e2e-exclusive-slug",
+                "application_launch_url": None,
+            })
+            claimed_slug = await api.submit_plugin_for_review(
+                slug_names[0], slug_input,
+                owner=slug_owners[0], authorization="Bearer test-only",
+            )
+            check("verified_headless_slug_claimed",
+                  claimed_slug["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  }))["plugin_name"] == slug_names[0])
+            try:
+                await api.submit_plugin_for_review(
+                    slug_names[1], slug_input, owner=slug_owners[1],
+                    authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("another_verified_owner_cannot_claim_global_slug",
+                      exc.status_code == 409)
+            else:
+                raise AssertionError("Two verified publishers claimed same slug")
+            updated_slug = await api.submit_plugin_for_review(
+                slug_names[0],
+                slug_input.model_copy(update={
+                    "expected_revision": 1,
+                    "slug": "e2e-moved-slug",
+                }),
+                owner=slug_owners[0], authorization="Bearer test-only",
+            )
+            check("slug_changed_without_publication",
+                  updated_slug["expected_revision"] == 2
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  })) is None
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-moved-slug",
+                  }))["plugin_name"] == slug_names[0])
+            second_owner = await api.submit_plugin_for_review(
+                slug_names[1], slug_input,
+                owner=slug_owners[1], authorization="Bearer test-only",
+            )
+            check("released_private_slug_can_be_claimed_by_other_owner",
+                  second_owner["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  }))["plugin_name"] == slug_names[1])
+            await api.moderate_plugin_submission(
+                slug_names[1],
+                api.ModerationInput(expected_revision=1, action="reject",
+                                    reason="Not admitted by scanner"),
+                x_qdip_actor="e2e-reviewer",
+            )
+            check("rejected_private_slug_is_released",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "e2e-exclusive-slug",
+                  })) is None)
+
+            # Two independent applications racing for the same global slug:
+            # Mongo's unique _id reservation must guarantee one winner.
+            concurrent_owners = [
+                TenantContext(
+                    organization_id=org, key_id=key, plugin_id="p1-test",
+                    scopes=["plugins:register"],
+                    allowed_capabilities=["p1.plan"],
+                )
+                for org, key in (
+                    ("e2e-slug-race-a", "e2e-race-key-a"),
+                    ("e2e-slug-race-b", "e2e-race-key-b"),
+                )
+            ]
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-race-a", "e2e-race-key-a"),
+                row("e2e-slug-race-b", "e2e-race-key-b"),
+            ])
+            results = await asyncio.gather(*[
+                api.submit_plugin_for_review(
+                    remote_catalog_id(owner.organization_id, "p1-test"),
+                    slug_input.model_copy(update={"slug": "e2e-race-global"}),
+                    owner=owner, authorization="Bearer test-only",
+                )
+                for owner in concurrent_owners
+            ], return_exceptions=True)
+            successful = [v for v in results if isinstance(v, dict)]
+            conflicts = [v for v in results if isinstance(v, HTTPException)]
+            check("concurrent_global_slug_exactly_one_verified_owner",
+                  len(successful) == 1 and len(conflicts) == 1
+                  and conflicts[0].status_code == 409
+                  and await db["plugin_publication_slugs"].count_documents({
+                      "_id": "e2e-race-global"
+                  }) == 1)
+            # A proposed public slug must also never shadow an existing
+            # embedded/remote catalog identity, even before publication.
+            shadow_owner = TenantContext(
+                organization_id="e2e-slug-shadow", key_id="e2e-shadow-key",
+                plugin_id="p1-test", scopes=["plugins:register"],
+                allowed_capabilities=["p1.plan"],
+            )
+            shadow_name = remote_catalog_id("e2e-slug-shadow", "p1-test")
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-shadow", "e2e-shadow-key"),
+                {"_id": "e2e-existing-catalog-plugin", "published": False},
+            ])
+            try:
+                await api.submit_plugin_for_review(
+                    shadow_name, slug_input.model_copy(update={
+                        "slug": "e2e-existing-catalog-plugin",
+                    }), owner=shadow_owner, authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("slug_cannot_shadow_existing_plugin_identity",
+                      exc.status_code == 409
+                      and await db["plugin_publication_submissions"].find_one({
+                          "_id": shadow_name
+                      }) is None)
+            else:
+                raise AssertionError("Alias for existing plugin ID was accepted")
+
+
 
 
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
