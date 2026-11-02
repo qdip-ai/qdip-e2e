@@ -10,7 +10,7 @@ import os
 import secrets
 import subprocess
 import sys
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -25,7 +25,12 @@ async def main() -> None:
     if parsed.scheme not in ("mongodb", "mongodb+srv"):
         raise RuntimeError("MongoDB URL absent")
     dbname = "qdip_p1_e2e_" + secrets.token_hex(9)
-    uri = urlunsplit((parsed.scheme, parsed.netloc, "/" + dbname, parsed.query, ""))
+    # Changing the URI database path changes MongoDB's implicit authSource.
+    # Preserve the *original* authentication database when isolating the QA DB.
+    options = parse_qsl(parsed.query, keep_blank_values=True)
+    if not any(key.lower() == "authsource" for key, _ in options):
+        options.append(("authSource", parsed.path.lstrip("/") or "admin"))
+    uri = urlunsplit((parsed.scheme, parsed.netloc, "/" + dbname, urlencode(options), ""))
     mongo = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=8000)
     db = mongo[dbname]
     processes = []
