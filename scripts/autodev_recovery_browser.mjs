@@ -85,6 +85,165 @@ async function publicSmoke(browser){
   }finally{await context.close();}
  }
 }
+/** Reuse a real PKCE operator login when GitHub QA secrets are bound.
+ * Never persist or log tokens. Railway can instead supply a pre-existing
+ * storageState path, keeping all browser test assertions identical.
+ */
+async function pickerAuthContext(browser){
+ const opts={viewport:{width:1440,height:900},
+  serviceWorkers:'block',ignoreHTTPSErrors:false,acceptDownloads:false};
+ if(typeof SESSION==='string'&&SESSION.length>0)
+  return browser.newContext({...opts,storageState:SESSION});
+ const username=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
+ const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
+ check(typeof username==='string'&&username.length>0&&
+  typeof password==='string'&&password.length>0,'EXISTING_OPERATOR_CREDENTIALS_REQUIRED');
+ const context=await browser.newContext(opts);
+ try{
+  const page=await context.newPage();
+  const start=await page.goto(SITE,{waitUntil:'domcontentloaded',timeout:30000});
+  check(start?.status()===200,'OPERATOR_PWA_NOT_200');
+  const login=page.locator('button.live-monitor__login');
+  await login.waitFor({state:'visible',timeout:16000});
+  let validPKCE=false;
+  page.on('request',request=>{
+   try{
+    const url=new URL(request.url());
+    if(url.pathname==='/oauth/v2/authorize' &&
+       url.searchParams.get('code_challenge_method')==='S256'&&
+       url.searchParams.get('redirect_uri')===SITE+'/auth/callback')
+      validPKCE=true;
+   }catch{}
+  });
+  await login.click();
+  await page.waitForURL(url=>url.origin!==SITE,{timeout:30000});
+  check(validPKCE,'OPERATOR_PKCE_INVALID');
+  const find=async(selectors,timeout=13000)=>{
+   const end=Date.now()+timeout;
+   while(Date.now()<end){
+    for(const selector of selectors){
+     const field=page.locator(selector).first();
+     if(await field.isVisible().catch(()=>false))return field;
+    }
+    await page.waitForTimeout(200);
+   }
+   return null;
+  };
+  const user=await find(['input[autocomplete="username"]','input[name="loginName"]',
+   'input[name="loginname"]','input[name="email"]','input[type="email"]',
+   'input[type="text"]']);
+  check(user,'OPERATOR_USERNAME_MISSING');
+  await user.fill(username);
+  let pass=await find(['input[autocomplete="current-password"]',
+   'input[type="password"]'],1200);
+  if(!pass){
+   await user.press('Enter');
+   pass=await find(['input[autocomplete="current-password"]',
+    'input[type="password"]']);
+  }
+  check(pass,'OPERATOR_PASSWORD_MISSING');
+  await pass.fill(password);
+  await pass.press('Enter'); // One login attempt; never retry with other identities.
+  try{await page.waitForURL(url=>url.origin===SITE,{timeout:42000});}
+  catch{throw Error('OPERATOR_REAL_LOGIN_OR_CALLBACK_BLOCKED');}
+  const token=await page.evaluate(async()=>{
+   const end=Date.now()+15000;
+   while(Date.now()<end){
+    for(let i=0;i<localStorage.length;i++){
+     const key=localStorage.key(i);
+     if(!key?.startsWith('oidc.user:'))continue;
+     try{
+      const data=JSON.parse(localStorage.getItem(key)||'{}');
+      if(data.access_token)return data.access_token;
+     }catch{}
+    }
+    await new Promise(resolve=>setTimeout(resolve,200));
+   }
+   return null;
+  });
+  check(typeof token==='string'&&token.length>20,'OPERATOR_OIDC_TOKEN_ABSENT');
+  const monitor=await context.request.get(SITE+'/v1/autodev/monitor',{
+   headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json'},
+   maxRedirects:0,timeout:16000
+  });
+  if(monitor.status()!==200){
+   let role=false,audience=false;
+   try{
+    const payload=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString());
+    const aud=payload.aud;
+    const grants=payload['urn:zitadel:iam:org:project:394565917515719957:roles'];
+    role=typeof grants?.autodev_operator?.['368555767923594379']==='string';
+    audience=aud==='394565917515719957'||Array.isArray(aud)&&
+     aud.includes('394565917515719957');
+   }catch{}
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_HTTP='+monitor.status());
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_ROLE_PRESENT='+role);
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_AUDIENCE_PRESENT='+audience);
+   throw Error('OPERATOR_MONITOR_ROLE_DENIED');
+  }
+  await page.close();
+  console.log('AUTODEV_PICKER_REAL_ZITADEL_OPERATOR=PASS');
+  return context;
+ }catch(err){await context.close();throw err;}
+}
+
+/** Read-only UI acceptance against an authenticated AutoDev deployment.
+ * No route interception, no mock UI and no privileged POSTs.
+ */
+async function pickerLayout(browser){
+ const context=await pickerAuthContext(browser);
+ try{
+  for(const [name,width,height] of VIEWS){
+   const page=await context.newPage(),errors=[],posts=[];
+   page.setDefaultTimeout(15000);
+   await page.setViewportSize({width,height});
+   page.on('pageerror',()=>errors.push(1));
+   page.on('request',req=>{
+    if(req.method()==='POST'&&new URL(req.url()).pathname.startsWith('/v1/autodev/'))
+     posts.push(1);
+   });
+   try{
+    const response=await page.goto(SITE,{waitUntil:'networkidle',timeout:30000});
+    check(response?.status()===200,'PWA_HTTP_NOT_200');
+    const panel=page.locator('.live-monitor__actions');
+    await panel.waitFor({state:'visible',timeout:20000});
+    const selects=panel.locator('.portfolio__picker-select-label select');
+    check(await selects.count()>=3,'PICKER_CONTROLS_NOT_RENDERED');
+    const measurements=await selects.evaluateAll(elements=>elements.map(el=>{
+     const css=getComputedStyle(el);
+     const rect=el.getBoundingClientRect();
+     return {appearance:css.appearance,paddingRight:css.paddingRight,
+      backgroundImage:css.backgroundImage,backgroundPosition:css.backgroundPosition,
+      width:rect.width,right:rect.right,viewport:innerWidth};
+    }));
+    check(measurements.every(x=>x.appearance==='none'&&x.paddingRight==='44px'&&
+     x.backgroundImage.startsWith('url(')&&
+     /18px/.test(x.backgroundPosition)&&x.right<=x.viewport+1),
+     'PICKER_CHEVRON_INSET_WRONG');
+    const details=panel.locator('details.portfolio__launch-unavailable');
+    await details.waitFor({state:'visible',timeout:15000});
+    check(!(await details.evaluate(el=>el.open)),'DISCLOSURE_NOT_COLLAPSED');
+    const collapsed=await details.evaluate(el=>{
+     const css=getComputedStyle(el),arrow=getComputedStyle(el.querySelector('summary'),'::after');
+     return {padding:css.paddingBottom,chevronRight:arrow.right,height:el.getBoundingClientRect().height};
+    });
+    check(collapsed.padding==='0px'&&collapsed.chevronRight==='18px',
+     'CLOSED_DISCLOSURE_SPACING_WRONG');
+    await panel.screenshot({path:resolve(DIR,'picker-collapsed-'+name+'.png')});
+    await details.locator('summary').click();
+    check(await details.evaluate(el=>el.open),'DISCLOSURE_DID_NOT_OPEN');
+    check(await details.evaluate(el=>getComputedStyle(el).paddingBottom)==='14px',
+     'OPEN_DISCLOSURE_PADDING_MISSING');
+    check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
+     'HORIZONTAL_OVERFLOW');
+    check(errors.length===0,'BROWSER_JS_ERROR');
+    check(posts.length===0,'PICKER_LAYOUT_TRIGGERED_PRIVILEGED_POST');
+    await panel.screenshot({path:resolve(DIR,'picker-expanded-'+name+'.png')});
+    console.log('AUTODEV_PICKER_LAYOUT_'+tag(name)+'=PASS');
+   }finally{await page.close();}
+  }
+ }finally{await context.close();}
+}
 async function recovery(browser){
  check(typeof SESSION==='string'&&SESSION.length>0,'EXISTING_SESSION_FILE_REQUIRED');
  check(/^rr388-[0-9a-f]{20}$/.test(RUN),'EXACT_RUN_ID_REQUIRED');
@@ -161,11 +320,12 @@ async function recovery(browser){
  }finally{await context.close();}
 }
 async function main(){
- check(['smoke','recovery-read','recovery-close'].includes(MODE),'INVALID_MODE');
+ check(['smoke','recovery-read','recovery-close','picker-layout'].includes(MODE),'INVALID_MODE');
  mkdirSync(DIR,{recursive:true});
  const browser=await chromium.launch({headless:true});
  try{
   if(MODE==='smoke')await publicSmoke(browser);
+   else if(MODE==='picker-layout')await pickerLayout(browser);
   else await recovery(browser);
   console.log('AUTODEV_BROWSER_'+tag(MODE)+'=PASS');
  }finally{await browser.close();}
