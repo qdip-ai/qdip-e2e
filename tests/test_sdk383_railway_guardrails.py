@@ -55,12 +55,19 @@ class SealedRailwayGateTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("environmentStagedChanges(environmentId: $e) { id status patch }", calls[0][0])
 
+    def test_empty_staged_railway_patch_is_not_a_pending_change(self) -> None:
+        client = object.__new__(Railway)
+        client.query = lambda document, variables=None: {
+            "environmentStagedChanges": {"id": "empty", "status": "STAGED", "patch": {}},
+        }
+        client.pending()
+
     def test_pending_unrelated_railway_patch_blocks_delivery(self) -> None:
         client = object.__new__(Railway)
         client.query = lambda document, variables=None: {
-            "environmentStagedChanges": {"id": "unrelated", "status": "STAGED"},
+            "environmentStagedChanges": {"id": "unrelated", "status": "STAGED", "patch": {"services": {"other": {}}}},
         }
-        with self.assertRaisesRegex(GateError, "Railway staged patch requires inspection"):
+        with self.assertRaisesRegex(GateError, "Unrelated Railway staged changes"):
             client.pending()
 
     def test_no_project_token_fails_closed(self) -> None:
