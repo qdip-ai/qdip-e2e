@@ -239,7 +239,10 @@ def main() -> int:
         try:
             rail.wait_new_deployment(previous)
         except GateError:
-            pass
+            failed_deploy = rail.deployment()
+            require(failed_deploy.get("id") != previous
+                    and failed_deploy.get("status") in {"FAILED", "CRASHED", "REMOVED"},
+                    "No verified deployment for failed credential rotation")
         require(not registered(core, org, plugin, capability, second["id"], 15),
                 "Invalid raw key was unexpectedly registered")
         require(get_worker_key(core, org, first["id"]).get("revoked_at") is None,
