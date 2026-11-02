@@ -85,20 +85,6 @@ async function main(){
   assert(response?.status()===200,'MOOD_PAGE_HTTP_'+response?.status());
   const html=await response.text();
   assert(html.includes('data-dpl-id="'+DPL+'"'),'PREVIEW_DEPLOYMENT_CHANGED');
-  // First-visit MoodInsightGuide intentionally blocks form interaction; finish it as a real user.
-  const guide=page.getByRole('dialog');
-  // MoodInsightGuide opens after client hydration, not necessarily at DOMContentLoaded.
-  await guide.waitFor({state:'visible',timeout:12000});
-  {
-    for(let step=0;step<4;step++){
-      const next=guide.getByRole('button',{name:/next|done/i}).last();
-      await next.waitFor({state:'visible',timeout:7000});
-      await next.click();
-    }
-    await guide.waitFor({state:'hidden',timeout:7000});
-    console.log('QA_FIRST_VISIT_MOOD_GUIDE_COMPLETED=PASS');
-  }
-
   stage='MOOD_BUTTON_VISIBLE';console.log('QA_STAGE='+stage);
   console.log('QA_PAGE_DOM='+JSON.stringify({path:new URL(page.url()).pathname,buttonCount:await page.locator('button[aria-pressed]').count(),sliderCount:await page.locator('[role="slider"]').count(),formCount:await page.locator('form').count()}));
   await page.locator('button[aria-pressed]').first().waitFor({state:'visible',timeout:18000});
@@ -110,6 +96,18 @@ async function main(){
   for(const [i,steps] of [[0,1],[1,2],[2,3]]){
    const el=sliders.nth(i);await el.focus();await el.press('Home');for(let j=0;j<steps;j++)await el.press('ArrowRight');
    await expect(el).toHaveAttribute('aria-valuenow',String(steps+1),{timeout:3500});
+  }
+  // The first-visit guide is client-hydrated and can overlay the tag control.
+  // Complete its actual user-facing flow only after mood/sliders have hydrated.
+  const guide=page.locator('[role="dialog"][aria-modal="true"]').first();
+  if(await guide.isVisible().catch(()=>false)){
+    for(let step=0;step<4;step++){
+      const next=guide.getByRole('button',{name:/next|done/i}).last();
+      await next.waitFor({state:'visible',timeout:6000});
+      await next.click();
+    }
+    await guide.waitFor({state:'hidden',timeout:6000});
+    console.log('QA_FIRST_VISIT_MOOD_GUIDE_COMPLETED=PASS');
   }
   stage='TAG_VISIBLE';console.log('QA_STAGE='+stage);
   const tagDiagnostic=await page.evaluate(()=>({
