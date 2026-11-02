@@ -1,0 +1,61 @@
+name: QA21 scoped SDK credential lifecycle (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/zitadel_qa21_sdk_key_lifecycle_once.mjs
+      - .github/workflows/zitadel-qa21-sdk-key-lifecycle-once.yml
+
+permissions:
+  contents: read
+concurrency:
+  group: qa21-sdk-credential-once
+  cancel-in-progress: false
+jobs:
+  qa21-sdk-issued-and-revoked:
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify existing QA21 secrets and browser test syntax
+        shell: bash
+        env:
+          QA21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QA21_PASSWORD_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          test "${QA21_LOGIN,,}" = 'qa-21@qdip.ai'
+          test "$QA21_PASSWORD_PRESENT" = 'true'
+          node --check scripts/zitadel_qa21_sdk_key_lifecycle_once.mjs
+          echo 'QA21_SDK_LIFECYCLE_ACCOUNT_BOUND=PASS'
+      - name: Install disposable Playwright browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qa21-sdk
+          cp scripts/zitadel_qa21_sdk_key_lifecycle_once.mjs /tmp/qa21-sdk/
+          cd /tmp/qa21-sdk
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify QA owner scoped key issue, immediate revoke and no active key
+        shell: bash
+        env:
+          CI: 'true'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/qa21-sdk
+          node zitadel_qa21_sdk_key_lifecycle_once.mjs
+      - name: Scope and result
+        if: success()
+        run: |
+          echo 'QA21_E2E_EPHEMERAL_CREDENTIAL_REVOKED=PASS'
+          echo 'QA21_NO_SECRET_LOGGED_OR_ARTIFACT_EXPORTED=TRUE'
