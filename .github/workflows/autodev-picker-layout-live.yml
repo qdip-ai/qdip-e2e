@@ -1,0 +1,62 @@
+name: AutoDev signed Zitadel picker layout E2E
+on:
+  push:
+    branches:
+      - test/autodev-picker-layout-main-20261102
+    paths:
+      - scripts/autodev_recovery_browser.mjs
+      - .github/workflows/autodev-picker-layout-live.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: autodev-picker-layout-signed-operator
+  cancel-in-progress: false
+jobs:
+  real-operator-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check existing sealed QA operator binding without disclosure
+        env:
+          LOGIN_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          PASSWORD_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/autodev_recovery_browser.mjs
+          test "$LOGIN_BOUND" = true
+          test "$PASSWORD_BOUND" = true
+      - name: Install isolated Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/autodev-picker"
+          cp scripts/autodev_recovery_browser.mjs "$RUNNER_TEMP/autodev-picker/"
+          cd "$RUNNER_TEMP/autodev-picker"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Authenticated real UI layout on desktop and both mobile orientations
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          QDIP_E2E_AUTODEV_MODE: picker-layout
+          QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/autodev-picker/screenshots
+          CI: 'true'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/autodev-picker"
+          node autodev_recovery_browser.mjs
+      - name: Cropped picker and disclosure screenshots only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autodev-picker-layout-3-viewports
+          path: ${{ runner.temp }}/autodev-picker/screenshots
+          if-no-files-found: ignore
+          retention-days: 3
