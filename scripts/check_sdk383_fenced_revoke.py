@@ -22,7 +22,10 @@ PLUGIN = "staffing"
 
 
 def main() -> None:
-    assert os.environ.get("GITHUB_ACTIONS") == "true"
+    assert (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        or os.environ.get("QDIP_SDK383_DISPOSABLE_RAILWAY_QA") == "true"
+    ), "Only native E2E runner or explicitly disposable Railway QA"
     mongo_url = os.environ["MONGODB_URL"]
     assert "127.0.0.1:27019/qdip_e2e?" in mongo_url
     admin = os.environ["API_KEY"]
@@ -56,6 +59,13 @@ def main() -> None:
         db = mongo.get_default_database()
         assert db.name == "qdip_e2e"
         keys = db["org_api_keys"]
+        # The non-admin authorization probe must use a *valid* scoped key,
+        # otherwise an invalid-key 401 is falsely accepted as RBAC evidence.
+        existing_tenant = keys.find_one({
+            "key_hash": hashlib.sha256(tenant.encode()).hexdigest(),
+            "org_id": ORG, "id": "rr-e2e-key-a",
+        })
+        assert existing_tenant and existing_tenant.get("revoked_at") is None
         locks = db["sdk_credential_reconcile_locks"]
         assert locks.count_documents({"_id": lock_id}) == 0
         assert keys.count_documents({"id": {"$in": key_ids}}) == 0
@@ -91,7 +101,7 @@ def main() -> None:
 
             with httpx.Client(timeout=20, trust_env=False) as http:
                 assert revoke(http, winner, workers[0], api_key=None).status_code in (401, 403)
-                assert revoke(http, winner, workers[0], api_key=tenant).status_code in (401, 403)
+                assert revoke(http, winner, workers[0], api_key=tenant).status_code == 403
                 assert revoke(http, loser, workers[0]).status_code == 409
                 assert revoke(http, winner, caller_id).status_code == 409
                 assert revoke(http, winner, workers[0], org="rr-e2e-org-b").status_code == 409
