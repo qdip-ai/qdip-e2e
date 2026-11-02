@@ -183,6 +183,15 @@ class Railway:
         # DO NOT print or serialize values: other project variables may be readable.
         return scoped, values
 
+    def delete_test_variable(self, name: str) -> None:
+        require(name in (SECRET_NAME, KEY_ID_NAME), "Deletion outside E2E canary denied")
+        deleted = self.query(
+            "mutation ($input: VariableDeleteInput!) { variableDelete(input: $input) }",
+            {"input": {"projectId": PROJECT, "environmentId": ENVIRONMENT,
+                       "serviceId": self.target_service, "name": name}},
+        ).get("variableDelete")
+        require(deleted is True, "Railway canary variable deletion unconfirmed")
+
     def deployment(self) -> dict:
         result = self.query(
             "query ($i: DeploymentListInput!) { deployments(input: $i, first: 1) "
@@ -246,6 +255,34 @@ def assert_sealed(nodes: list[dict], values: dict, identifier: str) -> None:
     # Critically: never inspect values.get(SECRET_NAME).
 
 
+def cleanup_canary(railway: Railway) -> None:
+    """Remove only two test-created names after exact target verification."""
+    railway.pending()
+    nodes, values = railway.metadata()
+    own = {SECRET_NAME, KEY_ID_NAME}
+    secret = present(nodes, SECRET_NAME)
+    identifier = present(nodes, KEY_ID_NAME)
+    require(len(secret) <= 1 and len(identifier) <= 1,
+            "Ambiguous test canary metadata")
+    if secret:
+        require(secret[0].get("isSealed") is True,
+                "Refusing to delete nonsealed or unrelated canary")
+    if identifier:
+        require(identifier[0].get("isSealed") is False,
+                "Refusing to delete unexpected sealed key-ID metadata")
+        try:
+            uuid.UUID(str(values.get(KEY_ID_NAME)))
+        except (ValueError, TypeError, AttributeError):
+            raise GateError("Refusing to delete non-test key ID") from None
+    for name in (SECRET_NAME, KEY_ID_NAME):
+        if present(nodes, name):
+            railway.delete_test_variable(name)
+    nodes_after, values_after = railway.metadata()
+    require(not any(present(nodes_after, name) or name in values_after for name in own),
+            "Test canary deletion not confirmed by Railway")
+    print("SDK383_RAILWAY_SEALED_ROLLBACK_CLEANUP=PASS", flush=True)
+
+
 def main() -> int:
     require(os.getenv("QDIP_SDK383_E2E_APPROVED") ==
             "isolated-staging-qa-only", "Missing explicit isolated-QA approval")
@@ -254,6 +291,12 @@ def main() -> int:
             "Runtime is not the exact staging Railway environment")
     railway = Railway(os.environ.get("RAILWAY_PROJECT_TOKEN", ""))
     railway.scope()
+    mode = os.getenv("QDIP_SDK383_E2E_MODE", "run")
+    require(mode in ("run", "cleanup"), "Unsupported sealed E2E mode")
+    if mode == "cleanup":
+        cleanup_canary(railway)
+        print("SDK383_RAILWAY_CANARY_CLEANUP_ONLY=PASS", flush=True)
+        return 0
     railway.pending()
     nodes, values = railway.metadata()
     require(not present(nodes, SECRET_NAME) and not present(nodes, KEY_ID_NAME)
@@ -278,16 +321,8 @@ def main() -> int:
     finally:
         if committed:
             try:
-                previous_cleanup = railway.deployment()["id"]
-                # Only these two names were absent before the test.
-                railway.stage_commit({SECRET_NAME: None, KEY_ID_NAME: None})
-                railway.wait_new_deployment(previous_cleanup)
-                nodes, values = railway.metadata()
-                require(not present(nodes, SECRET_NAME) and not present(nodes, KEY_ID_NAME)
-                        and SECRET_NAME not in values and KEY_ID_NAME not in values,
-                        "Sealed canary cleanup not verified")
+                cleanup_canary(railway)
                 cleaned = True
-                print("SDK383_RAILWAY_SEALED_ROLLBACK_CLEANUP=PASS", flush=True)
             except GateError:
                 # Never print secrets or silently approve incomplete cleanup.
                 raise GateError("Sealed test patch cleanup unverified; manual inspection required") from None
