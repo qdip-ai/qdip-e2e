@@ -148,6 +148,8 @@ async function run() {
         console.log('ZITADEL_QA21_SDK_ISSUE_HTTP='+issue.status());
         check(issue.status()===201,'OWN_QA_SCOPED_KEY_ISSUED_201');
         const issued=await issue.json().catch(()=>null);
+        if(typeof issued?.keyId==='string' && /^[a-f0-9-]{36}$/i.test(issued.keyId))
+          createdId=issued.keyId;
         check(issued && issued.pluginId===pluginId &&
           typeof issued.keyId==='string' &&
           /^[a-f0-9-]{36}$/i.test(issued.keyId) &&
@@ -156,7 +158,6 @@ async function run() {
           Array.isArray(issued.capabilities) &&
           issued.capabilities.length===1 && issued.capabilities[0]===capability,
           'OWN_QA_SCOPED_KEY_ISSUANCE_ATTESTED');
-        createdId=issued.keyId;
         // Do not copy or print the secret. The response is kept in memory only.
         const visibleResult=await ctx.request.get(
           OBS+'/api/observatory/admin/applications?organizationId='+qa[0].id,
