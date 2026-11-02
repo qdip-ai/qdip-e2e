@@ -158,6 +158,13 @@ class Railway:
             {"e": ENVIRONMENT},
         ).get("environmentStagedChanges")
         status = str(change.get("status", "")) if isinstance(change, dict) else ""
+        if change not in (None, {}, []):
+            try:
+                introspection = self.query("query { __type(name: \"EnvironmentPatch\") { fields { name } } }")
+                fields = [f["name"] for f in (introspection.get("__type") or {}).get("fields", []) if isinstance(f, dict) and isinstance(f.get("name"), str)]
+                print("SDK383_ENV_PATCH_SCHEMA_FIELDS=" + ",".join(sorted(fields))[:350], flush=True)
+            except GateError:
+                print("SDK383_ENV_PATCH_SCHEMA_FIELDS=UNAVAILABLE", flush=True)
         require(change in (None, {}, []),
                 "Railway staged patch requires inspection (status=" + status[:32] + ")")
 
