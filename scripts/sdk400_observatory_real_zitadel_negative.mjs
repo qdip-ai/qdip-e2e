@@ -67,6 +67,7 @@ async function login(browser,account,password,admin){
     const founderOwner=ownedResponse.organizations.some(item=>
       item && item.id==='368555767923594379' && item.state==='active'
     );
+    check(!founderOwner,'QA_FOUNDER_ORG_OWNER_UNEXPECTED');
     console.log('SDK400_'+(admin?'ADMIN':'ROLELESS')+'_FOUNDER_ORG_OWNER='+
       (founderOwner?'VERIFIED':'NOT_VERIFIED'));
 
