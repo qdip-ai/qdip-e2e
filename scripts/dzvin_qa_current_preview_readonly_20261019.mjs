@@ -7,7 +7,7 @@
  * callback registration for the new hostname.
  *
  * Never log personal diary text, secrets, cookies, subject IDs or response bodies.
- * No server writes, mutation endpoint calls or browser test artifacts.
+ * Only rejected CSRF POSTs and a scoped QA cookie logout; no backend data writes or private artifacts.
  */
 import { chromium } from '@playwright/test';
 
@@ -267,6 +267,65 @@ async function login(browser, actor) {
     await context.close();
   }
 }
+// No mutation to the shared backend: verify authenticated mood reads and schema only.
+async function checkMoodHistory(accounts) {
+  for (let i = 0; i < accounts.length; i++) {
+    const label = 'QA' + (i + 1);
+    const account = accounts[i];
+    const response = await account.context.request.get(
+      PREVIEW_ORIGIN + '/api/backend/mood-record?page=1&limit=50&order=newest'
+    );
+    assert(response.status() === 200, label + '_MOOD_HISTORY_READ_FAILED');
+    assert((response.headers()['cache-control'] || '').includes('no-store'),
+      label + '_MOOD_HISTORY_PRIVATE_CACHE');
+    const data = await response.json();
+    assert(Array.isArray(data), label + '_MOOD_HISTORY_CONTRACT_INVALID');
+    for (const entry of data) {
+      assert(typeof entry.id === 'string' && Number.isFinite(Date.parse(entry.createdAt)),
+        label + '_MOOD_HISTORY_DATE_INVALID');
+      for (const dimension of ['moodLevel', 'stressLevel', 'energyLevel', 'focusLevel']) {
+        assert(typeof entry[dimension] === 'number' && Number.isFinite(entry[dimension]),
+          label + '_MOOD_HISTORY_DIMENSION_MISSING');
+      }
+      assert(entry.tags == null || Array.isArray(entry.tags),
+        label + '_MOOD_HISTORY_TAGS_INVALID');
+    }
+    console.log(label + '_MOOD_HISTORY=' + (data.length ? 'PASS_EXISTING_ENTRIES' : 'NOT_TESTED_EMPTY'));
+  }
+}
+// Logout is isolated to a copied test cookie; it cannot log out the original QA context.
+async function checkLogout(browser, account) {
+  const source = (await account.context.cookies(PREVIEW_ORIGIN))
+    .find(c => c.name === 'auth-tokens' && c.httpOnly && c.secure);
+  assert(source, 'QA_LOGOUT_COOKIE_NOT_FOUND');
+  const isolated = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    await isolated.addCookies([{
+      name: source.name, value: source.value, domain: new URL(PREVIEW_ORIGIN).hostname,
+      path: source.path, httpOnly: true, secure: true, sameSite: source.sameSite,
+      ...(source.expires > 0 ? { expires: source.expires } : {}),
+    }]);
+    const before = await isolated.request.get(PREVIEW_ORIGIN + '/api/auth/session');
+    assert(before.status() === 200, 'QA_LOGOUT_PRE_SESSION_MISSING');
+    const denied = await isolated.request.post(PREVIEW_ORIGIN + '/api/auth/logout',
+      { maxRedirects: 0 });
+    assert(denied.status() === 403, 'QA_LOGOUT_CSRF_MISSING_ORIGIN_BYPASS');
+    const logout = await isolated.request.post(PREVIEW_ORIGIN + '/api/auth/logout', {
+      headers: { origin: PREVIEW_ORIGIN }, maxRedirects: 0,
+    });
+    assert(logout.status() === 303, 'QA_LOGOUT_REDIRECT_INVALID');
+    const location = new URL(logout.headers()['location'] ?? '', PREVIEW_ORIGIN);
+    assert(location.protocol === 'https:' && location.origin !== PREVIEW_ORIGIN &&
+      location.pathname.endsWith('/oidc/v1/end_session'), 'QA_LOGOUT_IDP_REDIRECT_INVALID');
+    const after = await isolated.request.get(PREVIEW_ORIGIN + '/api/auth/session');
+    assert(after.status() === 401, 'QA_LOGOUT_SESSION_STILL_PRESENT');
+    const deniedPrivate = await isolated.request.get(PREVIEW_ORIGIN + '/api/backend/diary/user');
+    assert(deniedPrivate.status() === 401, 'QA_LOGOUT_PRIVATE_BACKEND_ACCESS');
+    console.log('DZVIN_QA_LOGOUT_CSRF_COOKIE_AND_PRIVATE_DENIAL=PASS');
+  } finally {
+    await isolated.close();
+  }
+}
 // No private screenshots/artifacts: only structural assertions on real signed-in pages.
 async function checkResponsivePrivacy(browser, account) {
   const source = (await account.context.cookies(PREVIEW_ORIGIN))
@@ -376,8 +435,10 @@ async function main() {
        successfulDirections === 1 ? 'PASS_ONE_DIRECTION_QA_FIXTURE_MISSING' :
        'NOT_TESTED_NO_OWNER_FIXTURES'));
     assert(successfulDirections >= 1, 'QA_DIARY_FIXTURES_MISSING');
+    await checkMoodHistory(active);
     await checkResponsivePrivacy(browser, active[0]);
     await checkExpiredSession(browser, active[0]);
+    await checkLogout(browser, active[0]);
     console.log('DZVIN_QA_CURRENT_PREVIEW_READONLY=PASS_LIMITED');
     console.log('DZVIN_QA_EXPECTED_FRONT_SHA=' + FRONT_SHA);
     console.log('DZVIN_QA_DIARY_CREATE_DELETE_E2E=NOT_TESTED');
