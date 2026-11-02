@@ -57,6 +57,18 @@ async function login(browser,account,password,admin){
     const session=await sessionResponse.json();
     check(session.authenticated===true&&session.observatoryAdmin===admin,'AUTH_ROLE_INCORRECT');
     console.log('SDK400_REAL_ZITADEL_'+(admin?'ADMIN':'ROLELESS')+'_SESSION=PASS');
+    // Owner discovery is authorized separately from Observatory administrator role.
+    // Read-only exact founder-org lookup; never log identities, tokens or org records.
+    const owned=await context.request.get(OBS+'/api/observatory/organizations',{timeout:20000});
+    check(owned.status()===200,'OWNER_DISCOVERY_DENIED');
+    const ownedResponse=await owned.json();
+    check(Array.isArray(ownedResponse.organizations),'OWNER_DISCOVERY_INVALID');
+    const founderOwner=ownedResponse.organizations.some(item=>
+      item && item.id==='368555767923594379' && item.state==='active'
+    );
+    console.log('SDK400_'+(admin?'ADMIN':'ROLELESS')+'_FOUNDER_ORG_OWNER='+
+      (founderOwner?'VERIFIED':'NOT_VERIFIED'));
+
 
     const list=await context.request.get(OBS+'/api/observatory/admin/plugins',{timeout:20000});
     check(list.status()===(admin?200:403),'ADMIN_CATALOG_ROLE_BYPASS');
