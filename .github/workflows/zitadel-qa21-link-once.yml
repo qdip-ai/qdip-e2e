@@ -1,0 +1,62 @@
+name: QA21 canonical Core org link (one-shot)
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/zitadel_qa21_link_once_live.mjs
+      - .github/workflows/zitadel-qa21-link-once.yml
+
+permissions:
+  contents: read
+concurrency:
+  group: qa21-canonical-core-org-link-once
+  cancel-in-progress: false
+jobs:
+  owner-authorized-link:
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require existing QA21 credentials and script syntax
+        env:
+          QA21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QA21_PASSWORD_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${QA21_LOGIN,,}" = 'qa-21@qdip.ai'
+          test "$QA21_PASSWORD_PRESENT" = 'true'
+          node --check scripts/zitadel_qa21_link_once_live.mjs
+          echo 'QA21_LINK_SEALED_ACCOUNT_BINDING=PASS'
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qa21-link
+          cp scripts/zitadel_qa21_link_once_live.mjs /tmp/qa21-link/
+          cd /tmp/qa21-link
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: One owner-authorized Core organization link and subsequent catalog read
+        shell: bash
+        env:
+          CI: 'true'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/qa21-link
+          node zitadel_qa21_link_once_live.mjs
+      - name: Scope and data integrity
+        if: success()
+        run: |
+          echo 'QA21_ZITADEL_ORG_LINK_ONLY=PASS'
+          echo 'QA21_SDK_CREDENTIAL_ISSUE_OR_REVOKE=NOT_TESTED'
+          echo 'QA21_NO_NEW_API_KEYS_ISSUED=TRUE'
