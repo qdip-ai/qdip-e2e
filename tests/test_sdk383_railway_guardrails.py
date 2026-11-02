@@ -53,7 +53,7 @@ class SealedRailwayGateTests(unittest.TestCase):
         client.query = query
         client.pending()
         self.assertEqual(len(calls), 1)
-        self.assertIn("environmentStagedChanges(environmentId: $e) { id status }", calls[0][0])
+        self.assertIn("environmentStagedChanges(environmentId: $e) { id status patch }", calls[0][0])
 
     def test_pending_unrelated_railway_patch_blocks_delivery(self) -> None:
         client = object.__new__(Railway)
