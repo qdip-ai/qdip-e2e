@@ -320,15 +320,17 @@ async function checkExpiredSession(browser, account) {
     .find(c => c.name === 'auth-tokens' && c.httpOnly && c.secure);
   assert(original, 'QA_REFRESH_SOURCE_COOKIE_MISSING');
   let token;
-  try { token = JSON.parse(original.value); } catch { throw new Error('QA_REFRESH_COOKIE_NOT_JSON'); }
+  // Playwright exposes the wire value (percent-encoded by Next.js), unlike NextRequest.cookies.
+  try { token = JSON.parse(decodeURIComponent(original.value)); } catch { throw new Error('QA_REFRESH_COOKIE_NOT_JSON'); }
   assert(typeof token.refreshToken === 'string' && token.refreshToken.length > 0,
     'QA_REFRESH_TOKEN_REQUIRED');
   assert(Number.isFinite(token.expiresAt), 'QA_EXPIRY_METADATA_INVALID');
   token.expiresAt = Math.floor(Date.now() / 1000) - 60;
+  const expiredCookieValue = encodeURIComponent(JSON.stringify(token));
   const context = await browser.newContext({ serviceWorkers: 'block' });
   try {
     await context.addCookies([{
-      name: original.name, value: JSON.stringify(token), domain: new URL(PREVIEW_ORIGIN).hostname,
+      name: original.name, value: expiredCookieValue, domain: new URL(PREVIEW_ORIGIN).hostname,
       path: original.path, httpOnly: true, secure: true, sameSite: original.sameSite,
       ...(original.expires > 0 ? { expires: original.expires } : {}),
     }]);
@@ -344,7 +346,7 @@ async function checkExpiredSession(browser, account) {
     const user = await validated.json();
     assert(user?.id === account.userId, 'QA_REFRESH_SUBJECT_CHANGED');
     const updated = (await context.cookies(PREVIEW_ORIGIN)).find(c => c.name === 'auth-tokens');
-    assert(updated?.httpOnly && updated?.secure && updated.value !== JSON.stringify(token),
+    assert(updated?.httpOnly && updated?.secure && updated.value !== expiredCookieValue,
       'QA_REFRESH_COOKIE_NOT_ROTATED');
     console.log('DZVIN_EXPIRED_TWO_TAB_REFRESH=PASS');
   } finally {
