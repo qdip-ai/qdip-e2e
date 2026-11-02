@@ -44,6 +44,25 @@ class SealedRailwayGateTests(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "does not match"):
             assert_sealed(self.nodes, {KEY_ID_NAME: "different"}, self.id)
 
+    def test_pending_query_requests_environment_patch_fields(self) -> None:
+        client = object.__new__(Railway)
+        calls = []
+        def query(document, variables):
+            calls.append((document, variables))
+            return {"environmentStagedChanges": None}
+        client.query = query
+        client.pending()
+        self.assertEqual(len(calls), 1)
+        self.assertIn("environmentStagedChanges(environmentId: $e) { id status }", calls[0][0])
+
+    def test_pending_unrelated_railway_patch_blocks_delivery(self) -> None:
+        client = object.__new__(Railway)
+        client.query = lambda document, variables: {
+            "environmentStagedChanges": {"id": "unrelated", "status": "STAGED"},
+        }
+        with self.assertRaisesRegex(GateError, "Unrelated Railway staged changes"):
+            client.pending()
+
     def test_no_project_token_fails_closed(self) -> None:
         with self.assertRaisesRegex(GateError, "Missing scoped"):
             Railway("invalid")
