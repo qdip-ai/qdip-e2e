@@ -22,6 +22,11 @@ try:
             if isinstance(entry.get("user"), str)
             and entry["user"].startswith("autodev_local_")
         ]
+        for dbname, username in retired_users:
+            matched = next(u for u in users if u.get("db") == dbname and u.get("user") == username)
+            role_names = sorted(str(r.get("role", "")) for r in matched.get("roles", []) if isinstance(r, dict))
+            print("AUTODEV_RETIRED_USER=" + str(dbname) + "/" + str(username), flush=True)
+            print("AUTODEV_RETIRED_USER_ROLES=" + ",".join(role_names), flush=True)
         retired_collections = []
         for dbname in client.list_database_names():
             if "autodev_local_devices" in client[dbname].list_collection_names():
