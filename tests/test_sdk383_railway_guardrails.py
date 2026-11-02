@@ -11,7 +11,7 @@ from unittest.mock import patch
 from sdk383_sealed_railway_e2e import (
     KEY_ID_NAME, SECRET_NAME, GateError, Railway, assert_sealed, main as canary_main,
 )
-from sdk383_sealed_worker_lifecycle_e2e import main as worker_main
+from sdk383_sealed_worker_lifecycle_e2e import assert_kernel_proof, main as worker_main
 
 
 class SealedRailwayGateTests(unittest.TestCase):
@@ -43,6 +43,55 @@ class SealedRailwayGateTests(unittest.TestCase):
     def test_wrong_id_is_rejected(self) -> None:
         with self.assertRaisesRegex(GateError, "does not match"):
             assert_sealed(self.nodes, {KEY_ID_NAME: "different"}, self.id)
+
+    def _valid_kernel_proof(self) -> dict:
+        digest = "a" * 64
+        ir_hash = "b" * 64
+        return {
+            "execution_result": {
+                "semantic_status": "EXACT", "backend_status": "OPTIMAL",
+                "execution_id": "run-1", "decision_id": "run-1",
+                "ir_hash": ir_hash, "objective_value": "775000",
+                "solution": {"rr:start:job1:tech1:0": "1"},
+                "manifest": {
+                    "execution_id": "run-1", "decision_id": "run-1",
+                    "decision_spec_hash": digest, "ir_hash": ir_hash,
+                    "compiler_version": "qdip-runtime-compiler.v1",
+                    "runtime_version": "qdip-runtime-kernel.v1",
+                },
+            },
+            "replay_contract": {
+                "decision_id": "run-1", "decision_spec_hash": digest,
+                "ir_hash": ir_hash, "compiler_version": "qdip-runtime-compiler.v1",
+            },
+        }
+
+    def test_kernel_proof_valid_exact_optimal(self) -> None:
+        assert_kernel_proof(self._valid_kernel_proof())
+
+    def test_kernel_proof_rejects_infeasible_as_success(self) -> None:
+        response = self._valid_kernel_proof()
+        response["execution_result"]["backend_status"] = "INFEASIBLE"
+        with self.assertRaises(GateError):
+            assert_kernel_proof(response)
+
+    def test_kernel_proof_rejects_empty_replay(self) -> None:
+        response = self._valid_kernel_proof()
+        response["replay_contract"] = {}
+        with self.assertRaises(GateError):
+            assert_kernel_proof(response)
+
+    def test_kernel_proof_rejects_mismatched_manifest(self) -> None:
+        response = self._valid_kernel_proof()
+        response["replay_contract"]["decision_spec_hash"] = "c" * 64
+        with self.assertRaises(GateError):
+            assert_kernel_proof(response)
+
+    def test_kernel_proof_rejects_missing_objective(self) -> None:
+        response = self._valid_kernel_proof()
+        response["execution_result"]["objective_value"] = None
+        with self.assertRaises(GateError):
+            assert_kernel_proof(response)
 
     def test_pending_query_requests_environment_patch_fields(self) -> None:
         client = object.__new__(Railway)
