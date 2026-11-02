@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           cd /tmp/zitadel-qa21
           node zitadel_qa21_cross_org_live.mjs
-      - name: Scope: never imply bidirectional proof or owner grant
+      - name: 'Scope: never imply bidirectional proof or owner grant'
         if: success()
         run: |
           echo 'ZITADEL_QA21_MAIN_TO_QA_ORG=NOT_TESTED'
