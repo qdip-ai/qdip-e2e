@@ -156,6 +156,20 @@ async function login(browser, actor) {
         const denied = await preview.request.get(PREVIEW_ORIGIN + path);
         assert(denied.status() === 404, actor.label + '_B2C_SCOPE_BYPASS');
       }
+      // Production/dev dailyHabits.ts decoder must agree with the real BFF wire contract.
+      const habits = await preview.request.get(
+        PREVIEW_ORIGIN + '/api/backend/daily-habits?timeZone=Europe%2FWarsaw'
+      );
+      assert(habits.status() === 200, actor.label + '_DAILY_HABITS_GET_FAILED');
+      assert((habits.headers()['cache-control'] || '').includes('no-store'),
+        actor.label + '_HABITS_CACHE_POLICY_MISSING');
+      const habitRows = await habits.json();
+      const kinds = ['breathing', 'movement', 'journaling', 'screenBreak'];
+      assert(Array.isArray(habitRows) && habitRows.length <= kinds.length &&
+        habitRows.every(row => kinds.includes(row?.kind) && typeof row.doneToday === 'boolean') &&
+        new Set(habitRows.map(row => row.kind)).size === habitRows.length,
+        actor.label + '_DAILY_HABITS_CONTRACT_INVALID');
+      console.log(actor.label + '_DAILY_HABITS_READONLY=PASS');
       // These requests must be rejected at the BFF without mutating QA data.
       const foreignWrite = await preview.request.post(PREVIEW_ORIGIN + '/api/backend/diary', {
         headers: { origin: 'https://cross-origin.invalid', 'content-type': 'application/json' },
