@@ -1,4 +1,4 @@
-import { chromium, request } from '@playwright/test';
+import { chromium, request, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 const SITE='https://mentality-1bfext7ca-taras-gezs-projects.vercel.app';
 const API='https://dzvin-b2c-rc-build-qa.up.railway.app';
@@ -89,7 +89,7 @@ async function main(){
   assert(await sliders.count()>=3,'MOOD_DIMENSION_SLIDERS_MISSING');
   for(const [i,steps] of [[0,1],[1,2],[2,3]]){
    const el=sliders.nth(i);await el.focus();await el.press('Home');for(let j=0;j<steps;j++)await el.press('ArrowRight');
-   assert(Number(await el.getAttribute('aria-valuenow'))===steps+1,'SLIDER_VALUE_'+i);
+   await expect(el).toHaveAttribute('aria-valuenow',String(steps+1),{timeout:3500});
   }
   stage='TAG_VISIBLE';console.log('QA_STAGE='+stage);
   const tagButton=page.getByRole('button',{name:'QA Isolated Mood',exact:true});
