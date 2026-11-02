@@ -326,6 +326,38 @@ async function checkLogout(browser, account) {
     await isolated.close();
   }
 }
+// Exercise unauthenticated HTTP boundary against the exact preview without invoking IdP tokens.
+async function checkExchangeProvenance(browser) {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const url = PREVIEW_ORIGIN + '/api/auth/exchange';
+    const post = (data, headers = {}) => context.request.post(url, {
+      data, headers: { 'content-type': 'application/json', ...headers }, maxRedirects: 0,
+    });
+    const cases = [
+      ['MISSING_ORIGIN', '{}', {}, 403],
+      ['FOREIGN_ORIGIN', '{}', { origin: 'https://malicious.invalid' }, 403],
+      ['FORGED_FETCH_METADATA', '{}', { origin: PREVIEW_ORIGIN, 'sec-fetch-site': 'cross-site' }, 403],
+      ['MALFORMED_JSON', '{', { origin: PREVIEW_ORIGIN }, 400],
+      ['OVERSIZED_JSON', JSON.stringify({ filler: 'a'.repeat(9000) }), { origin: PREVIEW_ORIGIN }, 413],
+      ['INVALID_GRANT', JSON.stringify({ grantType: 'invalid' }), { origin: PREVIEW_ORIGIN }, 400],
+      ['MISSING_REFRESH_COOKIE', JSON.stringify({ grantType: 'refresh_token' }), { origin: PREVIEW_ORIGIN }, 400],
+    ];
+    for (const [label, payload, headers, status] of cases) {
+      const response = await post(payload, headers);
+      assert(response.status() === status, 'QA_EXCHANGE_' + label + '_STATUS');
+      assert((response.headers()['cache-control'] || '').includes('no-store'),
+        'QA_EXCHANGE_' + label + '_CACHE');
+      const result = await response.json();
+      const message = JSON.stringify(result);
+      assert(!/access_token|refresh_token|client_secret|stack|trace|ZITADEL_CLIENT_SECRET/i.test(message),
+        'QA_EXCHANGE_' + label + '_SECRET_LEAK');
+      console.log('DZVIN_QA_EXCHANGE_' + label + '=PASS');
+    }
+  } finally {
+    await context.close();
+  }
+}
 // No private screenshots/artifacts: only structural assertions on real signed-in pages.
 async function checkResponsivePrivacy(browser, account) {
   const source = (await account.context.cookies(PREVIEW_ORIGIN))
@@ -407,6 +439,21 @@ async function checkExpiredSession(browser, account) {
     const updated = (await context.cookies(PREVIEW_ORIGIN)).find(c => c.name === 'auth-tokens');
     assert(updated?.httpOnly && updated?.secure && updated.value !== expiredCookieValue,
       'QA_REFRESH_COOKIE_NOT_ROTATED');
+    // Real hard reload and idle-tab return after a concurrent cookie rotation.
+    const hardReload = await a.reload({ waitUntil: 'domcontentloaded', timeout: 35000 });
+    assert(hardReload?.status() === 200 && new URL(a.url()).pathname === '/en/my-day',
+      'QA_REFRESH_HARD_RELOAD_FAILED');
+    await b.bringToFront();
+    await b.waitForTimeout(15_000);
+    await a.bringToFront();
+    const focused = await context.request.get(PREVIEW_ORIGIN + '/api/auth/session');
+    assert(focused.status() === 200, 'QA_REFRESH_IDLE_RETURN_SESSION_FAILED');
+    const focusedUser = await focused.json();
+    assert(focusedUser?.id === account.userId, 'QA_REFRESH_IDLE_RETURN_SUBJECT_CHANGED');
+    const bReload = await b.reload({ waitUntil: 'domcontentloaded', timeout: 35000 });
+    assert(bReload?.status() === 200 && new URL(b.url()).pathname === '/en/my-day',
+      'QA_REFRESH_SECOND_TAB_RELOAD_FAILED');
+    console.log('DZVIN_QA_HARD_RELOAD_AND_IDLE_TAB_RETURN=PASS');
     console.log('DZVIN_EXPIRED_TWO_TAB_REFRESH=PASS');
   } finally {
     await context.close();
@@ -415,6 +462,7 @@ async function checkExpiredSession(browser, account) {
 async function main() {
   validateInputs();
   const browser = await chromium.launch({ headless: true });
+  await checkExchangeProvenance(browser);
   const active = [];
   try {
     for (const actor of users) active.push(await login(browser, actor));
