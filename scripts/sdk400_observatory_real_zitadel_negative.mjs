@@ -60,6 +60,7 @@ async function login(browser,account,password,admin){
     // Owner discovery is authorized separately from Observatory administrator role.
     // Read-only exact founder-org lookup; never log identities, tokens or org records.
     const owned=await context.request.get(OBS+'/api/observatory/organizations',{timeout:20000});
+    console.log('SDK400_OWNER_DISCOVERY_HTTP='+owned.status());
     check(owned.status()===200,'OWNER_DISCOVERY_DENIED');
     const ownedResponse=await owned.json();
     check(Array.isArray(ownedResponse.organizations),'OWNER_DISCOVERY_INVALID');
