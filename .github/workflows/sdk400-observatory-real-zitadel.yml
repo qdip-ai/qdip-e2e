@@ -6,6 +6,12 @@ on:
     paths:
       - scripts/sdk400_observatory_real_zitadel_negative.mjs
       - .github/workflows/sdk400-observatory-real-zitadel.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/sdk400_observatory_real_zitadel_negative.mjs
+      - .github/workflows/sdk400-observatory-real-zitadel.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,6 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   live-auth:
+    if: github.event_name != 'pull_request' || github.head_ref == 'test/sdk400-observatory-zitadel-roles-20261102'
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
