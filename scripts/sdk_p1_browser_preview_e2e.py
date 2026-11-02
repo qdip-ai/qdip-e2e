@@ -82,6 +82,12 @@ def main() -> None:
                         URL + "/api/observatory/admin/plugin-publication-submissions",
                         timeout=15000,
                     )
+                    content_type = result.headers.get("content-type", "")
+                    if "application/json" not in content_type:
+                        raise RuntimeError(
+                            "PREVIEW_AUTH_GATE_NOT_APP: anonymous request did not "
+                            "reach QDIP's JSON BFF; upstream protection/HTML page"
+                        )
                     if result.status not in (401, 403):
                         raise AssertionError(
                             "Unauthorized queue returned HTTP " + str(result.status)
