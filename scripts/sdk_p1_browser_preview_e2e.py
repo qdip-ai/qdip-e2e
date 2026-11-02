@@ -5,6 +5,7 @@ creates a user, or fabricates a session. Screenshots remain in the QA container.
 """
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -43,6 +44,16 @@ def main() -> None:
                         raise AssertionError("Browser received no page response")
                     final = urlsplit(page.url)
                     page.screenshot(path=str(OUTPUT / (label + ".png")), full_page=True)
+                    # Capture actual browser pixels for evidence; no real
+                    # authenticated sessions or credentials are involved.
+                    screenshot = page.screenshot(
+                        type="jpeg", quality=45, full_page=False,
+                    )
+                    print(
+                        "SDK_P1_BROWSER_JPEG_" + label + "="
+                        + base64.b64encode(screenshot).decode("ascii"),
+                        flush=True,
+                    )
                     print(
                         "SDK_P1_BROWSER_VIEWPORT=" + label
                         + " http=" + str(response.status)
