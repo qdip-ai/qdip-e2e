@@ -159,7 +159,23 @@ def main() -> None:
                     issued["key"].encode()
                 ).hexdigest()
                 assert "key" not in stored
+                # A same-name retry must never mint a second live secret.
+                assert issue(http, loser).status_code == 409
+                second_name = (
+                    f"{application}/{ENVIRONMENT}/staffing.plan/worker/20261102T010001Z"
+                )
+                third_name = (
+                    f"{application}/{ENVIRONMENT}/staffing.plan/worker/20261102T010002Z"
+                )
+                second = issue(http, loser, name=second_name)
+                assert second.status_code == 201, second.status_code
+                second_id = second.json()["id"]
+                key_ids.append(second_id)
+                # Limit is persisted across restarts and even revocation.
+                assert issue(http, loser, name=third_name).status_code == 409
                 assert revoke(http, loser, minted_id).status_code == 200
+                assert revoke(http, loser, second_id).status_code == 200
+                assert issue(http, loser, name=third_name).status_code == 409
                 assert keys.count_documents({
                     "id": {"$in": workers}, "revoked_at": None,
                 }) == 0
@@ -175,6 +191,7 @@ def main() -> None:
             locks.delete_one({"_id": lock_id})
     print("SDK383_FENCED_REVOKE_REAL_HTTP_MONGO_E2E=PASS")
     print("SDK383_FENCED_ISSUE_REAL_HTTP_MONGO_E2E=PASS")
+    print("SDK383_ISSUE_BUDGET_REAL_HTTP_MONGO_E2E=PASS")
 
 
 if __name__ == "__main__":
