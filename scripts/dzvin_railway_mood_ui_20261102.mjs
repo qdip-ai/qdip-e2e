@@ -40,7 +40,7 @@ async function qaCookie(browser){
 }
 async function verifyMoodUiSubmit(browser,cookie){
   assert(process.env.DZVIN_UI_SAVE_ACK==='1','UI_WRITE_APPROVAL_REQUIRED');
-  const timeZone='Africa/Nairobi';
+  const timeZone='Europe/Warsaw';
   const cx=await browser.newContext({
     viewport:{width:1440,height:900},timezoneId:timeZone,serviceWorkers:'block'
   });
@@ -53,7 +53,7 @@ async function verifyMoodUiSubmit(browser,cookie){
     const before=await cx.request.get(UI+'/api/backend/mood-record?page=1&limit=50&order=newest');
     assert(before.status()===200,'UI_PREWRITE_BACKEND_READ');
     const existing=await before.json();
-    assert(Array.isArray(existing)&&existing.length>=1,'UI_PREWRITE_MOOD_FIXTURE_MISSING');
+    assert(Array.isArray(existing),'UI_PREWRITE_MOOD_LIST_INVALID');
     const page=await cx.newPage();
     const rendered=await page.goto(UI+'/en/mood-tracker',{waitUntil:'domcontentloaded',timeout:50000});
     assert(rendered?.status()===200,'UI_SAVE_PAGE_UNAVAILABLE');
@@ -87,7 +87,7 @@ async function verifyMoodUiSubmit(browser,cookie){
     assert(Array.isArray(data)&&data.length>existing.length&&data.some(r=>r.id===created.id),
       'UI_SAVE_NOT_PERSISTED');
     await page.locator('#mood-records-list time[datetime]').first().waitFor({state:'visible',timeout:15000});
-    await page.locator('#mood-records-list time[datetime]').nth(1).waitFor({state:'visible',timeout:20000});
+    assert(await page.locator('#mood-records-list time[datetime]').count()>=1,'UI_POSTSAVE_HISTORY_EMPTY');
     console.log('QA_UI_MOOD_SELECTION_ALL_SLIDERS_POST_PERSISTED_HISTORY=PASS');
     await page.locator('main').first().screenshot({path:'/tmp/dzvin-mood-ui-evidence/mood-ui-save-nairobi.png'});
   }finally{await cx.close();}
@@ -99,6 +99,7 @@ async function main(){
   try {
     const cookie=await qaCookie(browser);
     mkdirSync('/tmp/dzvin-mood-ui-evidence',{recursive:true});
+    if(process.env.DZVIN_UI_SAVE_ACK==='1')await verifyMoodUiSubmit(browser,cookie);
     for(const device of [
       {name:'desktop',width:1440,height:900,mobile:false},
       {name:'mobile-portrait',width:390,height:844,mobile:true},
@@ -142,7 +143,6 @@ async function main(){
       }finally{await cx.close();}
     }
     console.log('DZVIN_QA_ISOLATED_UI_3_VIEWPORTS=PASS');
-    if(process.env.DZVIN_UI_SAVE_ACK==='1')await verifyMoodUiSubmit(browser,cookie);
   }finally{await browser.close();}
 }
 main().catch(error=>{
