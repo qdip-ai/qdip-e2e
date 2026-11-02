@@ -636,6 +636,67 @@ async def main() -> None:
                       "_id": "e2e-exclusive-slug",
                   })) is None)
 
+            # Two independent applications racing for the same global slug:
+            # Mongo's unique _id reservation must guarantee one winner.
+            concurrent_owners = [
+                TenantContext(
+                    organization_id=org, key_id=key, plugin_id="p1-test",
+                    scopes=["plugins:register"],
+                    allowed_capabilities=["p1.plan"],
+                )
+                for org, key in (
+                    ("e2e-slug-race-a", "e2e-race-key-a"),
+                    ("e2e-slug-race-b", "e2e-race-key-b"),
+                )
+            ]
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-race-a", "e2e-race-key-a"),
+                row("e2e-slug-race-b", "e2e-race-key-b"),
+            ])
+            results = await asyncio.gather(*[
+                api.submit_plugin_for_review(
+                    remote_catalog_id(owner.organization_id, "p1-test"),
+                    slug_input.model_copy(update={"slug": "e2e-race-global"}),
+                    owner=owner, authorization="Bearer test-only",
+                )
+                for owner in concurrent_owners
+            ], return_exceptions=True)
+            successful = [v for v in results if isinstance(v, dict)]
+            conflicts = [v for v in results if isinstance(v, HTTPException)]
+            check("concurrent_global_slug_exactly_one_verified_owner",
+                  len(successful) == 1 and len(conflicts) == 1
+                  and conflicts[0].status_code == 409
+                  and await db["plugin_publication_slugs"].count_documents({
+                      "_id": "e2e-race-global"
+                  }) == 1)
+            # A proposed public slug must also never shadow an existing
+            # embedded/remote catalog identity, even before publication.
+            shadow_owner = TenantContext(
+                organization_id="e2e-slug-shadow", key_id="e2e-shadow-key",
+                plugin_id="p1-test", scopes=["plugins:register"],
+                allowed_capabilities=["p1.plan"],
+            )
+            shadow_name = remote_catalog_id("e2e-slug-shadow", "p1-test")
+            await db["plugin_publications"].insert_many([
+                row("e2e-slug-shadow", "e2e-shadow-key"),
+                {"_id": "e2e-existing-catalog-plugin", "published": False},
+            ])
+            try:
+                await api.submit_plugin_for_review(
+                    shadow_name, slug_input.model_copy(update={
+                        "slug": "e2e-existing-catalog-plugin",
+                    }), owner=shadow_owner, authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("slug_cannot_shadow_existing_plugin_identity",
+                      exc.status_code == 409
+                      and await db["plugin_publication_submissions"].find_one({
+                          "_id": shadow_name
+                      }) is None)
+            else:
+                raise AssertionError("Alias for existing plugin ID was accepted")
+
+
 
 
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
