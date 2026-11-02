@@ -213,6 +213,24 @@ def main() -> int:
     for c in core.values():
         require(c.request("health")[0] in (200, 404), "Gateway request failed")
         c.expect("organizations/" + ORG + "/keys", 200)
+    # Only our own previously quarantined QA identity may be reset after a
+    # failed test run; its old credential must already be revoked.
+    snapshot = core["a"].expect("plugin-publications/remote-admission-preflight", 200)
+    old = [item for item in snapshot.get("items", []) if isinstance(item, dict)
+           and item.get("tenant_id") == ORG and item.get("plugin_id") == PLUGIN]
+    require(len(old) <= 1, "Ambiguous staging QA identity")
+    if old and old[0].get("approval_state") == "quarantined":
+        previous_key = old[0].get("worker_key_id")
+        require(isinstance(previous_key, str)
+                and get_worker_key(core["a"], ORG, previous_key).get("revoked_at") is not None
+                and not old[0].get("connected"),
+                "Cannot release potentially live quarantined identity")
+        status, reset = state_change(
+            core["a"], old[0]["name"], "quarantine", old[0]["revision"],
+            quarantined=False, reason="Reset only revoked-key isolated QA test identity",
+        )
+        require(status == 200 and (reset.get("security") or {}).get("state") == "pending_review",
+                "Previous QA identity reset not verified")
     app = "sdk400-e2e-" + secrets.token_hex(5)
     lease_token = secrets.token_hex(32)
     worker_key: dict | None = None
@@ -282,12 +300,46 @@ def main() -> int:
         require(status == 200 and isinstance(quarantined, dict)
                 and (quarantined.get("security") or {}).get("state") == "quarantined",
                 "Cross-Gateway quarantine write failed")
-        for name in ("a", "b"):
-            denied, _ = invoke(core[name], caller)
-            require(denied == 403, "Cross-Gateway invoke bypasses quarantine: " +
-                    name + " HTTP " + str(denied))
+        # A disconnects its local Worker after writing quarantine: 503 there
+        # is fail-closed. B still owns a live Worker and must deny via Mongo 403.
+        require(live_registration(core["b"], worker_key["id"], timeout=1),
+                "Peer Worker B not live before cross-Gateway deny")
+        denied_b, _ = invoke(core["b"], caller)
+        require(denied_b == 403, "Peer B did not enforce A quarantine: " + str(denied_b))
+        denied_a, _ = invoke(core["a"], caller)
+        require(denied_a in (403, 503)
+                and (denied_a != 503 or not live_registration(
+                    core["a"], worker_key["id"], timeout=1)),
+                "Gateway A allowed quarantined invocation")
         print("SDK400_TWO_GATEWAY_QUARANTINE_DENY=PASS", flush=True)
-        # A fresh Worker reconnect after quarantine may CRASH (fail closed);
+        revision = quarantined.get("revision")
+        status, released = state_change(
+            core["a"], catalog, "quarantine", revision,
+            quarantined=False, reason="QA release must revert only to pending review",
+        )
+        require(status == 200 and isinstance(released, dict)
+                and (released.get("security") or {}).get("state") == "pending_review",
+                "Quarantine release did not reset to pending")
+        require(live_registration(core["b"], worker_key["id"], timeout=1),
+                "Peer B Worker lost before pending-review test")
+        pending_b, _ = invoke(core["b"], caller)
+        require(pending_b == 403, "B allowed pending-review invoke")
+        pending_a, _ = invoke(core["a"], caller)
+        require(pending_a in (403, 503), "A allowed pending-review invoke")
+        status, revoked = state_change(
+            core["a"], catalog, "revoke", released.get("revision"),
+            reason="Terminate QA-only plugin identity after multi-Gateway E2E",
+        )
+        require(status == 200 and isinstance(revoked, dict)
+                and (revoked.get("security") or {}).get("state") == "revoked",
+                "Terminal revocation not confirmed")
+        require(live_registration(core["b"], worker_key["id"], timeout=1),
+                "Peer B Worker lost before terminal revocation test")
+        revoked_b, _ = invoke(core["b"], caller)
+        require(revoked_b == 403, "B Gateway accepted terminally revoked plugin")
+        revoked_a, _ = invoke(core["a"], caller)
+        require(revoked_a in (403, 503), "A Gateway accepted terminally revoked plugin")
+        # A fresh Worker reconnect after terminal revoke may CRASH (fail closed);
         # it must never receive a new REGISTER acknowledgement.
         old = workers["b"].deployment()["id"]
         workers["b"].stage_commit({
@@ -304,29 +356,9 @@ def main() -> int:
                 break
             time.sleep(4)
         require(restarted and not live_registration(core["b"], worker_key["id"], timeout=12),
-                "Quarantined Worker B re-registered")
+                "Revoked Worker B re-registered")
         print("SDK400_TWO_GATEWAY_RECONNECT_DENY=PASS", flush=True)
-        revision = quarantined.get("revision")
-        status, released = state_change(
-            core["a"], catalog, "quarantine", revision,
-            quarantined=False, reason="QA release must revert only to pending review",
-        )
-        require(status == 200 and isinstance(released, dict)
-                and (released.get("security") or {}).get("state") == "pending_review",
-                "Quarantine release did not reset to pending")
-        for name in ("a", "b"):
-            denied, _ = invoke(core[name], caller)
-            require(denied == 403, "Unapproved release allowed invocation: " + name)
-        status, revoked = state_change(
-            core["a"], catalog, "revoke", released.get("revision"),
-            reason="Terminate QA-only plugin identity after multi-Gateway E2E",
-        )
-        require(status == 200 and isinstance(revoked, dict)
-                and (revoked.get("security") or {}).get("state") == "revoked",
-                "Terminal revocation not confirmed")
-        for name in ("a", "b"):
-            denied, _ = invoke(core[name], caller)
-            require(denied == 403, "Revoked plugin invoked via " + name)
+
         for action, fields in (
             ("approve", {"reason": "Invalid approval after terminal revocation",
                          "review_reference": REFERENCE, "risk_acknowledged": True}),
