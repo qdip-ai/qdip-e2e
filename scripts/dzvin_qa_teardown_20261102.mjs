@@ -78,7 +78,8 @@ async function main() {
         assert(story.status() === 404, actor.name + '_STORY_SIDE_EFFECTS_REMAIN_' + story.status());
         const tags = await api.get('/api/user-tags');
         assert(tags.status() === 200, actor.name + '_TAGS_HTTP_' + tags.status());
-        assert(Array.isArray(await tags.json()) && (await tags.json()).length === 0, actor.name + '_TAG_FIXTURE_REMAINS');
+        const tagRows = await tags.json();
+        assert(Array.isArray(tagRows) && tagRows.length === 0, actor.name + '_TAG_FIXTURE_REMAINS');
         console.log(actor.name + '_MOOD_FEED_STORY_TAG_TEARDOWN=PASS');
       } finally {
         await api.dispose();
