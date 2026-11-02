@@ -96,7 +96,13 @@ class Railway:
                     shape += "-" + type(error_rows[0]).__name__
                     if isinstance(error_rows[0], dict):
                         shape += "-" + ",".join(sorted(error_rows[0].keys()))[:60]
-                category = " response_shape=" + keys[:90] + " error_shape=" + shape + " error_tags=" + tags[:90]
+                error_code = ""
+                if isinstance(error_rows, list) and error_rows and isinstance(error_rows[0], dict):
+                    ext = error_rows[0].get("extensions") or {}
+                    raw_code = ext.get("code") if isinstance(ext, dict) else None
+                    if isinstance(raw_code, str) and raw_code.replace("_", "").isalnum():
+                        error_code = raw_code[:40]
+                category = " response_shape=" + keys[:90] + " error_shape=" + shape + " error_code=" + error_code + " error_tags=" + tags[:90]
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
