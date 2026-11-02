@@ -127,6 +127,43 @@ def registered(core: Core, org: str, plugin: str,
     return False
 
 
+def assert_kernel_proof(result: object) -> None:
+    """Require an actual exact Kernel solve with one coherent server replay."""
+    require(isinstance(result, dict), "Kernel response missing")
+    execution = result.get("execution_result")
+    replay = result.get("replay_contract")
+    require(isinstance(execution, dict) and isinstance(replay, dict),
+            "Kernel result or replay missing")
+    manifest = execution.get("manifest")
+    require(isinstance(manifest, dict), "Server-authored manifest missing")
+    require(execution.get("semantic_status") == "EXACT"
+            and execution.get("backend_status") == "OPTIMAL"
+            and isinstance(execution.get("solution"), dict)
+            and bool(execution["solution"])
+            and execution.get("objective_value") is not None,
+            "Kernel did not return an exact optimal solution")
+    require(isinstance(execution.get("execution_id"), str)
+            and bool(execution["execution_id"])
+            and isinstance(execution.get("decision_id"), str)
+            and bool(execution["decision_id"]),
+            "Kernel execution identity missing")
+    for name in ("execution_id", "decision_id"):
+        require(manifest.get(name) == execution[name],
+                "Kernel manifest execution identity mismatch")
+    for name in ("ir_hash", "decision_spec_hash"):
+        digest = manifest.get(name)
+        require(isinstance(digest, str)
+                and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+                and replay.get(name) == digest,
+                "Kernel manifest/replay hash mismatch")
+    require(execution.get("ir_hash") == manifest["ir_hash"]
+            and replay.get("decision_id") == execution["decision_id"]
+            and manifest.get("compiler_version") == "qdip-runtime-compiler.v1"
+            and replay.get("compiler_version") == "qdip-runtime-compiler.v1"
+            and manifest.get("runtime_version") == "qdip-runtime-kernel.v1",
+            "Kernel semantic provenance mismatch")
+
+
 def smoke(core: Core, org: str, plugin: str, capability: str, fixture: dict) -> None:
     caller = core.expect("organizations/" + org + "/keys", 201, method="POST", payload={
         "name": "sdk383-e2e-smoke-" + uuid.uuid4().hex,
@@ -146,11 +183,8 @@ def smoke(core: Core, org: str, plugin: str, capability: str, fixture: dict) -> 
             print("SDK383_UNAPPROVED_DISPATCH_DENIED=PASS", flush=True)
             raise GateError("Manual Worker security admission is required before Kernel smoke")
         require(status == 200, "Worker invoke unexpected HTTP status " + str(status))
-        require(isinstance(result, dict)
-                and (result.get("execution_result") or {}).get("semantic_status")
-                in {"EXACT", "OPTIMAL", "FEASIBLE", "INFEASIBLE"}
-                and isinstance(result.get("replay_contract"), dict),
-                "Successor Worker did not produce Kernel replay proof")
+        assert_kernel_proof(result)
+        print("SDK383_KERNEL_MANIFEST_REPLAY=PASS", flush=True)
     finally:
         core.expect("organizations/" + org + "/keys/" + caller["id"] + "/revoke",
                     200, method="POST", payload={})
