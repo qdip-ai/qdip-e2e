@@ -1,0 +1,36 @@
+name: Dzvin exact release SHA auth Jest acceptance
+on:
+  push:
+    branches:
+      - test/dzvin-jest-auth-gates-20261102
+permissions:
+  contents: read
+jobs:
+  auth-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mentality-prj/mentality-web
+          ref: 50a3530a8cc18fa3aab8852a382ef97beebbc65e
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          yarn install --frozen-lockfile --non-interactive --ignore-scripts
+      - name: Run source-level auth and admin regression Jest on production SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn test --runInBand --runTestsByPath \
+            app/api/auth/exchange/route.test.ts \
+            context/AuthProvider.test.tsx \
+            lib/b2cReleasePolicy.test.ts \
+            requests/dipClient.test.ts
