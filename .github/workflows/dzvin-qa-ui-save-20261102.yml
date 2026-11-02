@@ -1,0 +1,52 @@
+name: Dzvin isolated Railway real UI SAVE E2E
+on:
+  push:
+    branches:
+      - test/dzvin-railway-ui-save-20261102
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-qa-ui-save-20261102
+  cancel-in-progress: false
+jobs:
+  qa-save:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      DZVIN_RAILWAY_MOOD_UI_ACK: '1'
+      DZVIN_UI_SAVE_ACK: '1'
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/dzvin_railway_mood_ui_20261102.mjs
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dzvin-qa-save"
+          cp scripts/dzvin_railway_mood_ui_20261102.mjs "$RUNNER_TEMP/dzvin-qa-save/"
+          cd "$RUNNER_TEMP/dzvin-qa-save"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real mood page selection POST persistence and readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dzvin-qa-save"
+          node dzvin_railway_mood_ui_20261102.mjs
+      - name: Screenshots synthetic isolated QA only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dzvin-isolated-mood-save-3-viewports
+          path: /tmp/dzvin-mood-ui-evidence/*.png
+          retention-days: 7
+          if-no-files-found: error
