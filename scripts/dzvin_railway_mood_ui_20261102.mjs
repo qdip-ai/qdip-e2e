@@ -59,7 +59,7 @@ async function verifyMoodUiSubmit(browser,cookie){
     assert(rendered?.status()===200,'UI_SAVE_PAGE_UNAVAILABLE');
     await page.locator('main').first().waitFor({state:'visible',timeout:12000});
     await page.waitForTimeout(1100);
-    const moods=page.locator('main button[aria-pressed]');
+    const moods=page.locator('main .grid.grid-cols-5 button[aria-pressed]');
     const firstMoodCount=await moods.count();
     await page.waitForTimeout(2000);
     const lateMoodCount=await moods.count();
