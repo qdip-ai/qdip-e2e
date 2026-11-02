@@ -30,8 +30,8 @@ WORKERS = {
     "a": ("223a72a8-1446-452e-a1fb-0a5927f97112", "sdk400-mg-worker-a"),
     "b": ("017f99f9-2a46-4910-8474-1afbfa64582c", "sdk400-mg-worker-b"),
 }
-PLUGIN = "sdk400-e2e-multigateway"
-CAPABILITY = "sdk400.e2e.rr-scheduling.v1"
+PLUGIN = "sdk400-e2e-multigateway-r3"
+CAPABILITY = "sdk400.e2e.rr-scheduling-r3.v1"
 ACTOR = "user-authorized-sdk400-staging-qa"
 REFERENCE = "SDK400-20261102-ISOLATED-TWO-GATEWAY"
 SECRET = "QDIP_REMOTE_API_KEY"
@@ -345,18 +345,32 @@ def main() -> int:
         workers["b"].stage_commit({
             "SDK400_MG_RECONNECT_TICK": {"value": uuid.uuid4().hex, "isSealed": False},
         })
-        deadline = time.monotonic() + 125
+        # A previously-connected process-local session can outlive the Mongo
+        # revoke for a heartbeat interval. Do not equate that old session with
+        # a successful REGISTER of the new deployment. Wait for the old lease
+        # to disappear and the restarted Worker to fail permanent auth.
+        deadline = time.monotonic() + 135
         restarted = False
+        denied_reconnect = False
         while time.monotonic() < deadline:
             dep = workers["b"].deployment()
-            if dep.get("id") != old and dep.get("status") in {
-                "SUCCESS", "FAILED", "CRASHED", "REMOVED"
-            }:
+            if dep.get("id") != old:
                 restarted = True
-                break
+                if dep.get("status") in {"FAILED", "CRASHED"}:
+                    status, registrations = core["b"].request("remote-plugins/registrations")
+                    require(status == 200 and isinstance(registrations, dict),
+                            "Peer registration inspection unavailable")
+                    if not any(
+                        row.get("organization_id") == ORG
+                        and row.get("key_id") == worker_key["id"]
+                        and CAPABILITY in (row.get("capabilities") or [])
+                        for row in registrations.get("items", []) if isinstance(row, dict)
+                    ):
+                        denied_reconnect = True
+                        break
             time.sleep(4)
-        require(restarted and not live_registration(core["b"], worker_key["id"], timeout=12),
-                "Revoked Worker B re-registered")
+        require(restarted and denied_reconnect,
+                "Terminal revoke left live peer session or admitted new Worker")
         print("SDK400_TWO_GATEWAY_RECONNECT_DENY=PASS", flush=True)
 
         for action, fields in (
@@ -382,6 +396,12 @@ def main() -> int:
                 delete_owned(gateways[name], TRUST, False, digest)
             except GateError as exc:
                 errors.append("gateway-" + name + ":" + str(exc))
+        # Remove only the QA-owned reconnect trigger, never a service default.
+        if "b" in staged_workers:
+            try:
+                delete_owned(workers["b"], "SDK400_MG_RECONNECT_TICK", False)
+            except GateError as exc:
+                errors.append("worker-b-reconnect:" + str(exc))
         for name in staged_workers:
             for field, sealed, expected in ((SECRET, True, None),
                                              (KEY_ID, False,
