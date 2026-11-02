@@ -132,6 +132,24 @@ jobs:
         shell: bash
         run: bash suite/scripts/run_security_scans.sh
 
+      - name: Print scanner exit metadata only (never private findings)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in gitleaks semgrep; do
+            file="$GATE_REPORT_DIR/$name.exit"
+            if [[ -f "$file" ]] && [[ "$(cat "$file")" =~ ^[0-9]{1,3}$ ]]; then
+              echo "SDK400_${name^^}_EXIT=$(cat "$file")"
+            else
+              echo "SDK400_${name^^}_EXIT=UNAVAILABLE"
+            fi
+            if [[ -s "$GATE_REPORT_DIR/$name.json" ]]; then
+              echo "SDK400_${name^^}_REPORT_PRESENT=true"
+            else
+              echo "SDK400_${name^^}_REPORT_PRESENT=false"
+            fi
+          done
+
       - name: Scan dependency manifests and configuration via pinned Trivy
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
