@@ -5,6 +5,9 @@ on:
   push:
     branches: [test/sdk400-core-static-security-audit-20261102]
     paths: [.github/workflows/security-gate.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/security-gate.yml]
   workflow_dispatch:
     inputs:
       target:
@@ -35,7 +38,11 @@ concurrency:
 
 jobs:
   deterministic-audit:
-    if: github.event.repository.private == false
+    if: >-
+      github.event.repository.private == false &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.head_ref == 'test/sdk400-core-static-security-audit-20261102'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -43,7 +50,7 @@ jobs:
     env:
       SECURITY_TARGET: ${{ inputs.target || 'core' }}
       SOURCE_REF: ${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
-      EXPECTED_SHA: ${{ inputs.expected_sha || (github.event_name == 'push' && 'a1b8baed964b0e88113253ebd3517de2d0b94610') || '' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || (github.event_name != 'workflow_dispatch' && 'a1b8baed964b0e88113253ebd3517de2d0b94610') || '' }}
       SOURCE_DIR: ${{ github.workspace }}/target
     steps:
       - name: Checkout public independent E2E security tooling
@@ -85,7 +92,7 @@ jobs:
       - name: Checkout private source at requested revision, read-only
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.target == 'vhv' && 'qdip-ai/qdip-personal-secretary' || (inputs.target == 'core' || github.event_name == 'push') && 'qdip-ai/qdip-core' || inputs.target == 'web' && 'qdip-ai/qdip-web' || 'qdip-ai/qdip-model-doctor' }}
+          repository: ${{ inputs.target == 'vhv' && 'qdip-ai/qdip-personal-secretary' || (inputs.target == 'core' || github.event_name != 'workflow_dispatch') && 'qdip-ai/qdip-core' || inputs.target == 'web' && 'qdip-ai/qdip-web' || 'qdip-ai/qdip-model-doctor' }}
           ref: ${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
           token: ${{ secrets.QDIP_SECURITY_READ_TOKEN }}
           path: target
