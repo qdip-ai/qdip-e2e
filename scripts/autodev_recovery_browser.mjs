@@ -85,13 +85,99 @@ async function publicSmoke(browser){
   }finally{await context.close();}
  }
 }
+/** Reuse a real PKCE operator login when GitHub QA secrets are bound.
+ * Never persist or log tokens. Railway can instead supply a pre-existing
+ * storageState path, keeping all browser test assertions identical.
+ */
+async function pickerAuthContext(browser){
+ const opts={viewport:{width:1440,height:900},
+  serviceWorkers:'block',ignoreHTTPSErrors:false,acceptDownloads:false};
+ if(typeof SESSION==='string'&&SESSION.length>0)
+  return browser.newContext({...opts,storageState:SESSION});
+ const username=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
+ const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
+ check(typeof username==='string'&&username.length>0&&
+  typeof password==='string'&&password.length>0,'EXISTING_OPERATOR_CREDENTIALS_REQUIRED');
+ const context=await browser.newContext(opts);
+ try{
+  const page=await context.newPage();
+  const start=await page.goto(SITE,{waitUntil:'domcontentloaded',timeout:30000});
+  check(start?.status()===200,'OPERATOR_PWA_NOT_200');
+  const login=page.locator('button.live-monitor__login');
+  await login.waitFor({state:'visible',timeout:16000});
+  let validPKCE=false;
+  page.on('request',request=>{
+   try{
+    const url=new URL(request.url());
+    if(url.pathname==='/oauth/v2/authorize' &&
+       url.searchParams.get('code_challenge_method')==='S256'&&
+       url.searchParams.get('redirect_uri')===SITE+'/auth/callback')
+      validPKCE=true;
+   }catch{}
+  });
+  await login.click();
+  await page.waitForURL(url=>url.origin!==SITE,{timeout:30000});
+  check(validPKCE,'OPERATOR_PKCE_INVALID');
+  const find=async(selectors,timeout=13000)=>{
+   const end=Date.now()+timeout;
+   while(Date.now()<end){
+    for(const selector of selectors){
+     const field=page.locator(selector).first();
+     if(await field.isVisible().catch(()=>false))return field;
+    }
+    await page.waitForTimeout(200);
+   }
+   return null;
+  };
+  const user=await find(['input[autocomplete="username"]','input[name="loginName"]',
+   'input[name="loginname"]','input[name="email"]','input[type="email"]',
+   'input[type="text"]']);
+  check(user,'OPERATOR_USERNAME_MISSING');
+  await user.fill(username);
+  let pass=await find(['input[autocomplete="current-password"]',
+   'input[type="password"]'],1200);
+  if(!pass){
+   await user.press('Enter');
+   pass=await find(['input[autocomplete="current-password"]',
+    'input[type="password"]']);
+  }
+  check(pass,'OPERATOR_PASSWORD_MISSING');
+  await pass.fill(password);
+  await pass.press('Enter'); // One login attempt; never retry with other identities.
+  try{await page.waitForURL(url=>url.origin===SITE,{timeout:42000});}
+  catch{throw Error('OPERATOR_REAL_LOGIN_OR_CALLBACK_BLOCKED');}
+  const token=await page.evaluate(async()=>{
+   const end=Date.now()+15000;
+   while(Date.now()<end){
+    for(let i=0;i<localStorage.length;i++){
+     const key=localStorage.key(i);
+     if(!key?.startsWith('oidc.user:'))continue;
+     try{
+      const data=JSON.parse(localStorage.getItem(key)||'{}');
+      if(data.access_token)return data.access_token;
+     }catch{}
+    }
+    await new Promise(resolve=>setTimeout(resolve,200));
+   }
+   return null;
+  });
+  check(typeof token==='string'&&token.length>20,'OPERATOR_OIDC_TOKEN_ABSENT');
+  const monitor=await context.request.get(SITE+'/v1/autodev/monitor',{
+   headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json'},
+   maxRedirects:0,timeout:16000
+  });
+  check(monitor.status()===200,'OPERATOR_MONITOR_ROLE_DENIED');
+  await page.close();
+  console.log('AUTODEV_PICKER_REAL_ZITADEL_OPERATOR=PASS');
+  return context;
+ }catch(err){await context.close();throw err;}
+}
+
 /** Read-only UI acceptance against an authenticated AutoDev deployment.
  * No route interception, no mock UI and no privileged POSTs.
  */
 async function pickerLayout(browser){
- check(typeof SESSION==='string'&&SESSION.length>0,'EXISTING_SESSION_FILE_REQUIRED');
- const context=await browser.newContext({storageState:SESSION,
-  viewport:{width:1440,height:900},serviceWorkers:'block',ignoreHTTPSErrors:false});
+ const context=await pickerAuthContext(browser);
  try{
   for(const [name,width,height] of VIEWS){
    const page=await context.newPage(),errors=[],posts=[];
