@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - scripts/zitadel_qa21_cross_org_live.mjs
+      - scripts/zitadel_qa21_reverse_org_live.mjs
       - .github/workflows/zitadel-qa21-cross-org-live.yml
 
 permissions:
@@ -56,9 +57,21 @@ jobs:
           set -euo pipefail
           cd /tmp/zitadel-qa21
           node zitadel_qa21_cross_org_live.mjs
-      - name: 'Scope: never imply bidirectional proof or owner grant'
+      - name: Main-org authorized account must be denied ownership of QDIP QA
+        shell: bash
+        env:
+          CI: 'true'
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cp scripts/zitadel_qa21_reverse_org_live.mjs /tmp/zitadel-qa21/
+          cd /tmp/zitadel-qa21
+          node --check zitadel_qa21_reverse_org_live.mjs
+          node zitadel_qa21_reverse_org_live.mjs
+      - name: 'Scope: explicit bidirectional qualification'
         if: success()
         run: |
-          echo 'ZITADEL_QA21_MAIN_TO_QA_ORG=NOT_TESTED'
+          echo 'ZITADEL_QA21_CROSS_ORG_NEGATIVE_BOTH_DIRECTIONS=PASS'
           echo 'ZITADEL_QA21_QA_ORG_OWNER_MUST_BE_EXPLICITLY_VERIFIED'
           echo 'ZITADEL_QA21_NO_PRODUCTION_WRITE=TRUE'
