@@ -73,6 +73,11 @@ async function main(){
   const before=await list.json();
   assert(before.length===0,'QA_MOOD_ALREADY_SAVED_TODAY');
   console.log('QA_PREVIEW_BFF_POINTS_TO_ISOLATED_EMPTY_MONGO=PASS');
+  const bffTags=await ctx.request.get(SITE+'/api/backend/user-tags');
+  assert(bffTags.status()===200,'BFF_TAG_READ_'+bffTags.status());
+  const bffTagRows=await bffTags.json();
+  console.log('QA_BFF_TAG_FIXTURE='+String(Array.isArray(bffTagRows)&&bffTagRows.some(x=>x.key==='qa-isolated-20261102')));
+  assert(Array.isArray(bffTagRows)&&bffTagRows.some(x=>x.key==='qa-isolated-20261102'),'BFF_TAG_NOT_MAPPED');
   const page=await ctx.newPage();
   stage='MOOD_PAGE_GOTO';console.log('QA_STAGE='+stage);
   const response=await page.goto(SITE+'/en/mood-tracker',{waitUntil:'domcontentloaded',timeout:40000});
