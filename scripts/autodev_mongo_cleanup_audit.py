@@ -31,6 +31,27 @@ try:
         for dbname in client.list_database_names():
             if "autodev_local_devices" in client[dbname].list_collection_names():
                 retired_collections.append(dbname)
+        if os.getenv("AUTODEV_MONGO_PRUNE_EXACT_USER") == "YES_EXACT_AUTODEV_LOCAL_WORKSTATION":
+            if retired_collections or retired_users != [("autodev_staging", "autodev_local_workstation")]:
+                print("AUTODEV_MONGO_PRUNE=BLOCKED:IDENTITY_OR_COLLECTION_MISMATCH", flush=True)
+                sys.exit(2)
+            subject = next(u for u in users
+                           if u.get("db") == "autodev_staging"
+                           and u.get("user") == "autodev_local_workstation")
+            allowed_roles = {(r.get("role"), r.get("db"))
+                             for r in subject.get("roles", []) if isinstance(r, dict)}
+            if allowed_roles != {("autodev_local_device_writer", "autodev_staging")}:
+                print("AUTODEV_MONGO_PRUNE=BLOCKED:ROLE_MISMATCH", flush=True)
+                sys.exit(2)
+            result = client["autodev_staging"].command({"dropUser": "autodev_local_workstation"})
+            if result.get("ok") != 1:
+                print("AUTODEV_MONGO_PRUNE=BLOCKED:NO_ACK", flush=True)
+                sys.exit(2)
+            users = client.admin.command({"usersInfo": {"forAllDBs": True}})["users"]
+            retired_users = [(u.get("db"), u.get("user")) for u in users
+                             if isinstance(u.get("user"), str)
+                             and u["user"].startswith("autodev_local_")]
+            print("AUTODEV_MONGO_PRUNE_EXACT_USER_ACK=PASS", flush=True)
         print("AUTODEV_MONGO_AUDIT_CONNECTED=PASS", flush=True)
         print("AUTODEV_MONGO_RETIRED_USER_COUNT=" + str(len(retired_users)), flush=True)
         print("AUTODEV_MONGO_RETIRED_COLLECTION_COUNT=" + str(len(retired_collections)), flush=True)
