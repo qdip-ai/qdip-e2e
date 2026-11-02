@@ -68,6 +68,19 @@ async function verifyMoodUiSubmit(browser,cookie){
     console.log('QA_UI_MOOD_PREFLIGHT=INITIAL_'+firstMoodCount+'_LATE_'+lateMoodCount+'_VISIBLE_'+moodVisible+'_SAVE_BUTTONS_'+saveCount+'_PREWRITE_ROWS_'+existing.length);
     await page.locator('main').first().screenshot({path:'/tmp/dzvin-mood-ui-evidence/mood-save-preflight.png'});
     assert(firstMoodCount>=5&&lateMoodCount>=5&&moodVisible,'UI_MOOD_CONTROL_DISAPPEARED_AFTER_HYDRATION');
+    // First-visit onboarding is an actual modal that can intercept a visible mood button.
+    // Complete the same user-facing sequence verified in browser run 41525339937.
+    const guide=page.locator('[role="dialog"][aria-modal="true"]').first();
+    if(await guide.isVisible().catch(()=>false)){
+      console.log('QA_FIRST_VISIT_GUIDE=VISIBLE');
+      for(let step=0;step<4;step++){
+        const next=guide.getByRole('button',{name:/next|got it/i}).last();
+        await next.waitFor({state:'visible',timeout:6000});
+        await next.click();
+      }
+      await guide.waitFor({state:'hidden',timeout:6000});
+      console.log('QA_FIRST_VISIT_GUIDE_COMPLETED=PASS');
+    }
     await moods.nth(3).click({timeout:10000});
     assert(await moods.nth(3).getAttribute('aria-pressed')==='true','UI_MOOD_NOT_SELECTED');
     const sliders=page.locator('main [role="slider"]');
