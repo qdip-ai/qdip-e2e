@@ -1,55 +1,101 @@
-name: Dzvin 439 QA1 QA2 browser verification 2026-11-02
-# Ephemeral branch-only authenticated QA; no user-data writes or secret artifacts.
+name: Dzvin production B2C isolation browser smoke 2026-11-02
+# Temporary branch-only public smoke. No credentials or private user data.
 on:
   push:
     branches:
       - test/dzvin-439-qa-readonly-20261102
 permissions:
   contents: read
-concurrency:
-  group: dzvin-439-qa-readonly-20261102
-  cancel-in-progress: false
 jobs:
-  qa1-qa2-preview:
+  production-security:
     if: github.repository == 'qdip-ai/qdip-e2e'
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
-    env:
-      CI: 'true'
-      DZVIN_QA_READONLY_ACK: '1'
-      DZVIN_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
-      DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
-      DZVIN_PREVIEW_DEPLOYMENT: dpl_6LA11pxMr3TLQ97TZMdgJftY9q9T
-      DZVIN_PREVIEW_SHA: 35a923364d370cc9e11c64ae2a53175c043dfc31
-      DZVIN_QA_EXPIRED_SESSION_ACK: '1'
-      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
-      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
-      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
-      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    timeout-minutes: 16
     steps:
-      - name: Checkout independent QA
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Node 22
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate test source
-        run: node --check scripts/dzvin_qa_current_preview_readonly_20261019.mjs
-      - name: Install isolated Playwright browser
+      - name: Install isolated real browser
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/dzvin-439-qa
-          cp scripts/dzvin_qa_current_preview_readonly_20261019.mjs /tmp/dzvin-439-qa/
-          cd /tmp/dzvin-439-qa
+          mkdir -p /tmp/dzvin-prod-browser
+          cd /tmp/dzvin-prod-browser
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.57.0
           npx playwright install --with-deps chromium
-      - name: Run real PKCE, BFF, tenant read and 2-tab refresh
+      - name: Anonymous production BFF security and three-viewport smoke
         shell: bash
         run: |
           set -euo pipefail
-          cd /tmp/dzvin-439-qa
-          node dzvin_qa_current_preview_readonly_20261019.mjs
+          cd /tmp/dzvin-prod-browser
+          cat > prod-smoke.mjs <<'MJS'
+          import { chromium } from '@playwright/test';
+          import { mkdir } from 'node:fs/promises';
+          import { join } from 'node:path';
+          const origin = 'https://www.dzvin.co';
+          const deploy = 'dpl_HEXPTb7ofycE36faRsEEwfAio6F2';
+          const screenshots = join(process.env.RUNNER_TEMP, 'dzvin-production-public-evidence');
+          function check(condition, code) { if (!condition) throw new Error(code); }
+          const browser = await chromium.launch({ headless: true });
+          try {
+            const api = await browser.newContext({ serviceWorkers: 'block' });
+            for (const [path, expected] of [
+              ['/api/backend/dip-admin/organizations', 404],
+              ['/api/backend/admin', 404],
+              ['/api/backend/companies', 404],
+              ['/api/backend/research', 404],
+              ['/api/backend/mood-risk', 404],
+              ['/api/backend/diary/user', 401],
+            ]) {
+              const response = await api.request.get(origin + path, { timeout: 25000 });
+              check(response.status() === expected, 'PROD_' + path.replace(/[^a-z]/gi, '_') + '_EXPECTED_' + expected + '_ACTUAL_' + response.status());
+            }
+            const deniedPost = await api.request.post(origin + '/api/backend/dip-admin/organizations', {
+              headers: { origin, 'content-type': 'application/json' },
+              data: '{}', timeout: 25000
+            });
+            check(deniedPost.status() === 404, 'PROD_PRIVILEGED_POST_NOT_HIDDEN_' + deniedPost.status());
+            const csrf = await api.request.post(origin + '/api/auth/exchange', {
+              headers: { 'content-type': 'application/json' },
+              data: '{"grantType":"refresh_token"}', timeout: 25000,
+            });
+            check(csrf.status() === 403, 'PROD_AUTH_MISSING_ORIGIN_NOT_REJECTED_' + csrf.status());
+            const crossOrigin = await api.request.post(origin + '/api/backend/diary', {
+              headers: { origin: 'https://cross-origin.invalid', 'content-type': 'application/json' },
+              data: '{}', timeout: 25000,
+            });
+            check(crossOrigin.status() === 403, 'PROD_BFF_CSRF_NOT_REJECTED_' + crossOrigin.status());
+            console.log('PROD_B2C_PRIVILEGED_GET_POST_AND_CSRF=PASS');
+            await mkdir(screenshots, { recursive: true });
+            for (const v of [
+              { name: 'desktop-1440x900', width: 1440, height: 900 },
+              { name: 'portrait-390x844', width: 390, height: 844 },
+              { name: 'landscape-844x390', width: 844, height: 390 },
+            ]) {
+              const context = await browser.newContext({ viewport: { width:v.width, height:v.height }, serviceWorkers:'block' });
+              try {
+                const page = await context.newPage();
+                const response = await page.goto(origin + '/uk', { waitUntil:'domcontentloaded', timeout:35000 });
+                check(response && response.status() === 200, 'PROD_LANDING_HTTP_' + v.name);
+                const html = await page.content();
+                check(html.includes('data-dpl-id="' + deploy + '"'), 'PROD_ALIAS_NOT_ON_DEPLOYMENT_' + v.name);
+                const size = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, width: window.innerWidth }));
+                check(size.doc <= size.width + 2, 'PROD_HORIZONTAL_OVERFLOW_' + v.name);
+                await page.screenshot({ path: join(screenshots, v.name + '.png'), fullPage:false });
+                console.log('PROD_PUBLIC_BROWSER_' + v.name + '=PASS');
+              } finally { await context.close(); }
+            }
+            await api.close();
+            console.log('PROD_PUBLIC_SECURITY_AND_3_VIEWPORTS=PASS');
+          } finally { await browser.close(); }
+          MJS
+          node prod-smoke.mjs
+      - name: Public screenshots (no authenticated content)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dzvin-production-b2c-public-20261102-3-viewports
+          path: ${{ runner.temp }}/dzvin-production-public-evidence/*.png
+          if-no-files-found: warn
+          retention-days: 7
