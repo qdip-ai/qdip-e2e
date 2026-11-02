@@ -41,9 +41,12 @@ def require(condition: bool, message: str) -> None:
 
 
 class Railway:
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, service_id: str = TARGET_SERVICE,
+                 service_name: str = TARGET_NAME) -> None:
         require(len(token) >= 20, "Missing scoped Railway project token")
         self.token = token
+        self.target_service = service_id
+        self.target_name = service_name
         self.opener = build_opener(NoRedirect())
 
     def query(self, document: str, variables: dict | None = None) -> dict:
@@ -89,7 +92,7 @@ class Railway:
         require(sum(x.get("id") == ENVIRONMENT and x.get("name") == "staging"
                     for x in environments) == 1,
                 "Railway environment is not staging")
-        require(sum(x.get("id") == TARGET_SERVICE and x.get("name") == TARGET_NAME
+        require(sum(x.get("id") == self.target_service and x.get("name") == self.target_name
                     for x in services) == 1,
                 "Target is not the pinned disposable staging QA service")
 
@@ -107,12 +110,12 @@ class Railway:
             "environment(id: $e, projectId: $p) { variables(first: 10000) "
             "{ edges { node { name serviceId isSealed } } } } "
             "variables(projectId: $p, environmentId: $e, serviceId: $s) }",
-            {"p": PROJECT, "e": ENVIRONMENT, "s": TARGET_SERVICE},
+            {"p": PROJECT, "e": ENVIRONMENT, "s": self.target_service},
         )
         env = result.get("environment") or {}
         edges = (env.get("variables") or {}).get("edges") or []
         nodes = [edge.get("node") or {} for edge in edges if isinstance(edge, dict)]
-        scoped = [x for x in nodes if x.get("serviceId") == TARGET_SERVICE]
+        scoped = [x for x in nodes if x.get("serviceId") == self.target_service]
         values = result.get("variables")
         require(isinstance(values, dict), "Railway variable metadata unavailable")
         # DO NOT print or serialize values: other project variables may be readable.
@@ -123,7 +126,7 @@ class Railway:
             "query ($i: DeploymentListInput!) { deployments(input: $i, first: 1) "
             "{ edges { node { id status createdAt } } } }",
             {"i": {"projectId": PROJECT, "environmentId": ENVIRONMENT,
-                   "serviceId": TARGET_SERVICE}},
+                   "serviceId": self.target_service}},
         )
         edges = (result.get("deployments") or {}).get("edges") or []
         require(len(edges) == 1, "No target service deployment")
@@ -131,7 +134,7 @@ class Railway:
 
     def stage_commit(self, values: dict) -> None:
         self.pending()
-        patch = {"services": {TARGET_SERVICE: {"variables": values}}}
+        patch = {"services": {self.target_service: {"variables": values}}}
         staged = self.query(
             "mutation ($e: String!, $input: EnvironmentConfig!, $merge: Boolean) "
             "{ environmentStageChanges(environmentId: $e, input: $input, merge: $merge) "
