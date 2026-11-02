@@ -57,7 +57,7 @@ class SealedRailwayGateTests(unittest.TestCase):
 
     def test_pending_unrelated_railway_patch_blocks_delivery(self) -> None:
         client = object.__new__(Railway)
-        client.query = lambda document, variables: {
+        client.query = lambda document, variables=None: {
             "environmentStagedChanges": {"id": "unrelated", "status": "STAGED"},
         }
         with self.assertRaisesRegex(GateError, "Railway staged patch requires inspection"):
