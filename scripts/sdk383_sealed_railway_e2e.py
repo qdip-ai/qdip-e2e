@@ -103,6 +103,14 @@ class Railway:
                     if isinstance(raw_code, str) and raw_code.replace("_", "").isalnum():
                         error_code = raw_code[:40]
                 category = " response_shape=" + keys[:90] + " error_shape=" + shape + " error_code=" + error_code + " error_tags=" + tags[:90]
+                # The first projectToken query contains no variables and no secret
+                # values. Its schema error can be reported after strict sanitization.
+                if document == "query { projectToken { projectId environmentId } }" and messages:
+                    import re
+                    hint = str(messages[0])[:180]
+                    hint = re.sub(r"[A-Za-z0-9_+/=-]{24,}", "[redacted]", hint)
+                    hint = re.sub(r"[^A-Za-z0-9 _.:\x27\x22\-\[\]]", " ", hint)
+                    category += " safe_scope_hint=" + hint[:150]
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
