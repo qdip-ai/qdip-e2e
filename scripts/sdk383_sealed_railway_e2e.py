@@ -61,7 +61,10 @@ class Railway:
         try:
             with self.opener.open(request, timeout=20) as response:
                 body = response.read(1_048_577)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        except HTTPError as exc:
+            # Status only. Never log GraphQL response bodies or variables.
+            raise GateError("Railway GraphQL HTTP status " + str(exc.code)) from None
+        except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
         require(len(body) <= 1_048_576, "Railway GraphQL response too large")
         try:
