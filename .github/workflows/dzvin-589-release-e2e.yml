@@ -29,10 +29,10 @@ concurrency:
 env:
   CI: 'true'
   DZVIN_QA_READONLY_ACK: '1'
-  DZVIN_PREVIEW_ORIGIN: https://mentality-3mdluavnj-taras-gezs-projects.vercel.app
-  DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-3mdluavnj-taras-gezs-projects.vercel.app
-  DZVIN_PREVIEW_DEPLOYMENT: dpl_DYpfEe1VGqBMyv5bRyepjWWNbeWJ
-  DZVIN_PREVIEW_SHA: f859d7cc840d21aedca97cb1bd2eb553b49f057a
+  DZVIN_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
+  DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
+  DZVIN_PREVIEW_DEPLOYMENT: dpl_6LA11pxMr3TLQ97TZMdgJftY9q9T
+  DZVIN_PREVIEW_SHA: 35a923364d370cc9e11c64ae2a53175c043dfc31
 
 jobs:
   anonymous-responsive-security:
