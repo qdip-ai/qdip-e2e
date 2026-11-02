@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const BASE = 'https://mentality-ho9v3tydz-taras-gezs-projects.vercel.app';
 const ENDPOINT = '/api/backend/privacy/my-data-inventory';
 const KNOWN = [
-  'moodrecords', 'diaries', 'goals', 'mood_stories',
+  'moodrecords', 'diaries', 'goals', 'dailyhabits', 'mood_stories',
   'mood_risk_predictions', 'mood_feed_messages', 'weekly_insights',
   'phq9results', 'gad7results', 'k10results', 'userTags', 'favorites',
 ];
