@@ -90,7 +90,13 @@ class Railway:
                            "invalid", "token", "project", "graphql", "request",
                            "header", "access", "unsupported", "expired")
                 tags = ",".join(w for w in needles if w in error_blob)
-                category = " response_shape=" + keys[:90] + " error_tags=" + tags[:90]
+                error_rows = failure.get("errors") if isinstance(failure, dict) else None
+                shape = type(error_rows).__name__
+                if isinstance(error_rows, list) and error_rows:
+                    shape += "-" + type(error_rows[0]).__name__
+                    if isinstance(error_rows[0], dict):
+                        shape += "-" + ",".join(sorted(error_rows[0].keys()))[:60]
+                category = " response_shape=" + keys[:90] + " error_shape=" + shape + " error_tags=" + tags[:90]
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
