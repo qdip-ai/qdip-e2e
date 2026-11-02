@@ -94,3 +94,21 @@ The original SDK383 smoke accepted `INFEASIBLE` as success and any dictionary (e
 Five focused unit regressions cover accepted exact proof; false success from INFEASIBLE, empty replay, mismatched hash and absent objective. Existing 11 guardrails remain. The independent Railway QA service used `deploy/sdk383-sealed-e2e-qa.Dockerfile` pinned to `1f14b2bfa45fcf6b1d203fb93ee08509a35dd47d`. Actual deployment `a2b0718e-62ff-4d7d-9255-40b380c5c788`: **build SUCCESS**, runtime `SDK383_E2E_STATIC_GUARDRAILS_PASS`. The pre-fix regression build on `71136b1bc981977dc9ddca5f0f45be97cdf13009` was FAILED; its full failure text was not available from Railway logs, so do not claim a specific recorded traceback. The temporary `sdk383-e2e-proof-regression-qa` service was removed afterward; no volume or secret was created.
 
 **Acceptance boundary:** the added proof assertions have been tested with synthetic cases and real Railway build/runtime, **not** with an admitted positive Gateway→Kernel response. Keep PR #114 Draft until signed-off Security Gate admission and real live solve/replay proof pass on the exact PR SHA.
+
+
+## 2026-11-02: User-approved staging-only full release gate — PASS
+
+The user explicitly accepted the staging-only risk on 2026-11-02 after the pinned source review. The authorized QA runner did not grant permissions in MongoDB directly or disable the Gateway Security Gate; it used the existing audited platform-admin `/security/approve` endpoint with actor `user-authorized-sdk383-staging-qa`, review reference `SDK383-20261102-USER-APPROVED-STAGING`, explicit `risk_acknowledged=true`, and the narrow reviewed manifest only. This approval does **not** apply to production or to the existing RR Workers.
+
+- **Source:** `qdip-e2e@6af54ba9d918db2b88373a6611d3676253a524aa`; Worker `qdip-core@ffac08fea89c03e76f85e569cefc79dbde6eba53`; isolated Core `qdip-core@bac4e1a1bdeb718626cbe2d54c992d8b5ea53b6b`.
+- **Real Railway E2E:** Existing `qdip-sdk-staging` project / `staging` environment, one-shot QA deployment `0a28cc41-e9cf-48ee-917e-62d4e8fa0a8d`. The Docker image was built with **18/18 unit/regression tests PASS**. The exact live runner logs:
+  - `SDK383_SEALED_WORKER_REGISTER=PASS`
+  - `SDK383_SEALED_FAILED_ROTATION_PRESERVES_KEY=PASS`
+  - `SDK383_SEALED_WORKER_RECOVERY=PASS`
+  - `SDK383_USER_APPROVED_STAGING_ADMISSION=PASS digest=f3b2bc189dc14fc043e61f2e12d6ef85d315b2e8a9da5bfe2cd56b8a6e47a63b`
+  - `SDK383_KERNEL_MANIFEST_REPLAY=PASS` — actual HTTP 200 and frozen Kernel semantic status EXACT, backend OPTIMAL; nonempty solution/objective; validated matched manifest and replay fingerprints
+  - `SDK383_STAGING_ADMISSION_CLEANUP=PASS`
+  - `SDK383_SEALED_WORKER_LIFECYCLE_E2E=PASS`.
+- **Independent runtime HTTP evidence:** isolated Gateway returned HTTP 200 for audited approval of `remote-fe3cd09836a6e56e-sdk383-e2e-credential-worker` and HTTP 200 for the live `/remote-plugins/sdk383.e2e.rr-scheduling.v1/invoke`. The revoked caller was denied HTTP 403. Post-test review quarantine and release-to-pending returned HTTP 200 each, both issued Worker credentials were fenced-revoked with HTTP 200, the lease was released, the test Worker sealed API key and key-ID variables deleted, and its original staging WSS URL restored.
+- **Deployment/cleanup:** Temporary Gateway `ff0a8142-d324-4d61-a5c8-7615438d0405` and one-shot QA runner `94dbda71-491b-4c04-a196-f0716826cbea` were deleted from `staging` without attached volumes. The dedicated Worker remains credentialless and idle, latest deployment `f7a54a81-b4c3-4b3c-b5f1-887f5d14da17` SUCCESS. The shared `qdip-core-staging`, `qdip-sdk-reconciler` and RR Workers kept their original SHA/deployment IDs; no staged changes remained.
+- **Scope:** This verifies backend SDK383 release acceptance at the exact tested source and isolated staging. It does not certify unreviewed production image supply chain, production deployment, or browser UI (none changed by this PR). The signed-off manifest digest contains the now-revoked test key ID; it must never be reused after a new key rotation.
