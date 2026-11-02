@@ -60,7 +60,7 @@ class SealedRailwayGateTests(unittest.TestCase):
         client.query = lambda document, variables: {
             "environmentStagedChanges": {"id": "unrelated", "status": "STAGED"},
         }
-        with self.assertRaisesRegex(GateError, "Unrelated Railway staged changes"):
+        with self.assertRaisesRegex(GateError, "Railway staged patch requires inspection"):
             client.pending()
 
     def test_no_project_token_fails_closed(self) -> None:
