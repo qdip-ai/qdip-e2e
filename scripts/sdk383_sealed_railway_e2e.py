@@ -157,8 +157,9 @@ class Railway:
             "query ($e: String!) { environmentStagedChanges(environmentId: $e) { id status } }",
             {"e": ENVIRONMENT},
         ).get("environmentStagedChanges")
+        status = str(change.get("status", "")) if isinstance(change, dict) else ""
         require(change in (None, {}, []),
-                "Unrelated Railway staged changes exist; refusing to overwrite")
+                "Railway staged patch requires inspection (status=" + status[:32] + ")")
 
     def metadata(self) -> tuple[list[dict], dict]:
         result = self.query(
