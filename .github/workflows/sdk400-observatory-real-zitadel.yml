@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   live-auth:
-    if: github.event_name != 'pull_request' || github.head_ref == 'test/sdk400-observatory-zitadel-roles-20261102'
+    if: github.event_name != 'pull_request' || ['test/sdk400-observatory-zitadel-roles-20261102','test/sdk400-owner-readonly-preflight-20261102'].includes(github.head_ref)
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
