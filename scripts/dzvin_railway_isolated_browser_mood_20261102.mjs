@@ -121,7 +121,17 @@ async function main(){
   console.log('QA_TAG_VISIBILITY='+JSON.stringify(tagVisibility));
   const tagButton=page.locator('button').filter({hasText:/^QA Isolated Mood$/}).filter({visible:true}).first();
   await tagButton.waitFor({state:'visible',timeout:5000});
-  await tagButton.click();
+  const tagBox=await tagButton.boundingBox();
+  console.log('QA_TAG_CLICK_PRE='+JSON.stringify({count:await tagButton.count(),visible:await tagButton.isVisible(),enabled:await tagButton.isEnabled(),box:tagBox}));
+  try {await tagButton.click({timeout:5500});} catch {
+    const overlap=await page.evaluate(({x,y})=>{
+      const node=document.elementFromPoint(x,y);
+      return {element:node?.tagName,elementClass:typeof node?.className==='string'?node.className.slice(0,120):null};
+    },{x:(tagBox?.x??0)+(tagBox?.width??0)/2,y:(tagBox?.y??0)+(tagBox?.height??0)/2});
+    console.log('QA_TAG_CLICK_INTERCEPT='+JSON.stringify(overlap));
+    throw Error('TAG_CLICK_BLOCKED');
+  }
+  stage='TAG_CLICKED';console.log('QA_STAGE='+stage);
   stage='SAVE_VISIBLE';console.log('QA_STAGE='+stage);
   const save=page.getByRole('button',{name:/save/i}).last();
   await save.waitFor({state:'visible',timeout:15000});
