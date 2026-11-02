@@ -356,6 +356,59 @@ async def main() -> None:
                       "_id": old_plugin
                   }))["catalog"]["launch_url_verified"] is False)
 
+            await api.verify_own_plugin_domain(
+                old_plugin, api.VerifyDomainInput(expected_revision=3),
+                owner=old_owner, authorization="Bearer test-only",
+            )
+            check("replacement_domain_claimed_after_fresh_dns",
+                  (await db["plugin_publisher_domains"].find_one({
+                      "_id": "replacement.example.org"
+                  }))["plugin_name"] == old_plugin)
+            rejected = await api.moderate_plugin_submission(
+                old_plugin, api.ModerationInput(
+                    expected_revision=4, action="reject",
+                    reason="Not approved after independent security review",
+                ), x_qdip_actor="e2e-reviewer",
+            )
+            check("rejected_plugin_stays_unpublished",
+                  rejected["status"] == "REJECTED"
+                  and (await db["plugin_publications"].find_one({
+                      "_id": old_plugin
+                  }))["published"] is False)
+            check("rejected_domain_claim_released",
+                  await db["plugin_publisher_domains"].find_one({
+                      "_id": "replacement.example.org"
+                  }) is None)
+            # After rejection a different verified publisher must be able to
+            # claim the DNS domain; no lingering reservation is permitted.
+            owner_after_rejection = TenantContext(
+                organization_id="e2e-rejected-url-org",
+                key_id="e2e-rejected-worker", plugin_id="p1-test",
+                scopes=["plugins:register"], allowed_capabilities=["p1.plan"],
+            )
+            name_after_rejection = remote_catalog_id(
+                "e2e-rejected-url-org", "p1-test",
+            )
+            await db["plugin_publications"].insert_one(
+                row("e2e-rejected-url-org", "e2e-rejected-worker")
+            )
+            await api.submit_plugin_for_review(
+                name_after_rejection, old_request.model_copy(update={
+                    "application_launch_url": "https://replacement.example.org",
+                    "slug": "rejected-domain-new-publisher",
+                }), owner=owner_after_rejection,
+                authorization="Bearer test-only",
+            )
+            verified_after_rejection = await api.verify_own_plugin_domain(
+                name_after_rejection, api.VerifyDomainInput(expected_revision=1),
+                owner=owner_after_rejection, authorization="Bearer test-only",
+            )
+            check("rejected_domain_new_verified_owner_claims",
+                  verified_after_rejection["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publisher_domains"].find_one({
+                      "_id": "replacement.example.org"
+                  }))["plugin_name"] == name_after_rejection)
+
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
         print("QDIP_SDK_P1_REAL_WORKER_EXECUTION=NOT_TESTED", flush=True)
