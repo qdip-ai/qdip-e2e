@@ -80,7 +80,7 @@ jobs:
 
   qa1-qa2-authenticated:
     # Test identities are never used in automatic push runs.
-    if: github.event.repository.private == false && ((github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true) || (github.event_name == 'push' && github.ref == 'refs/heads/test/dzvin-589-release-gates-20261102' && github.repository == 'qdip-ai/qdip-e2e'))
+    if: github.event.repository.private == false && ((github.event_name == 'workflow_dispatch' && inputs.run_authenticated == true) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'qdip-ai/qdip-e2e' && github.event.pull_request.head.ref == 'test/dzvin-589-release-gates-20261102'))
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
