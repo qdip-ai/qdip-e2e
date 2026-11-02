@@ -1,0 +1,67 @@
+name: SDK400 live Zitadel/Observatory browser denial acceptance
+on:
+  push:
+    branches:
+      - test/sdk400-observatory-zitadel-roles-20261102
+    paths:
+      - scripts/sdk400_observatory_real_zitadel_negative.mjs
+      - .github/workflows/sdk400-observatory-real-zitadel.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/sdk400_observatory_real_zitadel_negative.mjs
+      - .github/workflows/sdk400-observatory-real-zitadel.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk400-observatory-auth-negative
+  cancel-in-progress: false
+jobs:
+  live-auth:
+    if: github.event_name != 'pull_request' || github.head_ref == 'test/sdk400-observatory-zitadel-roles-20261102'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check sealed existing QA credentials without disclosure
+        env:
+          ADMIN_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QA1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QA2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          ADMIN_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+          QA1_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+          QA2_BOUND: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          node --check scripts/sdk400_observatory_real_zitadel_negative.mjs
+          test "${ADMIN_LOGIN,,}" = qa@qdip.ai
+          test "${QA1_LOGIN,,}" = qa1@qdip.ai
+          test "${QA2_LOGIN,,}" = qa2@qdip.ai
+          test "$ADMIN_BOUND" = true
+          test "$QA1_BOUND" = true
+          test "$QA2_BOUND" = true
+      - name: Install isolated Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sdk400-zitadel
+          cp scripts/sdk400_observatory_real_zitadel_negative.mjs /tmp/sdk400-zitadel/
+          cd /tmp/sdk400-zitadel
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real browser QA-admin and two negative QA identities
+        env:
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd /tmp/sdk400-zitadel
+          node sdk400_observatory_real_zitadel_negative.mjs
