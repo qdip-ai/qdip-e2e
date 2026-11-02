@@ -4,6 +4,8 @@
  * Does not create or update any plugin. One password attempt.
  */
 import { chromium, request } from "@playwright/test";
+import {writeFileSync} from "node:fs";
+import {resolve,sep} from "node:path";
 const SITE="https://qdip.ai", OBS="https://observatory.qdip.ai";
 const LOGIN=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
 const PASSWORD=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
@@ -70,6 +72,14 @@ async function run(){
     const data=await list.json();
     guard(Array.isArray(data.plugins),"QA_ADMIN_LIST_SHAPE_INVALID");
     console.log("OBS405_QA_ADMIN_LIVE_CATALOG_READ=PASS");
+    // Transfer only to the ephemeral same-job browser check; never print or upload.
+    const statePath=process.env.QDIP_E2E_OBSERVATORY_STATE_FILE;
+    if(statePath){
+      const file=resolve(statePath),root=resolve(process.env.RUNNER_TEMP||'');
+      guard(file.startsWith(root+sep),"QA_ADMIN_STATE_MUST_BE_EPHEMERAL");
+      writeFileSync(file,JSON.stringify(await context.storageState()),{mode:0o600,flag:'wx'});
+      console.log("OBS405_QA_ADMIN_EPHEMERAL_STATE_READY=PASS");
+    }
     console.log("OBS405_QA_ADMIN_READONLY_PROBE=PASS");
   }finally{
     await anon.dispose();await context.close();await browser.close();

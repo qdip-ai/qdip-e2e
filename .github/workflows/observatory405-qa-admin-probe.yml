@@ -3,8 +3,10 @@ on:
   push:
     branches:
       - test/observatory-405-qa-admin-probe
+      - test/observatory-admin-real-browser-20261102
     paths:
       - scripts/observatory405_qa_admin_probe.mjs
+      - scripts/observatory_admin_layout_live.mjs
       - .github/workflows/observatory405-qa-admin-probe.yml
   workflow_dispatch:
 permissions:
@@ -44,12 +46,30 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Verify real qa@qdip.ai Zitadel role and Observatory admin read
         env:
+          QDIP_E2E_OBSERVATORY_STATE_FILE: ${{ runner.temp }}/observatory-qa-auth-state.json
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
           QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
         run: |
           set -euo pipefail
           cd /tmp/observatory-qa-admin
           node observatory405_qa_admin_probe.mjs
+      - name: Real authorized plugin admin layout on three viewports
+        env:
+          QDIP_E2E_OBSERVATORY_MODE: admin
+          QDIP_E2E_OBSERVATORY_STORAGE_STATE: ${{ runner.temp }}/observatory-qa-auth-state.json
+          QDIP_E2E_BROWSER_EVIDENCE_DIR: ${{ runner.temp }}/observatory-admin-evidence
+        run: |
+          set -euo pipefail
+          cp scripts/observatory_admin_layout_live.mjs /tmp/observatory-qa-admin/
+          node --check /tmp/observatory-qa-admin/observatory_admin_layout_live.mjs
+          cd /tmp/observatory-qa-admin
+          node observatory_admin_layout_live.mjs
+      - name: Delete authenticated browser evidence and session
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/observatory-qa-auth-state.json"
+          rm -rf "$RUNNER_TEMP/observatory-admin-evidence"
+          echo "OBSERVATORY_AUTH_ARTIFACTS_PUBLIC=FORBIDDEN"
       - name: State scope boundary
         if: success()
         run: |
