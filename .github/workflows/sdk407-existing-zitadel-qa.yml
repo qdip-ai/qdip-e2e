@@ -1,0 +1,55 @@
+name: SDK407 existing QA real Zitadel read-only
+on:
+  push:
+    branches: [test/sdk407-existing-qa-zitadel-gate-20261102]
+    paths: [.github/workflows/sdk407-existing-zitadel-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  existing-three-users:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate test files
+        run: |
+          node --check scripts/sdk407_existing_qa_zitadel_roles.mjs
+          node --check scripts/observatory405_qa_admin_probe.mjs
+      - name: Install disposable Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sdk407-zitadel-check
+          cp scripts/sdk407_existing_qa_zitadel_roles.mjs scripts/observatory405_qa_admin_probe.mjs /tmp/sdk407-zitadel-check/
+          cd /tmp/sdk407-zitadel-check
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real Observatory admin login and catalog read
+        env:
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+        run: |
+          cd /tmp/sdk407-zitadel-check
+          node observatory405_qa_admin_probe.mjs
+      - name: Real QA1 QA2 login and Observatory authorization isolation
+        env:
+          QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+        run: |
+          cd /tmp/sdk407-zitadel-check
+          node sdk407_existing_qa_zitadel_roles.mjs
+      - name: Scope
+        if: success()
+        run: |
+          echo 'SDK407_EXISTING_THREE_ZITADEL_REAL_ACCOUNT_GATE=PASS'
+          echo 'SDK407_PR318_PREMERGE_UI=NOT_TESTED_IN_THIS_WORKFLOW'
+          echo 'SDK407_CORE_621_PUBLISHER_ADMISSION=NOT_TESTED_IN_THIS_WORKFLOW'
