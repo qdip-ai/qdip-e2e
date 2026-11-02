@@ -124,6 +124,15 @@ else
   printf 'FAIL\\n' > "$RUNNER_TEMP/rr-sdk-e2e.failed"
   echo 'RR_INDEPENDENT_SDK_E2E=FAIL; continuing to browser evidence; overall qualification remains FAIL'
 fi
+# Run the independent HTTP + actual Mongo transactional fence as soon as Core
+# contains the new #383 endpoint. Older immutable Core revisions remain
+# explicitly unqualified for #383, never silently counted as a positive gate.
+if grep -q 'async def sdk_fenced_revoke_worker_key' backend/app/api/v1/organizations.py; then
+  python suite/scripts/safe_stage.py --timeout 120 sdk383-fenced-revoke -- \
+    python suite/scripts/check_sdk383_fenced_revoke.py
+else
+  echo 'SDK383_FENCED_REVOKE_E2E=NOT_PRESENT_ON_TESTED_CORE_SHA'
+fi
 echo '127.0.0.1 observatory.localhost' | sudo tee -a /etc/hosts >/dev/null
 test -s "$RR_E2E_API_REQUEST_PATH"
 (
