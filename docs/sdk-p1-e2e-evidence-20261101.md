@@ -2,7 +2,7 @@
 
 ## Scope and immutable identities
 
-- Core publication PR: qdip-ai/qdip-core#621, latest head `28ac497bbcb0aec1ca27ae69d5e2fdfac329f2f2`; conflict fix `5f72706001c9101a804e22b92971a19030cdf662`.
+- Core publication PR: qdip-ai/qdip-core#621, latest head `3ff4ef1293f020c3ec867499fc576c8542d37cde`; conflict fix `5f72706001c9101a804e22b92971a19030cdf662`.
 - Artifact provenance PR: qdip-ai/qdip-core#622; existing Railway regressions `8/8 PASS` on `2a2ac4afde55428c0a8ab519e7e6bce0cd2a5f5b`.
 - Independent E2E repo: `qdip-ai/qdip-e2e`, branch `test/sdk-p1-zitadel-preflight-20261101`; scripts are `scripts/sdk_p1_publication_mongo_e2e.py` and `scripts/sdk_p1_two_gateway_e2e.py`.
 
@@ -24,3 +24,11 @@ No active Worker/Gateway services were overwritten. Disposable QA containers and
 
 - Latest scoped Web admin queue BFF and moderator UI: qdip-ai/qdip-web#318, SHA `770f13c094dd747b2314a52fa20c2c6167725ea6`; Railway `pnpm typecheck` PASS + Vitest 6/6 PASS. Non-production Vercel preview `dpl_CFyzJSEm6MyBzGN1Cx5ZZ6w9L41k` READY, **authenticated browser / mobile visual E2E NOT TESTED**.
 - Expanded offline signed source archive preflight in qdip-ai/qdip-core#622: scanned only syntax/size/integrity; actual Semgrep/OSV/license scanner admission and runtime Worker digest binding remain NOT IMPLEMENTED.
+
+
+## 2026-11-02 — verified-domain ownership lifecycle (#407)
+
+- Reproduced old DNS hostname locked after its verified owner changed to a different URL. Railway `441c56c5-76f5-488d-945c-cb6d00ac91d6` on Core `13c3b3674c9cfe0a1f021b48880491f1c9b03d6f`: **FAIL** at `abandoned_url_claim_released_atomically`; isolated test database cleanup PASS. Fix `16d05ddda486f2a32a4ba32cd81ab4d22f206eed` deletes only the previous plugin/tenant/owner's claim in the Mongo CAS transaction. Green Railway `f4dad6ae-c2ab-4969-8774-3cf107a71ae5`: **36/36 PASS**.
+- Reproduced reviewer `REJECTED` preserving a private verified hostname reservation permanently: Railway `3bbe3714-d02b-4be3-b112-1863944efa87` on Core `fc34be3962e25bb0789a8a2c58560f4f72b2d6df`: **FAIL** at `rejected_domain_claim_released`; isolated DB cleanup PASS. Fix `d8eb723dbc38f2a666215d991fd9e95b95c58b3a` releases only the rejected private domain in the same review/audit transaction. Green Railway `e55f21fd-6bbb-4b89-b47e-0ae5531d22e1`: **40/40 PASS**.
+- Additional no-hijack test seeds a previously published catalog URL and verifies that resubmission of a new unverified URL, followed by rejection, **does not release the old published hostname or unpublish the original catalog record**. Canonical E2E fixture SHA `b9b14aba407d629b162b1d77d9f0357f98064fe6`, blob `1eabd9473c3015672790d8171e44197ef2b3324e`; Core SHA `3ff4ef1293f020c3ec867499fc576c8542d37cde`; Railway `6135fc17-eecc-49f1-ab09-739477c2f2af`: **43/43 real replica-set Mongo checks PASS**, `QDIP_SDK_P1_DISPOSABLE_DB_CLEANUP=PASS`.
+- Domain TXT lookup and Zitadel human identity were deliberately substituted with deterministic test boundaries; actual Mongo transactions, revision CAS, domain uniqueness, publication state, and the Core in-process Worker Hub are real. This does **not** verify real Zitadel third-party publishing, real DNS ownership, independent artifact scanning or browser E2E. All related PRs stay Draft pending remaining gates.
