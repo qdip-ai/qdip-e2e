@@ -154,7 +154,7 @@ class Railway:
 
     def pending(self) -> None:
         change = self.query(
-            "query ($e: String!) { environmentStagedChanges(environmentId: $e) }",
+            "query ($e: String!) { environmentStagedChanges(environmentId: $e) { id status } }",
             {"e": ENVIRONMENT},
         ).get("environmentStagedChanges")
         require(change in (None, {}, []),
