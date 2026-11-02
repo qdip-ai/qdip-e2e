@@ -1,0 +1,25 @@
+# Disposable Railway QA inside an EXISTING sandbox; never uses Vercel Preview.
+# Web is built from the exact PR #318 source, browser tests live in qdip-e2e.
+FROM node:22-bookworm
+ENV DEBIAN_FRONTEND=noninteractive CI=true
+RUN apt-get update && apt-get install -y --no-install-recommends git chromium curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g pnpm@10.22.0
+RUN git clone -q https://github.com/qdip-ai/qdip-web.git /web \
+    && cd /web && git checkout -q 770f13c094dd747b2314a52fa20c2c6167725ea6
+WORKDIR /web
+ENV NEXT_PUBLIC_SITE_URL=http://qdip.localhost:3000 \
+    NEXT_PUBLIC_STUDIO_URL=http://studio.localhost:3000 \
+    NEXT_PUBLIC_OBSERVATORY_URL=http://observatory.localhost:3000 \
+    ZITADEL_ISSUER=https://identity.example.test \
+    ZITADEL_CLIENT_ID=qdip-browser-e2e-client \
+    ZITADEL_QDIP_PROJECT_ID=123456789 \
+    ZITADEL_QDIP_ORGANIZATION_ID=987654321 \
+    QDIP_AUTH_COOKIE_SECRET=e2e-only-qdip-session-signing-key-not-for-production \
+    QDIP_PLAYWRIGHT_LEGACY_CATALOG=1 \
+    NODE_ENV=production
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
+COPY scripts/sdk_p1_railway_local_web_e2e.mjs /web/scripts/sdk_p1_railway_local_web_e2e.mjs
+COPY scripts/sdk_p1_railway_local_web_e2e.sh /web/scripts/sdk_p1_railway_local_web_e2e.sh
+CMD ["bash", "/web/scripts/sdk_p1_railway_local_web_e2e.sh"]
