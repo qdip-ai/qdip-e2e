@@ -140,8 +140,12 @@ def smoke(core: Core, org: str, plugin: str, capability: str, fixture: dict) -> 
             and isinstance(caller.get("id"), str), "Temporary caller key creation failed")
     try:
         payload = {"input": fixture, "timeout_seconds": 15, "capability_version": "1"}
-        result = core.expect("remote-plugins/" + capability + "/invoke", 200,
-                             method="POST", payload=payload, key=caller["key"])
+        status, result = core.request("remote-plugins/" + capability + "/invoke",
+                                      method="POST", payload=payload, key=caller["key"])
+        if status == 403:
+            print("SDK383_UNAPPROVED_DISPATCH_DENIED=PASS", flush=True)
+            raise GateError("Manual Worker security admission is required before Kernel smoke")
+        require(status == 200, "Worker invoke unexpected HTTP status " + str(status))
         require(isinstance(result, dict)
                 and (result.get("execution_result") or {}).get("semantic_status")
                 in {"EXACT", "OPTIMAL", "FEASIBLE", "INFEASIBLE"}
@@ -231,8 +235,7 @@ def main() -> int:
                 "First Worker credential not sealed or ID mismatch")
         require(registered(core, org, plugin, capability, first["id"]),
                 "Sealed Worker never REGISTERED")
-        smoke(core, org, plugin, capability, fixture)
-        print("SDK383_SEALED_WORKER_REGISTER_INVOKE=PASS", flush=True)
+        print("SDK383_SEALED_WORKER_REGISTER=PASS", flush=True)
         second = issue_worker(core, org, app, token, plugin, capability, 1)
         issued.append(second)
         # Deliberately deliver an invalid value under the valid successor ID.
@@ -267,9 +270,11 @@ def main() -> int:
         rail.wait_new_deployment(previous)
         require(registered(core, org, plugin, capability, first["id"]),
                 "Rollback failed to re-register original test Worker key")
-        smoke(core, org, plugin, capability, fixture)
         restored = True
         print("SDK383_SEALED_WORKER_RECOVERY=PASS", flush=True)
+        # Execute through the independently enforced Security Gate only after
+        # the separate credential-rotation/recovery gates have been recorded.
+        smoke(core, org, plugin, capability, fixture)
     finally:
         if ownership:
             if delivered:
