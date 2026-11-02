@@ -66,6 +66,13 @@ async function main(){
         assert(new URL(page.url()).pathname==='/en/mood-tracker','MOOD_PAGE_REDIRECT_'+device.name);
         const main=page.locator('main').first();
         await main.waitFor({state:'visible',timeout:18000});
+        const moodApi=await cx.request.get(UI+'/api/backend/mood-record?page=1&limit=20&order=newest',{timeout:25000});
+        const moodJson=await moodApi.json().catch(()=>null);
+        const fixture=Array.isArray(moodJson)&&moodJson.some(x=>x.tags?.includes('qa1-isolated-20261102'));
+        const cardCount=await page.locator('#mood-records-list h3').count();
+        const timestampCount=await page.locator('#mood-records-list time[datetime]').count();
+        console.log('QA_MOOD_DIAG_'+device.name+'=HTTP_'+moodApi.status()+'_ROWS_'+(Array.isArray(moodJson)?moodJson.length:'NA')+'_FIXTURE_'+fixture+'_CARDS_'+cardCount+'_TIMES_'+timestampCount);
+        assert(moodApi.status()===200&&fixture,'QA_MOOD_FIXTURE_MISSING_'+device.name);
         await page.getByText('qa1-isolated-20261102',{exact:false}).first().waitFor({state:'visible',timeout:15000});
         const rendered=await main.innerText();
         assert(/stress/i.test(rendered)&&/energy/i.test(rendered)&&/focus/i.test(rendered),
