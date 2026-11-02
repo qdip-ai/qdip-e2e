@@ -21,7 +21,7 @@ from sdk383_sealed_railway_e2e import (
     ENVIRONMENT, PROJECT, GateError, NoRedirect, Railway, require,
 )
 
-ORIGIN = "https://qdip-core-staging-staging.up.railway.app"
+ORIGIN = os.environ.get("QDIP_SDK383_E2E_CORE_ORIGIN", "https://qdip-core-staging-staging.up.railway.app")
 SECRET = "QDIP_REMOTE_API_KEY"
 KEY_ID = SECRET + "_ID"
 WAIT = 180
@@ -192,6 +192,9 @@ def main() -> int:
     fixture = json.loads(os.environ.get("QDIP_SDK383_E2E_SMOKE_JSON", "{}"))
     require(isinstance(fixture, dict) and bool(fixture),
             "Missing real test Worker smoke fixture")
+    require(ORIGIN in {"https://qdip-core-staging-staging.up.railway.app",
+                       "https://sdk383-e2e-core-gateway-staging.up.railway.app"},
+            "Unapproved SDK383 staging Gateway origin")
     core = Core(os.environ.get("QDIP_PLATFORM_ADMIN_API_KEY", ""))
     rail = Railway(os.environ.get("RAILWAY_PROJECT_TOKEN", ""), service, name)
     rail.scope()
