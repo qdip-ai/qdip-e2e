@@ -1,0 +1,5 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /e2e
+COPY scripts/check_live_zitadel_preflight.py /e2e/check_live_zitadel_preflight.py
+CMD ["python", "/e2e/check_live_zitadel_preflight.py"]
