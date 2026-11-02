@@ -166,7 +166,21 @@ async function pickerAuthContext(browser){
    headers:{Authorization:'Bearer '+token,Origin:SITE,Accept:'application/json'},
    maxRedirects:0,timeout:16000
   });
-  check(monitor.status()===200,'OPERATOR_MONITOR_ROLE_DENIED');
+  if(monitor.status()!==200){
+   let role=false,audience=false;
+   try{
+    const payload=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString());
+    const aud=payload.aud;
+    const grants=payload['urn:zitadel:iam:org:project:394565917515719957:roles'];
+    role=typeof grants?.autodev_operator?.['368555767923594379']==='string';
+    audience=aud==='394565917515719957'||Array.isArray(aud)&&
+     aud.includes('394565917515719957');
+   }catch{}
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_HTTP='+monitor.status());
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_ROLE_PRESENT='+role);
+   console.error('AUTODEV_OPERATOR_DIAGNOSTIC_AUDIENCE_PRESENT='+audience);
+   throw Error('OPERATOR_MONITOR_ROLE_DENIED');
+  }
   await page.close();
   console.log('AUTODEV_PICKER_REAL_ZITADEL_OPERATOR=PASS');
   return context;
