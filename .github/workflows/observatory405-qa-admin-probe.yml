@@ -3,8 +3,10 @@ on:
   push:
     branches:
       - test/observatory-405-qa-admin-probe
+      - test/observatory-admin-real-browser-20261102
     paths:
       - scripts/observatory405_qa_admin_probe.mjs
+      - scripts/observatory_admin_layout_live.mjs
       - .github/workflows/observatory405-qa-admin-probe.yml
   workflow_dispatch:
 permissions:
