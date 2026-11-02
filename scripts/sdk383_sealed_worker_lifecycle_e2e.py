@@ -271,11 +271,25 @@ def main() -> int:
         if ownership:
             if delivered:
                 # Never delete or revoke a credential until its rollback state is known.
-                rail.stage_commit({SECRET: None, KEY_ID: None})
-                nodes, values = rail.metadata()
-                require(not any(x.get("name") in {SECRET, KEY_ID} for x in nodes)
-                        and SECRET not in values and KEY_ID not in values,
-                        "Disposable Worker secret cleanup not verified")
+                # These names were absent on this exact disposable Worker
+                # before the test. Delete by Railway variableDelete, not
+                # EnvironmentConfig null-patch (which is not a delete).
+                for name in (SECRET, KEY_ID):
+                    result = rail.query(
+                        "mutation ($i: VariableDeleteInput!) { variableDelete(input: $i) }",
+                        {"i": {"projectId": PROJECT, "environmentId": ENVIRONMENT,
+                               "serviceId": service, "name": name}},
+                    ).get("variableDelete")
+                    require(result is True, "Disposable Worker variable deletion unconfirmed")
+                deadline = time.monotonic() + 90
+                while True:
+                    nodes, values = rail.metadata()
+                    if not any(x.get("name") in {SECRET, KEY_ID} for x in nodes) and (
+                            SECRET not in values and KEY_ID not in values):
+                        break
+                    if time.monotonic() >= deadline:
+                        raise GateError("Disposable Worker secret cleanup not verified")
+                    time.sleep(5)
             for record in issued:
                 if get_worker_key(core, org, record["id"]).get("revoked_at") is None:
                     revocation(core, org, app, token, plugin, record["id"])
