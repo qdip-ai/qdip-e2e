@@ -1,9 +1,9 @@
 name: Dzvin PR589 release preview browser E2E
-# Anonymous smoke on the test branch; authenticated cases only by manual approval.
+# Public anonymous smoke on PR; existing credential-backed QA only via manual approval.
 on:
-  push:
+  pull_request:
     branches:
-      - test/dzvin-589-release-gates-20261102
+      - main
     paths:
       - scripts/dzvin_release_public_browser_e2e.mjs
       - scripts/dzvin_qa_current_preview_readonly_20261019.mjs
