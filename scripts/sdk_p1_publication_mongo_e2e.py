@@ -139,6 +139,10 @@ async def main() -> None:
                   isinstance(proof, dict)
                   and proof["record_name"] == "_qdip-plugin.developer.example.org"
                   and "domain_proof" not in rows["items"][0])
+            check("unverified_dns_cannot_preempt_global_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "disposable-p1",
+                  })) is None)
             async def verified_dns(_proof):
                 return True
             st.enter_context(patch.object(api, "verify_dns_txt", verified_dns))
@@ -156,6 +160,10 @@ async def main() -> None:
             check("exclusive_domain_claim",
                   claim["plugin_name"] == name_a
                   and claim["tenant_id"] == "e2e-org-a")
+            check("verified_dns_reserves_global_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "disposable-p1"
+                  }))["plugin_name"] == name_a)
             other = await api.submit_plugin_for_review(
                 name_b, input_a.model_copy(update={"slug": "disposable-p1-b"}),
                 owner=owner_b, authorization="Bearer test-only",
@@ -511,6 +519,7 @@ async def main() -> None:
                     "published": True,
                     "catalog_ui.application_launch_url": public_url,
                     "catalog_ui.launch_url_verified": True,
+                    "catalog_ui.slug": "published-domain-owner",
                 }},
             )
             changed_public = await api.submit_plugin_for_review(
@@ -539,6 +548,11 @@ async def main() -> None:
                   }))["published"] is True
                   and (await db["plugin_publisher_domains"].find_one({
                       "_id": "still-public.example.org"
+                  }))["plugin_name"] == public_plugin)
+
+            check("rejected_pending_change_keeps_published_slug",
+                  (await db["plugin_publication_slugs"].find_one({
+                      "_id": "published-domain-owner",
                   }))["plugin_name"] == public_plugin)
 
             # Regression: a globally unique public catalog slug cannot be
