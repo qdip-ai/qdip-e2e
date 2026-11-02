@@ -274,6 +274,74 @@ async def main() -> None:
                       {"_id": headless_name}
                   ))["published"] is False)
 
+            # SDK #399: an authenticated publisher submission is NOT security
+            # admission. Verify the actual shared Mongo dispatch gate, not a
+            # duplicated test policy or a fake "approved" response.
+            from app.plugins import security_review
+            from app.plugins.registration_catalog import registration_digest
+            st.enter_context(patch.object(security_review, "get_database", lambda: db))
+            headless_record = await db["plugin_publications"].find_one(
+                {"_id": headless_name}
+            )
+            headless_digest = registration_digest(headless_record["registration"])
+
+            async def assert_dispatch_denied(label: str, expected):
+                try:
+                    await security_review.assert_remote_allowed(
+                        "e2e-headless-org", "p1-test",
+                        plugin_version="0.1.0",
+                        worker_key_id="e2e-worker-headless",
+                        capabilities={"p1.plan": "1"},
+                    )
+                except expected:
+                    check(label, True)
+                else:
+                    check(label, False)
+
+            await assert_dispatch_denied(
+                "developer_submission_does_not_admit_worker",
+                security_review.PluginNotApproved,
+            )
+            # Forging a scanner verdict or source digest in a Mongo security
+            # document must not authorize a third-party Worker.
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {"security": {
+                    "state": "approved", "approval_source": "independent_scan",
+                    "approved_manifest_sha256": headless_digest,
+                    "last_scan": {"result": "no_signatures"},
+                    "critical_block": False,
+                }}},
+            )
+            await assert_dispatch_denied(
+                "self_claimed_scan_is_not_runtime_admission",
+                security_review.PluginNotApproved,
+            )
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {
+                    "security.approval_source": "trusted_first_party_manual",
+                }},
+            )
+            with patch.dict(os.environ, {"QDIP_TRUSTED_REMOTE_MANIFESTS": ""}):
+                await assert_dispatch_denied(
+                    "manual_state_without_deployed_allowlist_is_denied",
+                    security_review.PluginNotApproved,
+                )
+            await db["plugin_publications"].update_one(
+                {"_id": headless_name},
+                {"$set": {"security.state": "quarantined"}},
+            )
+            await assert_dispatch_denied(
+                "quarantine_blocks_even_fake_approval",
+                security_review.PluginQuarantined,
+            )
+            check("gate_did_not_publish_third_party",
+                  (await db["plugin_publications"].find_one(
+                      {"_id": headless_name}
+                  ))["published"] is False)
+
+
             # Regression: when the publisher abandons a verified URL in a
             # revision, the old domain cannot remain locked forever. A new
             # independently verified owner must be able to claim it.
