@@ -1,7 +1,7 @@
 import { chromium, request } from '@playwright/test';
 
 const LOGIN = 'https://mentality-web.vercel.app';
-const API = 'https://dzvin-b2c-rc-build-qa.up.railway.app';
+const API = 'https://dzvin-mood-e2e-isolated-backend-20261102-qa.up.railway.app';
 const actors = [
   { name: 'QA1', login: process.env.QDIP_E2E_ZITADEL_TEST1_LOGIN, password: process.env.QDIP_E2E_ZITADEL_TEST1_PASSWORD },
   { name: 'QA2', login: process.env.QDIP_E2E_ZITADEL_TEST2_LOGIN, password: process.env.QDIP_E2E_ZITADEL_TEST2_PASSWORD },
