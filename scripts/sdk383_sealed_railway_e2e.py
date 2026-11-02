@@ -70,7 +70,20 @@ class Railway:
                 messages = [e.get("message") for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
             except (ValueError, UnicodeDecodeError, OSError):
                 messages = []
-            category = (" invalid_project_token" if any(m == "Project Token not found" for m in messages) else "")
+            # Classification only; never forward server-controlled error text.
+            error_blob = " ".join(str(m).lower() for m in messages if isinstance(m, str))
+            if isinstance(failure, dict):
+                for field in ("error", "message"):
+                    if isinstance(failure.get(field), str):
+                        error_blob += " " + failure[field].lower()
+            if "token" in error_blob and ("not found" in error_blob or "invalid" in error_blob):
+                category = " invalid_project_token"
+            elif "unauthorized" in error_blob or "permission" in error_blob:
+                category = " unauthorized"
+            elif "syntax" in error_blob or "graphql" in error_blob:
+                category = " graphQL_validation"
+            else:
+                category = " unknown_response"
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
