@@ -157,7 +157,8 @@ async def main() -> None:
                   claim["plugin_name"] == name_a
                   and claim["tenant_id"] == "e2e-org-a")
             other = await api.submit_plugin_for_review(
-                name_b, input_a, owner=owner_b, authorization="Bearer test-only",
+                name_b, input_a.model_copy(update={"slug": "disposable-p1-b"}),
+                owner=owner_b, authorization="Bearer test-only",
             )
             check("other_org_can_submit_own_plugin",
                   other["status"] == "PENDING_OWNERSHIP_VERIFICATION")
