@@ -87,7 +87,9 @@ async function main(){
   assert(html.includes('data-dpl-id="'+DPL+'"'),'PREVIEW_DEPLOYMENT_CHANGED');
   // First-visit MoodInsightGuide intentionally blocks form interaction; finish it as a real user.
   const guide=page.getByRole('dialog');
-  if(await guide.isVisible().catch(()=>false)){
+  // MoodInsightGuide opens after client hydration, not necessarily at DOMContentLoaded.
+  await guide.waitFor({state:'visible',timeout:12000});
+  {
     for(let step=0;step<4;step++){
       const next=guide.getByRole('button',{name:/next|done/i}).last();
       await next.waitFor({state:'visible',timeout:7000});
