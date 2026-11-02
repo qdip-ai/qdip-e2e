@@ -1,0 +1,6 @@
+FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /e2e
+RUN python -m pip install --no-cache-dir playwright==1.55.0
+COPY scripts/sdk_p1_browser_preview_e2e.py /e2e/sdk_p1_browser_preview_e2e.py
+CMD ["python", "/e2e/sdk_p1_browser_preview_e2e.py"]
