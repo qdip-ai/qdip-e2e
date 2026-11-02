@@ -204,6 +204,33 @@ async function main(){
    assert(await auditor.inputValue()==='','OPERATOR_REVIEW_CHANGED_GATE');
    await auditor.selectOption(options[0]);
    assert(await reviewer.inputValue()===options[0],'OPERATOR_GATE_CHANGED_REVIEW');
+   // AutoDev #82: verify the actual rendered security cards, not CSS source text.
+   const frame=await page.locator('.security-view__notice').first().evaluate(el=>{
+    const css=getComputedStyle(el),pseudo=getComputedStyle(el,'::after');
+    const sides=['Top','Right','Bottom','Left'];
+    const borders=sides.map(side=>({
+     width:css['border'+side+'Width'],style:css['border'+side+'Style'],
+     color:css['border'+side+'Color']
+    }));
+    const label=el.querySelector('.security-view__auditor-label');
+    return {borders,masked:pseudo.content,
+      labelMargin:label?getComputedStyle(label).marginBottom:null};
+   });
+   assert(frame.borders.every(b=>b.width==='1px'&&b.style==='solid'&&
+    b.color===frame.borders[0].color),'OPERATOR_SECURITY_NOTICE_UNEVEN_BORDER');
+   assert(frame.masked==='none','OPERATOR_SECURITY_NOTICE_MASK_REMAINED');
+   assert(frame.labelMargin==='12px','OPERATOR_AUDITOR_LABEL_SPACING_WRONG');
+   const items=page.locator('.security-view__item');
+   if(await items.count()>0){
+    const item=await items.first().evaluate(el=>{
+     const css=getComputedStyle(el),pseudo=getComputedStyle(el,'::after');
+     return {mask:pseudo.content,sides:['Top','Right','Bottom','Left']
+       .map(side=>[css['border'+side+'Width'],css['border'+side+'Color']])};
+    });
+    assert(item.mask==='none'&&item.sides.every(s=>s[0]==='1px'&&
+      s[1]===item.sides[0][1]),'OPERATOR_SECURITY_EVIDENCE_CARD_MASKED');
+   }
+   console.log('AUTODEV_OPERATOR_SECURITY_CARD_PERIMETER_'+name+'=PASS');
    await page.locator('.security-view__notice').first().screenshot({
     path:resolve(EVIDENCE,'security-'+name+'.png')});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),
