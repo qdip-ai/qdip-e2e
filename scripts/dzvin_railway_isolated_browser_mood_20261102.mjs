@@ -71,6 +71,7 @@ async function main(){
   assert(list.status()===200,'QA_PREVIEW_BFF_READ_'+list.status());
   assert(Array.isArray(await list.json())&&(await clients[0].get('/api/mood-record')).status()===200,'QA_BFF_CONTRACT');
   const before=await list.json();
+  console.log('QA_ISOLATED_PREFLIGHT_COUNT='+before.length);
   assert(before.length===0,'QA_MOOD_ALREADY_SAVED_TODAY');
   console.log('QA_PREVIEW_BFF_POINTS_TO_ISOLATED_EMPTY_MONGO=PASS');
   const bffTags=await ctx.request.get(SITE+'/api/backend/user-tags');
