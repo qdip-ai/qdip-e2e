@@ -1,0 +1,28 @@
+name: Dzvin one-shot public Zitadel config preflight
+on:
+  push:
+    branches:
+      - test/dzvin-qa-idp-preflight-20261102
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        shell: bash
+        run: |
+          mkdir -p /tmp/dzvin-qa-idp
+          cp scripts/dzvin_qa_public_idp_preflight_20261102.mjs /tmp/dzvin-qa-idp/
+          cd /tmp/dzvin-qa-idp
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+      - name: Read browser-visible issuer and public client id (no credentials)
+        run: cd /tmp/dzvin-qa-idp && node dzvin_qa_public_idp_preflight_20261102.mjs
