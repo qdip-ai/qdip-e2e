@@ -11,7 +11,7 @@ Project `qdip-sdk-staging`; temporary service `915e434a-990c-43d7-9718-4827a28f4
 - **Web #318, moderator BFF**: exact Web SHA `770f13c094dd747b2314a52fa20c2c6167725ea6`, Railway `bfa26fe4-ec33-45f0-b7eb-a5827a1f317c`: `pnpm typecheck` **PASS** + **6/6 Vitest PASS**. These tests use synthetic session/BFF mocks, not real browser authentication.
 - **Core dev, merged #622 offline source preflight**: exact dev SHA `ef5a8bad5ad0b9a3cf84ba74a475873934dd559f`, Railway `7e00209c-3cab-4767-a032-d9489b76462b`: **Ruff PASS + 44/44 pytest PASS**. These use synthetic signed scan reports; actual Semgrep/Gitleaks/CycloneDX/OSV/license scans and remote Worker image identity were NOT executed.
 
-## Real Chromium preview: BLOCKED, not UI E2E PASS
+## Historical Vercel preview failure — superseded by Railway-local browser QA
 
 The Vercel Preview `https://qdip-jb2lzygml-taras-gezs-projects.vercel.app` is READY at Web SHA `770f13c094dd747b2314a52fa20c2c6167725ea6`. A real Linux Chromium runner in Railway deployed this repository's `Dockerfile.sdk-p1-browser-qa`, Python Playwright script, and navigated `/uk/admin/plugins` at 1440x900, 390x844 and 844x390. Railway deployment `667d7fa5-6169-4c4e-b255-5826aa7f4acc` on browser source SHA `82488a496c17310cdc461e502f279b6f3a9e8ef7`:
 
@@ -19,7 +19,7 @@ The Vercel Preview `https://qdip-jb2lzygml-taras-gezs-projects.vercel.app` is RE
 - Three actual screenshots (PNG in the ephemeral container; JPEG encoded in the deployment logs with prefixes `SDK_P1_BROWSER_JPEG_desktop`, `SDK_P1_BROWSER_JPEG_mobile-portrait`, `SDK_P1_BROWSER_JPEG_mobile-landscape`) document the protection page, not UI correctness.
 - Runner terminates **CRASHED / BLOCKED** deliberately with `QDIP_SDK_P1_BROWSER_PREVIEW=BLOCKED`; never marks the application E2E PASS. No bypass secret was created, no Vercel protection was removed, no production or real user identity was modified.
 
-To complete the browser gate, use the **existing Vercel authenticated Trusted Sources OIDC development token**, origin-scoped in Playwright, or another approved preview access method. Do not publish that token or disable deployment protection. Once access works, rerun desktop, mobile portrait and landscape **against actual logged-in moderator UI**, save screenshot artifacts, and exercise the queue / reject / suspend on an isolated test submission.
+**Superseded:** this blocked Vercel Preview test runner and its Dockerfile have been removed from this PR. The replacement Railway-local production Next.js + Chromium runner exercises the exact Web #318 SHA without accessing Vercel. It verified desktop 1440×900, portrait 390×844 and landscape 844×390, anonymous 401, moderation reason, 409 conflict and horizontal overflow. Evidence: existing Railway deployment `12aac9ce-16df-4526-826c-3ef00d6a8867`, source `5b415607c6204085ba2d77358dfdb2fa4f3a247c`. These tests use a disposable signed QA cookie and intercepted Core fixture; they do **not** prove real Zitadel-to-Core moderation or public release.
 
 ## Release gate
 
