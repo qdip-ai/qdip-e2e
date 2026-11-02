@@ -104,7 +104,7 @@ async function main(){
     renderedAddNewTagButton:[...document.querySelectorAll('button')].filter(b=>b.textContent?.toLowerCase().includes('add new tag')).length,
   }));
   console.log('QA_UI_TAG_DIAGNOSTIC='+JSON.stringify(tagDiagnostic));
-  const tagButton=page.getByRole('button',{name:'QA Isolated Mood',exact:true});
+  const tagButton=page.locator('button').filter({hasText:/^QA Isolated Mood$/}).filter({visible:true}).first();
   await tagButton.waitFor({state:'visible',timeout:18000});
   await tagButton.click();
   stage='SAVE_VISIBLE';console.log('QA_STAGE='+stage);
