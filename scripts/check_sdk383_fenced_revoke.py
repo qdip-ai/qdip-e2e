@@ -51,6 +51,19 @@ def main() -> None:
                   "token": token, "action": action},
         )
 
+    def issue(client: httpx.Client, token: str,
+              name: str | None = None, api_key: str | None = admin) -> httpx.Response:
+        return client.post(
+            f"{BASE}/{ORG}/sdk-credential-reconciliation-lease/issue-worker-key",
+            headers={"x-api-key": api_key} if api_key else {},
+            json={
+                "application": application, "environment": ENVIRONMENT,
+                "plugin_id": PLUGIN, "capability": "staffing.plan",
+                "name": name or f"{application}/{ENVIRONMENT}/staffing.plan/worker/20261102T010000Z",
+                "token": token,
+            },
+        )
+
     def revoke(client: httpx.Client, token: str, key_id: str,
                api_key: str | None = admin, org: str = ORG) -> httpx.Response:
         return client.post(
@@ -124,6 +137,29 @@ def main() -> None:
                 assert revoke(http, loser, workers[0]).status_code == 200
                 assert revoke(http, loser, workers[1]).status_code == 200
                 assert revoke(http, loser, workers[1]).status_code == 409
+                # Client-side lease assert is not enough for issuance.
+                # The new Core endpoint must create no key for stale owner,
+                # and must bind a single scoped key to the active lease.
+                assert issue(http, winner).status_code == 409
+                assert issue(http, loser, api_key=None).status_code in (401, 403)
+                assert issue(http, loser, api_key=tenant).status_code == 403
+                invalid_name = f"{application}/{ENVIRONMENT}/staffing.plan/smoke/20261102T010000Z"
+                assert issue(http, loser, name=invalid_name).status_code == 409
+                new_key = issue(http, loser)
+                assert new_key.status_code == 201, new_key.status_code
+                issued = new_key.json()
+                minted_id = issued["id"]
+                key_ids.append(minted_id)
+                assert issued["scopes"] == ["plugins:register"]
+                assert issued["plugin_id"] == PLUGIN
+                assert issued["allowed_capabilities"] == ["staffing.plan"]
+                stored = keys.find_one({"id": minted_id, "org_id": ORG})
+                assert stored is not None
+                assert stored["key_hash"] == hashlib.sha256(
+                    issued["key"].encode()
+                ).hexdigest()
+                assert "key" not in stored
+                assert revoke(http, loser, minted_id).status_code == 200
                 assert keys.count_documents({
                     "id": {"$in": workers}, "revoked_at": None,
                 }) == 0
@@ -138,6 +174,7 @@ def main() -> None:
             keys.delete_many({"id": {"$in": key_ids}})
             locks.delete_one({"_id": lock_id})
     print("SDK383_FENCED_REVOKE_REAL_HTTP_MONGO_E2E=PASS")
+    print("SDK383_FENCED_ISSUE_REAL_HTTP_MONGO_E2E=PASS")
 
 
 if __name__ == "__main__":
