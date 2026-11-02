@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  issues: write
 jobs:
   existing-three-users:
     if: github.event.repository.private == false
@@ -22,7 +23,8 @@ jobs:
         run: |
           node --check scripts/sdk407_existing_qa_zitadel_roles.mjs
           node --check scripts/observatory405_qa_admin_probe.mjs
-      - name: Install disposable Chromium
+      - id: install
+        name: Install disposable Chromium
         run: |
           set -euo pipefail
           mkdir -p /tmp/sdk407-zitadel-check
@@ -31,14 +33,17 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.57.0
           npx playwright install --with-deps chromium
-      - name: Real Observatory admin login and catalog read
+      - id: admin
+        name: Real Observatory admin login and catalog read
         env:
           QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
           QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
         run: |
           cd /tmp/sdk407-zitadel-check
           node observatory405_qa_admin_probe.mjs
-      - name: Real QA1 QA2 login and Observatory authorization isolation
+      - id: qa12
+        if: always() && steps.install.outcome == 'success'
+        name: Real QA1 QA2 login and Observatory authorization isolation
         env:
           QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
           QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
@@ -47,6 +52,29 @@ jobs:
         run: |
           cd /tmp/sdk407-zitadel-check
           node sdk407_existing_qa_zitadel_roles.mjs
+      - name: Post sanitized real-identity test receipt
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          ADMIN_OUTCOME: ${{ steps.admin.outcome }}
+          QA12_OUTCOME: ${{ steps.qa12.outcome }}
+        with:
+          script: |
+            const admin = process.env.ADMIN_OUTCOME || 'not-run';
+            const qa12 = process.env.QA12_OUTCOME || 'not-run';
+            const text = [
+              'SDK #407 EXISTING ZITADEL USERS — REAL BROWSER QA RECEIPT',
+              'Workflow source SHA: ' + context.sha,
+              'Observatory admin real OIDC/catalog read: ' + admin.toUpperCase(),
+              'QA1/QA2 real OIDC & admin denial: ' + qa12.toUpperCase(),
+              'Execution: GitHub Actions existing protected secrets (not Railway), no new accounts, no production writes.',
+              'No raw tokens, cookies or account passwords persisted or printed.',
+              'This does NOT verify pre-merge Web #318 UI or SDK Core #621 publication admission.'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: 111, body: text
+            });
       - name: Scope
         if: success()
         run: |
