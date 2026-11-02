@@ -150,6 +150,28 @@ jobs:
             fi
           done
 
+      - name: Classify missing Semgrep report without exposing scanner diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$GATE_REPORT_DIR/semgrep.private.log"
+          if [[ ! -f "$log" ]]; then
+            echo "SDK400_SEMGREP_LOG_MISSING=true"
+          else
+            for kind in CLI_USAGE RULE_PARSE TARGET_EXCLUDED CRASH SCAN_FINDINGS; do
+              case "$kind" in
+                CLI_USAGE) regex='No such option|unrecognized argument|Usage:|unknown option' ;;
+                RULE_PARSE) regex='invalid rule|Invalid YAML|invalid pattern|Rule parse error|invalid configuration' ;;
+                TARGET_EXCLUDED) regex='No files were scanned|No targets to scan|No files to scan' ;;
+                CRASH) regex='Traceback|Out of memory|Killed|Exception|segmentation fault' ;;
+                SCAN_FINDINGS) regex='[0-9]+ findings|blocking findings|findings were found' ;;
+              esac
+              if grep -Eiq "$regex" "$log"; then
+                echo "SDK400_SEMGREP_DIAGNOSTIC_$kind=true"
+              fi
+            done
+          fi
+
       - name: Scan dependency manifests and configuration via pinned Trivy
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
