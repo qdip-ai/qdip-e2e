@@ -277,9 +277,16 @@ def cleanup_canary(railway: Railway) -> None:
     for name in (SECRET_NAME, KEY_ID_NAME):
         if present(nodes, name):
             railway.delete_test_variable(name)
-    nodes_after, values_after = railway.metadata()
-    require(not any(present(nodes_after, name) or name in values_after for name in own),
-            "Test canary deletion not confirmed by Railway")
+    # VariableDelete is a write: never send it again just because the
+    # readback is delayed. Poll only the authoritative Railway metadata.
+    deadline = time.monotonic() + 90
+    while True:
+        nodes_after, values_after = railway.metadata()
+        if not any(present(nodes_after, name) or name in values_after for name in own):
+            break
+        if time.monotonic() >= deadline:
+            raise GateError("Test canary deletion not confirmed by Railway")
+        time.sleep(POLL_SECONDS)
     print("SDK383_RAILWAY_SEALED_ROLLBACK_CLEANUP=PASS", flush=True)
 
 
@@ -313,19 +320,24 @@ def main() -> int:
             KEY_ID_NAME: {"value": identifier, "isSealed": False},
         })
         committed = True
+        # Railway commits and service deployments are asynchronous. Wait for
+        # the exact new deployment before asserting delivered metadata.
+        deployed = railway.wait_new_deployment(previous)
         nodes, values = railway.metadata()
         assert_sealed(nodes, values, identifier)
-        deployed = railway.wait_new_deployment(previous)
         print("SDK383_RAILWAY_SEALED_STAGE_COMMIT_READBACK=PASS", flush=True)
         print("SDK383_RAILWAY_SEALED_DEPLOY_ONCE=PASS id=" + deployed, flush=True)
+    except GateError as exc:
+        # Only our controlled error strings, never Railway response bodies.
+        print("SDK383_RAILWAY_SEALED_PRIMARY_FAILURE=" + str(exc), flush=True)
+        raise
     finally:
         if committed:
             try:
                 cleanup_canary(railway)
                 cleaned = True
-            except GateError:
-                # Never print secrets or silently approve incomplete cleanup.
-                raise GateError("Sealed test patch cleanup unverified; manual inspection required") from None
+            except GateError as exc:
+                raise GateError("Sealed test patch cleanup unverified: " + str(exc)) from None
     require(cleaned, "Test did not complete cleanup")
     print("SDK383_RAILWAY_SEALED_E2E=PASS", flush=True)
     return 0
