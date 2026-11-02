@@ -5,10 +5,11 @@ workflow `Yara centralized real-browser E2E`. Yara's own Railway
 `qdip-ci-sandbox-yara` is for build, unit tests and disposable PostgreSQL.
 No new E2E service, copy of test cases or Actions in the private Yara repository.
 
-The workflow checks out `qdip-ai/qdip-personal-secretary` at a **40-character
-immutable SHA** using the existing read-only `QDIP_READ_TOKEN`, installs its
-frozen pnpm lock and executes **the Playwright files from that exact checkout**:
-`playwright.config.cjs` and `tests/e2e/yara-browser.spec.cjs`.
+The public runner executes its own centralized Playwright files:
+`yara/playwright.config.cjs` and `yara/tests/e2e/yara-browser.spec.cjs`.
+It does not check out the private Yara repository or use `QDIP_READ_TOKEN`.
+The input candidate SHA is validated against a server-reported QA deployment
+only for `scope=full`. In `scope=public` the SHA is unverified metadata.
 
 1. `scope=public`: run anonymous login/privacy page smoke and overflow on
    desktop 1440x900, portrait 390x844 and landscape 844x390 in Chromium and
@@ -17,7 +18,7 @@ frozen pnpm lock and executes **the Playwright files from that exact checkout**:
    Login screenshots of the anonymous screen are retained for 7 days.
 2. `scope=full`: require an isolated QA URL **not production**, plus its
    server-side `GET /api/build-identity` JSON `{"sha":"<SHA>"}` identical
-   to checked-out commit. Fail closed if the endpoint, QA deployment or SHA is
+   to the requested candidate SHA. Fail closed if the endpoint, QA deployment or SHA is
    missing. Requires the already-existing encrypted `QDIP_E2E_ZITADEL_TEST_LOGIN`
    and `QDIP_E2E_ZITADEL_TEST_PASSWORD` secrets in `qdip-e2e`. A single
    **real Zitadel browser login** produces an ephemeral private Playwright
@@ -35,3 +36,10 @@ frozen pnpm lock and executes **the Playwright files from that exact checkout**:
 
 Do not merge Yara PR solely because `scope=public` passed or browser code was
 installed; the exact-SHA full gate and private visual evidence are separate.
+
+Draft Yara PR #220 still contains the previous copies of these test files; retire
+those copies in that separate PR to keep qdip-e2e as the single maintained owner.
+
+On a same-repository PR that changes the centralized Yara runner or tests,
+the public smoke runs automatically with no Yara SHA input. It tests the live
+site only, cannot qualify the candidate source SHA, and never reads QA secrets.
