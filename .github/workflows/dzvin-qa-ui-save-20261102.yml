@@ -43,7 +43,7 @@ jobs:
           cd "$RUNNER_TEMP/dzvin-qa-save"
           node dzvin_railway_mood_ui_20261102.mjs
       - name: Screenshots synthetic isolated QA only
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dzvin-isolated-mood-save-3-viewports
