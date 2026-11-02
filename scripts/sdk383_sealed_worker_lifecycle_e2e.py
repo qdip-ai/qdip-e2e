@@ -150,6 +150,12 @@ def smoke(core: Core, org: str, plugin: str, capability: str, fixture: dict) -> 
     finally:
         core.expect("organizations/" + org + "/keys/" + caller["id"] + "/revoke",
                     200, method="POST", payload={})
+        denied, _ = core.request(
+            "remote-plugins/" + capability + "/invoke",
+            method="POST", payload=payload, key=caller["key"],
+        )
+        require(denied in (401, 403),
+                "Revoked smoke caller still authorized by Gateway")
 
 
 def revocation(core: Core, org: str, app: str, token: str,
