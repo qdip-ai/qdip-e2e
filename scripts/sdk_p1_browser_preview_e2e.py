@@ -27,7 +27,9 @@ def main() -> None:
         raise RuntimeError("QDIP_P1_PREVIEW_URL must be an HTTPS deployment URL")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as browser_driver:
-        browser = browser_driver.chromium.launch(headless=True, args=["--no-sandbox"])
+        browser = browser_driver.chromium.launch(
+            executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"]
+        )
         try:
             for label, width, height in SIZES:
                 context = browser.new_context(
