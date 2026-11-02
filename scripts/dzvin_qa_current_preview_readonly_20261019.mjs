@@ -253,6 +253,48 @@ async function login(browser, actor) {
     await context.close();
   }
 }
+// No private screenshots/artifacts: only structural assertions on real signed-in pages.
+async function checkResponsivePrivacy(browser, account) {
+  const source = (await account.context.cookies(PREVIEW_ORIGIN))
+    .find(c => c.name === 'auth-tokens' && c.httpOnly && c.secure);
+  assert(source, 'RESPONSIVE_QA_COOKIE_MISSING');
+  for (const device of [
+    { label: 'DESKTOP', width: 1440, height: 900, mobile: false },
+    { label: 'MOBILE_PORTRAIT', width: 390, height: 844, mobile: true },
+    { label: 'MOBILE_LANDSCAPE', width: 844, height: 390, mobile: true },
+  ]) {
+    const context = await browser.newContext({
+      viewport: { width: device.width, height: device.height },
+      isMobile: device.mobile, hasTouch: device.mobile, serviceWorkers: 'block',
+    });
+    try {
+      await context.addCookies([{
+        name: source.name, value: source.value, domain: new URL(PREVIEW_ORIGIN).hostname,
+        path: source.path, httpOnly: true, secure: true, sameSite: source.sameSite,
+        ...(source.expires > 0 ? { expires: source.expires } : {}),
+      }]);
+      const page = await context.newPage();
+      for (const route of ['/en/my-day', '/en/diary']) {
+        const response = await page.goto(PREVIEW_ORIGIN + route, {
+          waitUntil: 'domcontentloaded', timeout: 35000,
+        });
+        assert(response?.status() === 200 && new URL(page.url()).pathname === route,
+          'QA_' + device.label + '_PROTECTED_PAGE_FAILED');
+        const emergency = page.getByText('Need urgent help?', { exact: true });
+        await emergency.waitFor({ state: 'visible', timeout: 12000 });
+        const dimensions = await page.evaluate(() => ({
+          pageWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+        }));
+        assert(dimensions.pageWidth <= dimensions.viewportWidth + 2,
+          'QA_' + device.label + '_HORIZONTAL_OVERFLOW');
+      }
+      console.log('DZVIN_QA_' + device.label + '_SAFETY_RESPONSIVE=PASS');
+    } finally {
+      await context.close();
+    }
+  }
+}
 // Explicit opt-in: this rotates a disposable QA user's refresh token, so run
 // only after the read-only and ownership checks have completed.
 async function checkExpiredSession(browser, account) {
@@ -318,6 +360,7 @@ async function main() {
        successfulDirections === 1 ? 'PASS_ONE_DIRECTION_QA_FIXTURE_MISSING' :
        'NOT_TESTED_NO_OWNER_FIXTURES'));
     assert(successfulDirections >= 1, 'QA_DIARY_FIXTURES_MISSING');
+    await checkResponsivePrivacy(browser, active[0]);
     await checkExpiredSession(browser, active[0]);
     console.log('DZVIN_QA_CURRENT_PREVIEW_READONLY=PASS_LIMITED');
     console.log('DZVIN_QA_EXPECTED_FRONT_SHA=' + FRONT_SHA);
