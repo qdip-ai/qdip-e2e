@@ -110,6 +110,21 @@ async function landing(browser, viewport) {
       const reject = consent.getByRole('button', { name: /^(reject|decline)$/i });
       assert(await reject.count() > 0, 'COOKIE_REJECT_ACTION_MISSING');
     });
+    await check(viewport.name.toUpperCase().replace(/-/g, '_') + '_COOKIE_REJECT_PERSISTENCE', async () => {
+      const consent = page.getByRole('region', { name: 'We use cookies' });
+      await consent.getByRole('button', { name: 'Reject' }).click();
+      await consent.waitFor({ state: 'hidden', timeout: 6000 });
+      let cookies = await context.cookies(ORIGIN);
+      assert(cookies.some(c => c.name === 'cookie_consent' && c.value === '0'),
+        'REJECT_NOT_PERSISTED');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      assert(await page.getByRole('region', { name: 'We use cookies' }).count() === 0,
+        'REJECT_NOT_RESPECTED_ON_RELOAD');
+      await context.clearCookies();
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByRole('region', { name: 'We use cookies' })
+        .waitFor({ state: 'visible', timeout: 12000 });
+    });
     await check(viewport.name.toUpperCase().replace(/-/g, '_') + '_COOKIE_ACCEPT', async () => {
       const consent = page.getByRole('region', { name: 'We use cookies' });
       const accept = consent.getByRole('button', { name: 'Accept' });
