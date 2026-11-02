@@ -34,9 +34,14 @@ class Core:
         self.http = build_opener(NoRedirect())
 
     def request(self, path: str, *, method: str = "GET",
-                payload: dict | None = None, key: str | None = None) -> tuple[int, object]:
+                payload: dict | None = None, key: str | None = None,
+                actor: str | None = None) -> tuple[int, object]:
         headers = {"x-api-key": self.admin if key is None else key,
                    "Accept": "application/json", "Content-Type": "application/json"}
+        if actor is not None:
+            require(bool(re.fullmatch(r"[A-Za-z0-9@._:-]{1,256}", actor)),
+                    "Invalid audited approval actor")
+            headers["x-qdip-actor"] = actor
         request = Request(
             ORIGIN + "/api/v1/" + path.lstrip("/"),
             data=json.dumps(payload).encode() if payload is not None else None,
@@ -164,6 +169,164 @@ def assert_kernel_proof(result: object) -> None:
             "Kernel semantic provenance mismatch")
 
 
+# The user explicitly approved a staging-only review risk on 2026-11-02.
+# This function DOES NOT bypass remote admission: it uses the real audited
+# platform-admin approval route and only a reviewed isolated Gateway instance.
+APPROVAL = "user-approved-staging-only-2026-11-02"
+REVIEW_REFERENCE = "SDK383-20261102-USER-APPROVED-STAGING"
+REVIEW_ACTOR = "user-authorized-sdk383-staging-qa"
+GATEWAY_NAME = "sdk383-e2e-core-gateway"
+
+
+def _admission_record(core: Core, org: str, plugin: str,
+                      capability: str, worker_key_id: str) -> dict:
+    response = core.expect("plugin-publications/remote-admission-preflight", 200)
+    require(isinstance(response, dict)
+            and isinstance(response.get("items"), list),
+            "Remote admission preflight missing")
+    matches = [item for item in response["items"]
+               if isinstance(item, dict)
+               and item.get("tenant_id") == org
+               and item.get("plugin_id") == plugin]
+    require(len(matches) == 1, "Missing or ambiguous isolated Worker registration")
+    item = matches[0]
+    require(item.get("worker_key_id") == worker_key_id
+            and item.get("plugin_version") == "0.1.0"
+            and item.get("capabilities") == {capability: "1"}
+            and isinstance(item.get("revision"), int)
+            and item["revision"] >= 0
+            and item.get("connected") is True,
+            "Live Worker identity, capability or approval revision mismatch")
+    digest = item.get("manifest_sha256")
+    require(isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
+            "Unreviewed or invalid Worker manifest digest")
+    require(isinstance(item.get("name"), str)
+            and item["name"].startswith("remote-")
+            and plugin in item["name"],
+            "Isolated SDK plugin catalog identity mismatch")
+    return item
+
+
+def staging_admit(core: Core, railway: Railway, org: str, plugin: str,
+                  capability: str, worker_key_id: str) -> str:
+    require(os.getenv("QDIP_SDK383_E2E_RISK_ACCEPTED") == APPROVAL,
+            "User staging risk acceptance required")
+    require(ORIGIN == "https://sdk383-e2e-core-gateway-staging.up.railway.app",
+            "Security approval must target only the isolated staging Gateway")
+    require(os.getenv("QDIP_SDK383_E2E_REVIEWED_WORKER_SHA")
+            == "ffac08fea89c03e76f85e569cefc79dbde6eba53",
+            "Worker source differs from reviewed SHA")
+    gateway_id = os.getenv("QDIP_SDK383_E2E_GATEWAY_SERVICE_ID", "")
+    require(bool(re.fullmatch(r"[0-9a-f-]{36}", gateway_id))
+            and gateway_id != railway.target_service,
+            "Approval requires distinct isolated Gateway service")
+    gateway = Railway(railway.token, gateway_id, GATEWAY_NAME)
+    gateway.scope()
+    gateway.pending()
+    before_nodes, before_vals = gateway.metadata()
+    trust_var = "QDIP_TRUSTED_REMOTE_MANIFESTS"
+    require(not any(row.get("name") == trust_var for row in before_nodes)
+            and trust_var not in before_vals,
+            "Isolated Gateway trust list must initially be empty")
+    item = _admission_record(core, org, plugin, capability, worker_key_id)
+    require(item.get("approval_state") in {"pending_review", "approved"},
+            "Plugin security state denies fresh risk acceptance")
+    digest = item["manifest_sha256"]
+    previous = gateway.deployment()["id"]
+    gateway.stage_commit({trust_var: {"value": digest, "isSealed": False}})
+    gateway.wait_new_deployment(previous)
+    nodes, values = gateway.metadata()
+    require(sum(row.get("name") == trust_var and row.get("isSealed") is False
+                for row in nodes) == 1
+            and values.get(trust_var) == digest,
+            "Only reviewed exact manifest digest may enter trusted list")
+    require(registered(core, org, plugin, capability, worker_key_id),
+            "Worker did not reconnect to reviewed Gateway after trust deployment")
+    item = _admission_record(core, org, plugin, capability, worker_key_id)
+    require(item["manifest_sha256"] == digest
+            and item.get("approval_state") == "pending_review",
+            "Worker identity drift or previously approved registration")
+    approved = core.request(
+        "plugin-publications/" + item["name"] + "/security/approve",
+        method="POST", actor=REVIEW_ACTOR,
+        payload={"expected_revision": item["revision"],
+                 "plugin_version": "0.1.0",
+                 "reason": "User accepted staging-only exact first-party Worker risk after source review; no production admission.",
+                 "review_reference": REVIEW_REFERENCE,
+                 "risk_acknowledged": True},
+    )
+    require(approved[0] == 200
+            and isinstance(approved[1], dict)
+            and (approved[1].get("security") or {}).get("state") == "approved",
+            "Audited manual staging approval was not confirmed")
+    latest = _admission_record(core, org, plugin, capability, worker_key_id)
+    require(latest["manifest_sha256"] == digest
+            and latest.get("approval_state") == "approved",
+            "Approved Worker manifest was not persisted")
+    print("SDK383_USER_APPROVED_STAGING_ADMISSION=PASS digest=" + digest, flush=True)
+    return digest
+
+
+def reset_staging_admission(core: Core, railway: Railway, org: str,
+                            plugin: str, capability: str,
+                            worker_key_id: str) -> None:
+    """Remove test Gateway trust + restore review to pending; never touch RR."""
+    gateway_id = os.getenv("QDIP_SDK383_E2E_GATEWAY_SERVICE_ID", "")
+    require(bool(re.fullmatch(r"[0-9a-f-]{36}", gateway_id))
+            and gateway_id != railway.target_service,
+            "Cannot safely clean up nonisolated Gateway")
+    gateway = Railway(railway.token, gateway_id, GATEWAY_NAME)
+    gateway.scope()
+    rows, values = gateway.metadata()
+    trust_var = "QDIP_TRUSTED_REMOTE_MANIFESTS"
+    matched = [row for row in rows if row.get("name") == trust_var]
+    require(len(matched) <= 1, "Ambiguous Gateway admission variable")
+    item = _admission_record(core, org, plugin, capability, worker_key_id)
+    if matched:
+        require(matched[0].get("isSealed") is False
+                and values.get(trust_var) == item["manifest_sha256"],
+                "Refusing to delete foreign Gateway allowlist")
+    if item.get("approval_state") == "approved":
+        status, revoked = core.request(
+            "plugin-publications/" + item["name"] + "/security/quarantine",
+            method="POST", actor=REVIEW_ACTOR,
+            payload={"expected_revision": item["revision"],
+                     "plugin_version": "0.1.0", "quarantined": True,
+                     "reason": "SDK383 user-approved staging E2E ended; test admission withdrawn"},
+        )
+        require(status == 200 and isinstance(revoked, dict)
+                and (revoked.get("security") or {}).get("state") == "quarantined",
+                "Staging test approval quarantine not confirmed")
+        new_revision = revoked.get("revision")
+        status, released = core.request(
+            "plugin-publications/" + item["name"] + "/security/quarantine",
+            method="POST", actor=REVIEW_ACTOR,
+            payload={"expected_revision": new_revision,
+                     "plugin_version": "0.1.0", "quarantined": False,
+                     "reason": "SDK383 staging approval reset to pending after test"},
+        )
+        require(status == 200 and isinstance(released, dict)
+                and (released.get("security") or {}).get("state") == "pending_review",
+                "Staging approval reset not verified")
+    if matched:
+        gateway.pending()
+        deleted = gateway.query(
+            "mutation ($i: VariableDeleteInput!) { variableDelete(input: $i) }",
+            {"i": {"projectId": PROJECT, "environmentId": ENVIRONMENT,
+                   "serviceId": gateway_id, "name": trust_var}},
+        ).get("variableDelete")
+        require(deleted is True, "Staging trust digest deletion failed")
+        deadline = time.monotonic() + 90
+        while True:
+            remaining, values = gateway.metadata()
+            if not any(row.get("name") == trust_var for row in remaining) and trust_var not in values:
+                break
+            require(time.monotonic() < deadline, "Staging trust digest removal not confirmed")
+            time.sleep(5)
+    print("SDK383_STAGING_ADMISSION_CLEANUP=PASS", flush=True)
+
+
 def smoke(core: Core, org: str, plugin: str, capability: str, fixture: dict) -> None:
     caller = core.expect("organizations/" + org + "/keys", 201, method="POST", payload={
         "name": "sdk383-e2e-smoke-" + uuid.uuid4().hex,
@@ -250,6 +413,7 @@ def main() -> int:
     delivered = False
     ownership = False
     restored = False
+    reviewed_key_id: str | None = None
     try:
         lease(core, org, app, "acquire", token)
         ownership = True
@@ -306,11 +470,16 @@ def main() -> int:
                 "Rollback failed to re-register original test Worker key")
         restored = True
         print("SDK383_SEALED_WORKER_RECOVERY=PASS", flush=True)
-        # Execute through the independently enforced Security Gate only after
-        # the separate credential-rotation/recovery gates have been recorded.
+        # Exact, user-authorized staging risk acceptance. This never patches
+        # Mongo directly or disables Gateway checks.
+        reviewed_key_id = first["id"]
+        staging_admit(core, rail, org, plugin, capability, first["id"])
         smoke(core, org, plugin, capability, fixture)
     finally:
         if ownership:
+            if reviewed_key_id is not None:
+                reset_staging_admission(core, rail, org, plugin, capability,
+                                        reviewed_key_id)
             if delivered:
                 # Never delete or revoke a credential until its rollback state is known.
                 # These names were absent on this exact disposable Worker
