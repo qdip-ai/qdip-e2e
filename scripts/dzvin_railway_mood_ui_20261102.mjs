@@ -60,8 +60,15 @@ async function verifyMoodUiSubmit(browser,cookie){
     await page.locator('main').first().waitFor({state:'visible',timeout:12000});
     await page.waitForTimeout(1100);
     const moods=page.locator('main button[aria-pressed]');
-    assert(await moods.count()>=5,'UI_MOOD_CHOICE_MISSING');
-    await moods.nth(3).click();
+    const firstMoodCount=await moods.count();
+    await page.waitForTimeout(2000);
+    const lateMoodCount=await moods.count();
+    const moodVisible=await moods.nth(3).isVisible().catch(()=>false);
+    const saveCount=await page.getByRole('button',{name:/^save$/i}).count();
+    console.log('QA_UI_MOOD_PREFLIGHT=INITIAL_'+firstMoodCount+'_LATE_'+lateMoodCount+'_VISIBLE_'+moodVisible+'_SAVE_BUTTONS_'+saveCount+'_PREWRITE_ROWS_'+existing.length);
+    await page.locator('main').first().screenshot({path:'/tmp/dzvin-mood-ui-evidence/mood-save-preflight.png'});
+    assert(firstMoodCount>=5&&lateMoodCount>=5&&moodVisible,'UI_MOOD_CONTROL_DISAPPEARED_AFTER_HYDRATION');
+    await moods.nth(3).click({timeout:10000});
     assert(await moods.nth(3).getAttribute('aria-pressed')==='true','UI_MOOD_NOT_SELECTED');
     const sliders=page.locator('main [role="slider"]');
     assert(await sliders.count()>=3,'UI_STRESS_ENERGY_FOCUS_SLIDERS_MISSING');
