@@ -67,7 +67,7 @@ class Railway:
             try:
                 failure = json.loads(exc.read(4096))
                 errors = failure.get("errors") if isinstance(failure, dict) else None
-                messages = [e.get("message") for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
+                messages = [(e.get("message") if isinstance(e, dict) else e) for e in errors if isinstance(e, (dict, str))] if isinstance(errors, list) else []
             except (ValueError, UnicodeDecodeError, OSError):
                 messages = []
             # Classification only; never forward server-controlled error text.
