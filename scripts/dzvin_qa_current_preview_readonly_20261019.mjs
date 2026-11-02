@@ -149,13 +149,29 @@ async function login(browser, actor) {
       const html = await pageResponse.text();
       assert(html.includes('data-dpl-id="' + PREVIEW_DEPLOYMENT + '"'),
         actor.label + '_PREVIEW_DEPLOYMENT_CHANGED');
+      // Enforce the same B2C denylist on direct GET and same-origin POST,
+      // not merely on hidden navigation. GET must deny before attempting any POST.
       for (const path of [
-        '/api/backend/mood-risk/actionable', '/api/backend/mood-feed',
+        '/api/backend/mood-risk/actionable',
+        '/api/backend/mood-feed',
         '/api/backend/companies',
+        '/api/backend/admin',
+        '/api/backend/dip-admin/organizations',
+        '/api/backend/research/projects',
+        '/api/backend/decision-support',
+        '/api/backend/team/v1/overview',
+        '/api/backend/operational/v1/reports',
+        '/api/backend/prediction',
       ]) {
-        const denied = await preview.request.get(PREVIEW_ORIGIN + path);
-        assert(denied.status() === 404, actor.label + '_B2C_SCOPE_BYPASS');
+        const deniedRead = await preview.request.get(PREVIEW_ORIGIN + path);
+        assert(deniedRead.status() === 404, actor.label + '_B2C_READ_SCOPE_BYPASS');
+        const deniedWrite = await preview.request.post(PREVIEW_ORIGIN + path, {
+          headers: { origin: PREVIEW_ORIGIN, 'content-type': 'application/json' },
+          data: {}, maxRedirects: 0,
+        });
+        assert(deniedWrite.status() === 404, actor.label + '_B2C_WRITE_SCOPE_BYPASS');
       }
+      console.log(actor.label + '_PRIVILEGED_B2C_GET_POST_DENIED=PASS');
       // Production/dev dailyHabits.ts decoder must agree with the real BFF wire contract.
       const habits = await preview.request.get(
         PREVIEW_ORIGIN + '/api/backend/daily-habits?timeZone=Europe%2FWarsaw'
