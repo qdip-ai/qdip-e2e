@@ -273,6 +273,89 @@ async def main() -> None:
                   and (await db["plugin_publications"].find_one(
                       {"_id": headless_name}
                   ))["published"] is False)
+
+            # Regression: when the publisher abandons a verified URL in a
+            # revision, the old domain cannot remain locked forever. A new
+            # independently verified owner must be able to claim it.
+            reclaim_owners = [
+                TenantContext(
+                    organization_id=org, key_id=key, plugin_id="p1-test",
+                    scopes=["plugins:register"], allowed_capabilities=["p1.plan"],
+                )
+                for org, key in (
+                    ("e2e-url-old-org", "e2e-old-worker"),
+                    ("e2e-url-new-org", "e2e-new-worker"),
+                )
+            ]
+            await db["plugin_publications"].insert_many([
+                row("e2e-url-old-org", "e2e-old-worker"),
+                row("e2e-url-new-org", "e2e-new-worker"),
+            ])
+            old_owner, new_owner = reclaim_owners
+            old_plugin = remote_catalog_id("e2e-url-old-org", "p1-test")
+            new_plugin = remote_catalog_id("e2e-url-new-org", "p1-test")
+            reclaim_url = "https://relocatable.example.org"
+            old_request = input_a.model_copy(update={
+                "application_launch_url": reclaim_url,
+                "slug": "relocatable-previous",
+            })
+            new_request = old_request.model_copy(update={
+                "slug": "relocatable-next",
+            })
+            await api.submit_plugin_for_review(
+                old_plugin, old_request, owner=old_owner,
+                authorization="Bearer test-only",
+            )
+            await api.verify_own_plugin_domain(
+                old_plugin, api.VerifyDomainInput(expected_revision=1),
+                owner=old_owner, authorization="Bearer test-only",
+            )
+            check("old_url_claim_initially_owned",
+                  (await db["plugin_publisher_domains"].find_one({
+                      "_id": "relocatable.example.org"
+                  }))["plugin_name"] == old_plugin)
+            await api.submit_plugin_for_review(
+                new_plugin, new_request, owner=new_owner,
+                authorization="Bearer test-only",
+            )
+            try:
+                await api.verify_own_plugin_domain(
+                    new_plugin, api.VerifyDomainInput(expected_revision=1),
+                    owner=new_owner, authorization="Bearer test-only",
+                )
+            except HTTPException as exc:
+                check("new_owner_blocked_while_old_claim_active", exc.status_code == 409)
+            else:
+                raise AssertionError("Concurrent domain squatting accepted")
+            changed_request = old_request.model_copy(update={
+                "expected_revision": 2,
+                "application_launch_url": "https://replacement.example.org",
+            })
+            changed = await api.submit_plugin_for_review(
+                old_plugin, changed_request, owner=old_owner,
+                authorization="Bearer test-only",
+            )
+            check("changed_url_drops_verification",
+                  changed["status"] == "PENDING_OWNERSHIP_VERIFICATION"
+                  and changed["catalog"]["launch_url_verified"] is False)
+            old_claim = await db["plugin_publisher_domains"].find_one({
+                "_id": "relocatable.example.org"
+            })
+            check("abandoned_url_claim_released_atomically", old_claim is None)
+            acquired = await api.verify_own_plugin_domain(
+                new_plugin, api.VerifyDomainInput(expected_revision=1),
+                owner=new_owner, authorization="Bearer test-only",
+            )
+            check("independent_verified_owner_can_claim_released_domain",
+                  acquired["status"] == "PENDING_SECURITY_REVIEW"
+                  and (await db["plugin_publisher_domains"].find_one({
+                      "_id": "relocatable.example.org"
+                  }))["plugin_name"] == new_plugin)
+            check("replacement_url_not_auto_verified",
+                  (await db["plugin_publication_submissions"].find_one({
+                      "_id": old_plugin
+                  }))["catalog"]["launch_url_verified"] is False)
+
         print("QDIP_SDK_P1_REAL_MONGO_INTEGRATION=PASS checks=" + str(checks), flush=True)
         print("QDIP_SDK_P1_REAL_ZITADEL_HUMAN=NOT_TESTED", flush=True)
         print("QDIP_SDK_P1_REAL_WORKER_EXECUTION=NOT_TESTED", flush=True)
