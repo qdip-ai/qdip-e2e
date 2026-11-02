@@ -97,6 +97,8 @@ async function verifyMoodUiSubmit(browser,cookie){
     const responsePromise=page.waitForResponse(r=>r.url().includes('/api/backend/mood-record')&&r.request().method()==='POST',{timeout:35000});
     await save.click();
     const post=await responsePromise;
+    const requestHeaders=await post.request().allHeaders();
+    console.log('QA_SAVE_ORIGIN_DIAG='+JSON.stringify({status:post.status(),requestOrigin:requestHeaders.origin||null,requestHost:new URL(post.url()).origin,fetchSite:requestHeaders['sec-fetch-site']||null}));
     assert(post.status()===201,'UI_SAVE_POST_'+post.status());
     const created=await post.json();
     assert(created?.moodLevel===4&&created.stressLevel===5&&created.energyLevel===5&&created.focusLevel===5,
