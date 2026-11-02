@@ -89,12 +89,8 @@ def get_worker_key(core: Core, org: str, key_id: str) -> dict:
 
 def issue_worker(core: Core, org: str, app: str, lease_token: str,
                  plugin: str, capability: str, index: int) -> dict:
+    # Each issuance must have a distinct timestamp-bound identity.
     name = (app + "/staging/" + capability + "/worker/"
-            + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"))
-    if index:
-        # The bounded issuance contract requires unique timestamps.
-        name = name[:-1] + str(int(name[-2:-1]) + 1) + "Z" if False else (
-            app + "/staging/" + capability + "/worker/"
             + (datetime.now(UTC) + timedelta(seconds=index)).strftime("%Y%m%dT%H%M%SZ"))
     result = core.expect(
         "organizations/" + org + "/sdk-credential-reconciliation-lease/issue-worker-key",
