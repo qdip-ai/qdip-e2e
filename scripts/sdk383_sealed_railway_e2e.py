@@ -44,6 +44,7 @@ class Railway:
     def __init__(self, token: str, service_id: str = TARGET_SERVICE,
                  service_name: str = TARGET_NAME) -> None:
         require(len(token) >= 20, "Missing scoped Railway project token")
+        require(not token.startswith("${{"), "Unresolved Railway token reference")
         self.token = token
         self.target_service = service_id
         self.target_name = service_name
@@ -62,8 +63,15 @@ class Railway:
             with self.opener.open(request, timeout=20) as response:
                 body = response.read(1_048_577)
         except HTTPError as exc:
-            # Status only. Never log GraphQL response bodies or variables.
-            raise GateError("Railway GraphQL HTTP status " + str(exc.code)) from None
+            # Map only known authentication failures; never print response data.
+            try:
+                failure = json.loads(exc.read(4096))
+                errors = failure.get("errors") if isinstance(failure, dict) else None
+                messages = [e.get("message") for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
+            except (ValueError, UnicodeDecodeError, OSError):
+                messages = []
+            category = (" invalid_project_token" if any(m == "Project Token not found" for m in messages) else "")
+            raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
         require(len(body) <= 1_048_576, "Railway GraphQL response too large")
