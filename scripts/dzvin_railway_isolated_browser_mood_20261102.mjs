@@ -109,6 +109,11 @@ async function main(){
     await guide.waitFor({state:'hidden',timeout:6000});
     console.log('QA_FIRST_VISIT_MOOD_GUIDE_COMPLETED=PASS');
   }
+  const goodMood=page.locator('button[aria-pressed][title="Good"]').first();
+  await goodMood.waitFor({state:'visible',timeout:5000});
+  await goodMood.click();
+  await expect(goodMood).toHaveAttribute('aria-pressed','true',{timeout:4000});
+  console.log('QA_EXPLICIT_GOOD_MOOD_SELECTED=PASS');
   stage='TAG_VISIBLE';console.log('QA_STAGE='+stage);
   const tagDiagnostic=await page.evaluate(()=>({
     renderedTagText:document.body.textContent?.includes('QA Isolated Mood')??false,
@@ -148,7 +153,11 @@ async function main(){
   stage='SAVE_VISIBLE';console.log('QA_STAGE='+stage);
   const save=page.getByRole('button',{name:/save/i}).last();
   await save.waitFor({state:'visible',timeout:15000});
-  assert(await save.isEnabled(),'SAVE_DISABLED');
+  const last=await ctx.request.get(SITE+'/api/backend/mood-record/last?days=1&timeZone=Europe%2FWarsaw&dailyOnly=true');
+  console.log('QA_DAILY_LAST_READ_STATUS='+last.status());
+  const saveDisabled=!(await save.isEnabled());
+  console.log('QA_SAVE_STATE='+JSON.stringify({disabled:saveDisabled,selectedGood:await goodMood.getAttribute('aria-pressed'),timeZone:await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone)}));
+  assert(!saveDisabled,'SAVE_DISABLED');
   const createdWait=page.waitForResponse(r=>r.url().includes('/api/backend/mood-record')&&r.request().method()==='POST',{timeout:45000});
   stage='SAVE_POST';console.log('QA_STAGE='+stage);
   await save.click();
