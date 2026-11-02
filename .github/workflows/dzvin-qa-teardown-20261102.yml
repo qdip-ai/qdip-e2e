@@ -1,0 +1,48 @@
+name: Dzvin isolated QA Mongo teardown verification
+on:
+  push:
+    branches:
+      - test/dzvin-qa-teardown-evidence-20261102
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-qa-mongo-teardown-readonly
+  cancel-in-progress: false
+jobs:
+  teardown-readonly:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      DZVIN_DISPOSABLE_DB_RESET_ACK: '1'
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate read-only teardown proof
+        run: node --check scripts/dzvin_qa_teardown_20261102.mjs
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dzvin-qa-teardown
+          cp scripts/dzvin_qa_teardown_20261102.mjs /tmp/dzvin-qa-teardown/
+          cd /tmp/dzvin-qa-teardown
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real QA1 and QA2 post-reset mood and side-effect readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/dzvin-qa-teardown
+          node dzvin_qa_teardown_20261102.mjs
