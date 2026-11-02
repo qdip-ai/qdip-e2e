@@ -105,12 +105,17 @@ class Railway:
                 category = " response_shape=" + keys[:90] + " error_shape=" + shape + " error_code=" + error_code + " error_tags=" + tags[:90]
                 # The first projectToken query contains no variables and no secret
                 # values. Its schema error can be reported after strict sanitization.
-                if document == "query { projectToken { projectId environmentId } }" and messages:
+                if "mutation" not in document and messages:
                     import re
                     hint = str(messages[0])[:180]
                     hint = re.sub(r"[A-Za-z0-9_+/=-]{24,}", "[redacted]", hint)
                     hint = re.sub(r"[^A-Za-z0-9 _.:\x27\x22\-\[\]]", " ", hint)
-                    category += " safe_scope_hint=" + hint[:150]
+                    op = ("token_scope" if "projectToken" in document else
+                          "project_metadata" if "project(id:" in document else
+                          "staged_changes" if "environmentStagedChanges" in document else
+                          "sealed_metadata" if "variables(first:" in document else
+                          "deployments" if "deployments(input:" in document else "unknown_query")
+                    category += " op=" + op + " schema_hint=" + hint[:150]
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
