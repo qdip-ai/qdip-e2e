@@ -104,8 +104,23 @@ async function main(){
     renderedAddNewTagButton:[...document.querySelectorAll('button')].filter(b=>b.textContent?.toLowerCase().includes('add new tag')).length,
   }));
   console.log('QA_UI_TAG_DIAGNOSTIC='+JSON.stringify(tagDiagnostic));
+  const tagVisibility=await page.evaluate(()=>
+    [...document.querySelectorAll('button')].filter(b=>b.textContent?.includes('QA Isolated Mood'))
+      .map(b=>{
+        const css=getComputedStyle(b),box=b.getBoundingClientRect();
+        const parent=b.parentElement,ancestor=parent?.parentElement;
+        return {
+          visible:box.width>0&&box.height>0,buttonText:b.textContent?.trim().slice(0,85),
+          display:css.display,visibility:css.visibility,opacity:css.opacity,
+          buttonClass:b.className?.slice(0,100),parentClass:parent?.className?.slice(0,100),
+          parentDisplay:parent?getComputedStyle(parent).display:null,
+          ancestorDisplay:ancestor?getComputedStyle(ancestor).display:null,
+        };
+      })
+  );
+  console.log('QA_TAG_VISIBILITY='+JSON.stringify(tagVisibility));
   const tagButton=page.locator('button').filter({hasText:/^QA Isolated Mood$/}).filter({visible:true}).first();
-  await tagButton.waitFor({state:'visible',timeout:18000});
+  await tagButton.waitFor({state:'visible',timeout:5000});
   await tagButton.click();
   stage='SAVE_VISIBLE';console.log('QA_STAGE='+stage);
   const save=page.getByRole('button',{name:/save/i}).last();
