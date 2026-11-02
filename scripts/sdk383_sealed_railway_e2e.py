@@ -154,24 +154,17 @@ class Railway:
 
     def pending(self) -> None:
         change = self.query(
-            "query ($e: String!) { environmentStagedChanges(environmentId: $e) { id status patch } }",
+            "query ($e: String!) { environmentStagedChanges(environmentId: $e) "
+            "{ id status patch } }",
             {"e": ENVIRONMENT},
         ).get("environmentStagedChanges")
-        status = str(change.get("status", "")) if isinstance(change, dict) else ""
-        patch = change.get("patch") if isinstance(change, dict) else None
-        if isinstance(change, dict):
-            print("SDK383_ENV_PATCH_CONTENT_SHAPE=" + type(patch).__name__
-                  + " keys=" + (",".join(sorted(patch.keys()))[:100]
-                               if isinstance(patch, dict) else ""), flush=True)
-        if change not in (None, {}, []):
-            try:
-                introspection = self.query("query { __type(name: \"EnvironmentPatch\") { fields { name } } }")
-                fields = [f["name"] for f in (introspection.get("__type") or {}).get("fields", []) if isinstance(f, dict) and isinstance(f.get("name"), str)]
-                print("SDK383_ENV_PATCH_SCHEMA_FIELDS=" + ",".join(sorted(fields))[:350], flush=True)
-            except GateError:
-                print("SDK383_ENV_PATCH_SCHEMA_FIELDS=UNAVAILABLE", flush=True)
-        require(change in (None, {}, []),
-                "Railway staged patch requires inspection (status=" + status[:32] + ")")
+        if change in (None, {}, []):
+            return
+        # Railway supplies an empty STAGED EnvironmentPatch even when
+        # the environment has no pending changes.
+        require(isinstance(change, dict) and change.get("status") == "STAGED"
+                and change.get("patch") == {},
+                "Unrelated Railway staged changes exist; refusing to overwrite")
 
     def metadata(self) -> tuple[list[dict], dict]:
         result = self.query(
