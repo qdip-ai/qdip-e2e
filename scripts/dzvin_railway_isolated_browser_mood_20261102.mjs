@@ -84,6 +84,18 @@ async function main(){
   assert(response?.status()===200,'MOOD_PAGE_HTTP_'+response?.status());
   const html=await response.text();
   assert(html.includes('data-dpl-id="'+DPL+'"'),'PREVIEW_DEPLOYMENT_CHANGED');
+  // First-visit MoodInsightGuide intentionally blocks form interaction; finish it as a real user.
+  const guide=page.getByRole('dialog');
+  if(await guide.isVisible().catch(()=>false)){
+    for(let step=0;step<4;step++){
+      const next=guide.getByRole('button',{name:/next|done/i}).last();
+      await next.waitFor({state:'visible',timeout:7000});
+      await next.click();
+    }
+    await guide.waitFor({state:'hidden',timeout:7000});
+    console.log('QA_FIRST_VISIT_MOOD_GUIDE_COMPLETED=PASS');
+  }
+
   stage='MOOD_BUTTON_VISIBLE';console.log('QA_STAGE='+stage);
   console.log('QA_PAGE_DOM='+JSON.stringify({path:new URL(page.url()).pathname,buttonCount:await page.locator('button[aria-pressed]').count(),sliderCount:await page.locator('[role="slider"]').count(),formCount:await page.locator('form').count()}));
   await page.locator('button[aria-pressed]').first().waitFor({state:'visible',timeout:18000});
