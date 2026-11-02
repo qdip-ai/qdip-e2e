@@ -97,6 +97,13 @@ async function main(){
    await expect(el).toHaveAttribute('aria-valuenow',String(steps+1),{timeout:3500});
   }
   stage='TAG_VISIBLE';console.log('QA_STAGE='+stage);
+  const tagDiagnostic=await page.evaluate(()=>({
+    renderedTagText:document.body.textContent?.includes('QA Isolated Mood')??false,
+    matchingButtons:[...document.querySelectorAll('button')].filter(b=>b.textContent?.includes('QA Isolated Mood')).length,
+    testTagKeyRendered:document.body.innerHTML.includes('qa-isolated-20261102'),
+    renderedAddNewTagButton:[...document.querySelectorAll('button')].filter(b=>b.textContent?.toLowerCase().includes('add new tag')).length,
+  }));
+  console.log('QA_UI_TAG_DIAGNOSTIC='+JSON.stringify(tagDiagnostic));
   const tagButton=page.getByRole('button',{name:'QA Isolated Mood',exact:true});
   await tagButton.waitFor({state:'visible',timeout:18000});
   await tagButton.click();
