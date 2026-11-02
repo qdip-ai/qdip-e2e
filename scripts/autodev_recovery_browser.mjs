@@ -70,10 +70,21 @@ async function publicSmoke(browser){
      method:'POST',headers:{'Content-Type':'application/json'},
      body:JSON.stringify({requestId:'123e4567-e89b-42d3-a456-426614174000'}),
     });
-    return [status.status,pair.status];
+    const code=async response=>{
+     try{return (await response.json())?.code||null;}catch{return null;}
+    };
+    return [{status:status.status,code:await code(status)},
+      {status:pair.status,code:await code(pair)}];
    });
-   check(unauthorized[0]===403&&unauthorized[1]===403,
-     'UNAUTHENTICATED_LOCAL_PAIRING_EXPOSED');
+   // A retired/disabled route is just as inaccessible as a role-denied route.
+   // Require exact sanitized denial codes; generic 5xx is not a security PASS.
+   check(
+    (unauthorized[0].status===403||
+     (unauthorized[0].status===404&&unauthorized[0].code==='NOT_FOUND'))&&
+    (unauthorized[1].status===403||
+     (unauthorized[1].status===405&&unauthorized[1].code==='COMMAND_NOT_SUPPORTED')||
+     (unauthorized[1].status===503&&unauthorized[1].code==='LOCAL_PAIRING_DISABLED')),
+    'UNAUTHENTICATED_LOCAL_PAIRING_EXPOSED');
    console.log('AUTODEV_LOCAL_PAIR_AUTH_DENIAL_'+tag(name)+'=PASS');
    await screenshot(page,'smoke-'+name);
    console.log('AUTODEV_BROWSER_SMOKE_'+tag(name)+'=PASS');
