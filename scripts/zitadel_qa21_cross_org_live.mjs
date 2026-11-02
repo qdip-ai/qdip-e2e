@@ -11,8 +11,9 @@ const OBS = 'https://observatory.qdip.ai';
 const RR = OBS;
 const ISSUER = 'https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MAIN_ORG = '368555767923594379';
-const QA_EMAIL = 'qa-21@qdip.ai';
-const QA_PASSWORD = process.env.QDIP_E2E_ZITADEL_QA21_PASSWORD;
+const QA_EMAIL = process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN;
+const QA_PASSWORD = process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD;
+const EXPECTED_EMAIL = 'qa-21@qdip.ai';
 const EXPECTED_QA_ORG = 'QDIP QA';
 const results = [];
 function check(ok, id) {
@@ -36,6 +37,7 @@ async function json(response, id) {
   return response.json().catch(() => {throw Error(id + '_INVALID_JSON');});
 }
 async function run() {
+  check(typeof QA_EMAIL === 'string' && QA_EMAIL.trim().toLowerCase() === EXPECTED_EMAIL, 'EXPECTED_ACCOUNT_BOUND');
   check(typeof QA_PASSWORD === 'string' && QA_PASSWORD.length >= 8, 'SECRET_PRESENT');
   const browser = await chromium.launch({headless: true});
   const ctx = await browser.newContext({ignoreHTTPSErrors: false, serviceWorkers: 'block',
@@ -98,7 +100,7 @@ async function run() {
     const list=inventory.organizations;
     check(!list.some(x=>x?.id===MAIN_ORG),'MAIN_ORG_EXCLUDED_FROM_OWNERSHIP');
     const qa=list.filter(x=>x?.name===EXPECTED_QA_ORG&&x?.state==='active'&&
-      typeof x?.id==='string'&&/^\\d+$/.test(x.id));
+      typeof x?.id==='string'&&/^[0-9]{1,32}$/.test(x.id));
     // Failure here means ORG_OWNER not verified, NOT necessarily user membership failure.
     if(qa.length!==1) {
       console.log('ZITADEL_QA21_QA_ORG_OWNER=NOT_VERIFIED');
