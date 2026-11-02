@@ -1,0 +1,50 @@
+name: Dzvin #448 B2C direct privileged BFF GET/POST
+on:
+  push:
+    branches:
+      - test/dzvin-b2c-denial-20261102
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-b2c-448-20261102
+  cancel-in-progress: false
+jobs:
+  qa-b2c-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      DZVIN_QA_READONLY_ACK: '1'
+      DZVIN_QA_EXPIRED_SESSION_ACK: '1'
+      DZVIN_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
+      DZVIN_EXPECTED_PREVIEW_ORIGIN: https://mentality-ackqqrqn2-taras-gezs-projects.vercel.app
+      DZVIN_PREVIEW_DEPLOYMENT: dpl_6LA11pxMr3TLQ97TZMdgJftY9q9T
+      DZVIN_PREVIEW_SHA: 35a923364d370cc9e11c64ae2a53175c043dfc31
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/dzvin_qa_current_preview_readonly_20261019.mjs
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qa-b2c-448"
+          cp scripts/dzvin_qa_current_preview_readonly_20261019.mjs "$RUNNER_TEMP/qa-b2c-448/"
+          cd "$RUNNER_TEMP/qa-b2c-448"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real QA1+QA2 admin BFF negative tests, refresh and logout
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/qa-b2c-448"
+          node dzvin_qa_current_preview_readonly_20261019.mjs
