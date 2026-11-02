@@ -11,7 +11,10 @@ from unittest.mock import patch
 from sdk383_sealed_railway_e2e import (
     KEY_ID_NAME, SECRET_NAME, GateError, Railway, assert_sealed, main as canary_main,
 )
-from sdk383_sealed_worker_lifecycle_e2e import assert_kernel_proof, main as worker_main
+from sdk383_sealed_worker_lifecycle_e2e import (
+    assert_kernel_proof, main as worker_main,
+    staging_admit, reset_staging_admission,
+)
 
 
 class SealedRailwayGateTests(unittest.TestCase):
@@ -92,6 +95,18 @@ class SealedRailwayGateTests(unittest.TestCase):
         response["execution_result"]["objective_value"] = None
         with self.assertRaises(GateError):
             assert_kernel_proof(response)
+
+    def test_staging_security_approval_denied_without_user_acceptance(self) -> None:
+        with patch.dict(os.environ, {"QDIP_SDK383_E2E_RISK_ACCEPTED": ""}):
+            with self.assertRaisesRegex(GateError, "risk acceptance"):
+                staging_admit(None, None, "test-org", "test-plugin", "test.cap", "test-key")
+
+    def test_staging_review_cleanup_requires_isolated_gateway(self) -> None:
+        rail = object.__new__(Railway)
+        rail.target_service = "8fc1e1d5-619b-4d52-95de-c6aabf7952ba"
+        with patch.dict(os.environ, {"QDIP_SDK383_E2E_GATEWAY_SERVICE_ID": ""}):
+            with self.assertRaisesRegex(GateError, "nonisolated Gateway"):
+                reset_staging_admission(None, rail, "test-org", "test-plugin", "test.cap", "test-key")
 
     def test_pending_query_requests_environment_patch_fields(self) -> None:
         client = object.__new__(Railway)
