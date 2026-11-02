@@ -1,0 +1,27 @@
+name: Dzvin runbook Prettier deterministic format diff
+on:
+  push:
+    branches:
+      - test/dzvin-doc-prettier-20261102
+permissions:
+  contents: read
+jobs:
+  format-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mentality-prj/mentality-web
+          ref: chore/dzvin-prod-dev-reconcile-20261102
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Format only the added runbook and show the exact diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --ignore-scripts prettier@3.6.2 >/dev/null 2>&1
+          ./node_modules/.bin/prettier --write DOCS/dzvin-production-rollback-20261102.md
+          git --no-pager diff -- DOCS/dzvin-production-rollback-20261102.md
