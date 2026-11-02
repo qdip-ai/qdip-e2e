@@ -1,7 +1,10 @@
 name: QDIP Independent Security Gate
-run-name: Static Security Gate ${{ inputs.target }} @ ${{ inputs.source_ref }}
+run-name: Static Security Gate ${{ inputs.target || 'core' }} @ ${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
 
 on:
+  push:
+    branches: [test/sdk400-core-static-security-audit-20261102]
+    paths: [.github/workflows/security-gate.yml]
   workflow_dispatch:
     inputs:
       target:
@@ -20,13 +23,14 @@ on:
         type: string
         required: false
 
-# Explicit manual-only gate. Never runs AI or installs/executes target source code.
+# Explicit manual execution or pinned owner-only SDK400 audit branch.
+# Never runs AI or installs/executes target source code.
 # GitHub-hosted Actions and vulnerability DB downloads may still consume runner/network quotas.
 permissions:
   contents: read
 
 concurrency:
-  group: qdip-static-security-${{ inputs.target }}-${{ inputs.source_ref }}
+  group: qdip-static-security-${{ inputs.target || 'core' }}-${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
   cancel-in-progress: false
 
 jobs:
@@ -37,9 +41,9 @@ jobs:
     permissions:
       contents: read
     env:
-      SECURITY_TARGET: ${{ inputs.target }}
-      SOURCE_REF: ${{ inputs.source_ref }}
-      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      SECURITY_TARGET: ${{ inputs.target || 'core' }}
+      SOURCE_REF: ${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || (github.event_name == 'push' && 'a1b8baed964b0e88113253ebd3517de2d0b94610') || '' }}
       SOURCE_DIR: ${{ github.workspace }}/target
     steps:
       - name: Checkout public independent E2E security tooling
@@ -81,8 +85,8 @@ jobs:
       - name: Checkout private source at requested revision, read-only
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.target == 'vhv' && 'qdip-ai/qdip-personal-secretary' || inputs.target == 'core' && 'qdip-ai/qdip-core' || inputs.target == 'web' && 'qdip-ai/qdip-web' || 'qdip-ai/qdip-model-doctor' }}
-          ref: ${{ inputs.source_ref }}
+          repository: ${{ inputs.target == 'vhv' && 'qdip-ai/qdip-personal-secretary' || (inputs.target == 'core' || github.event_name == 'push') && 'qdip-ai/qdip-core' || inputs.target == 'web' && 'qdip-ai/qdip-web' || 'qdip-ai/qdip-model-doctor' }}
+          ref: ${{ inputs.source_ref || 'a1b8baed964b0e88113253ebd3517de2d0b94610' }}
           token: ${{ secrets.QDIP_SECURITY_READ_TOKEN }}
           path: target
           persist-credentials: false
