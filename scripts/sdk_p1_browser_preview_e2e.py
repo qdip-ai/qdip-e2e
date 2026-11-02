@@ -26,6 +26,7 @@ def main() -> None:
     if parsed.scheme != "https" or not parsed.hostname:
         raise RuntimeError("QDIP_P1_PREVIEW_URL must be an HTTPS deployment URL")
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    blocked_viewports = []
     with sync_playwright() as browser_driver:
         browser = browser_driver.chromium.launch(
             executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"]
@@ -69,10 +70,10 @@ def main() -> None:
                         final.hostname != parsed.hostname
                         and "vercel" in (final.hostname or "")
                     ) or "Vercel Authentication" in page.title():
-                        raise RuntimeError(
-                            "PREVIEW_DEPLOYMENT_PROTECTION: browser cannot reach"
-                            " actual QDIP application through Vercel protection"
-                        )
+                        blocked_viewports.append(label)
+                        print("SDK_P1_BROWSER_BLOCKED=" + label
+                              + ":Vercel deployment protection", flush=True)
+                        continue
                     # No logged-in admin in this run. This is a negative
                     # authorization smoke only; the full panel E2E remains open.
                     visible_review = page.locator(
@@ -86,10 +87,10 @@ def main() -> None:
                     )
                     content_type = result.headers.get("content-type", "")
                     if "application/json" not in content_type:
-                        raise RuntimeError(
-                            "PREVIEW_AUTH_GATE_NOT_APP: anonymous request did not "
-                            "reach QDIP's JSON BFF; upstream protection/HTML page"
-                        )
+                        blocked_viewports.append(label)
+                        print("SDK_P1_BROWSER_BLOCKED=" + label
+                              + ":BFF not reachable as JSON", flush=True)
+                        continue
                     if result.status not in (401, 403):
                         raise AssertionError(
                             "Unauthorized queue returned HTTP " + str(result.status)
@@ -101,6 +102,10 @@ def main() -> None:
                     )
                 finally:
                     context.close()
+            if blocked_viewports:
+                print("QDIP_SDK_P1_BROWSER_PREVIEW=BLOCKED viewports="
+                      + ",".join(blocked_viewports), flush=True)
+                raise RuntimeError("Real QDIP browser E2E blocked by preview protection")
             print("QDIP_SDK_P1_BROWSER_ANONYMOUS=PASS viewports=3", flush=True)
             print("QDIP_SDK_P1_BROWSER_REAL_ZITADEL_ADMIN=NOT_TESTED", flush=True)
         finally:
