@@ -154,10 +154,15 @@ class Railway:
 
     def pending(self) -> None:
         change = self.query(
-            "query ($e: String!) { environmentStagedChanges(environmentId: $e) { id status } }",
+            "query ($e: String!) { environmentStagedChanges(environmentId: $e) { id status patch } }",
             {"e": ENVIRONMENT},
         ).get("environmentStagedChanges")
         status = str(change.get("status", "")) if isinstance(change, dict) else ""
+        patch = change.get("patch") if isinstance(change, dict) else None
+        if isinstance(change, dict):
+            print("SDK383_ENV_PATCH_CONTENT_SHAPE=" + type(patch).__name__
+                  + " keys=" + (",".join(sorted(patch.keys()))[:100]
+                               if isinstance(patch, dict) else ""), flush=True)
         if change not in (None, {}, []):
             try:
                 introspection = self.query("query { __type(name: \"EnvironmentPatch\") { fields { name } } }")
