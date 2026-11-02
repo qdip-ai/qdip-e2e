@@ -1,0 +1,44 @@
+name: Dzvin isolated Railway QA1 QA2 mood E2E
+on:
+  push:
+    branches:
+      - test/dzvin-qa-mood-auth-20261102
+permissions:
+  contents: read
+concurrency:
+  group: dzvin-isolated-qa-mood-20261102
+  cancel-in-progress: false
+jobs:
+  mood-isolated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DZVIN_MOOD_ISOLATED_ACK: '1'
+      QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+      QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/dzvin_isolated_qa1qa2_mood_auth_20261102.mjs
+      - name: Install isolated Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dzvin-mood-qa"
+          cp scripts/dzvin_isolated_qa1qa2_mood_auth_20261102.mjs "$RUNNER_TEMP/dzvin-mood-qa/"
+          cd "$RUNNER_TEMP/dzvin-mood-qa"
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Actual isolated Railway mood CREATE READ ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dzvin-mood-qa"
+          node dzvin_isolated_qa1qa2_mood_auth_20261102.mjs
