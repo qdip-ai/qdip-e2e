@@ -78,7 +78,8 @@ jobs:
                 const page = await context.newPage();
                 const response = await page.goto(origin + '/uk', { waitUntil:'domcontentloaded', timeout:35000 });
                 check(response && response.status() === 200, 'PROD_LANDING_HTTP_' + v.name);
-                const html = await page.content();
+                // Read immutable network HTML: React hydration may remove edge-injected attributes.
+                const html = await response.text();
                 check(html.includes('data-dpl-id="' + deploy + '"'), 'PROD_ALIAS_NOT_ON_DEPLOYMENT_' + v.name);
                 const size = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, width: window.innerWidth }));
                 check(size.doc <= size.width + 2, 'PROD_HORIZONTAL_OVERFLOW_' + v.name);
