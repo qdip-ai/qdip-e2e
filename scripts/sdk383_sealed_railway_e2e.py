@@ -83,7 +83,14 @@ class Railway:
             elif "syntax" in error_blob or "graphql" in error_blob:
                 category = " graphQL_validation"
             else:
-                category = " unknown_response"
+                # Never log the body or token. Expose only schema shape and safe
+                # language categories needed to distinguish auth from API drift.
+                keys = ",".join(sorted(failure.keys())) if isinstance(failure, dict) else "not_json_object"
+                needles = ("authentication", "credential", "denied", "forbidden",
+                           "invalid", "token", "project", "graphql", "request",
+                           "header", "access", "unsupported", "expired")
+                tags = ",".join(w for w in needles if w in error_blob)
+                category = " response_shape=" + keys[:90] + " error_tags=" + tags[:90]
             raise GateError("Railway GraphQL HTTP status " + str(exc.code) + category) from None
         except (URLError, TimeoutError, OSError) as exc:
             raise GateError("Railway GraphQL HTTP unavailable: " + type(exc).__name__) from None
