@@ -108,6 +108,7 @@ async function run() {
       console.log('ZITADEL_QA21_QA_ORG_OWNER=PASS');
       const own=await ctx.request.get(OBS+'/api/observatory/admin/applications?organizationId='+qa[0].id,
         {maxRedirects:0,timeout:20000});
+      console.log('ZITADEL_QA21_OWN_QA_ORG_CREDENTIAL_CATALOG_HTTP='+own.status());
       check(own.status()===200,'OWN_QA_ORG_CREDENTIAL_CATALOG_READ_200');
       const payload=await own.json().catch(()=>null);
       check(payload!==null&&typeof payload==='object',
