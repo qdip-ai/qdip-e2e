@@ -179,7 +179,8 @@ GATEWAY_NAME = "sdk383-e2e-core-gateway"
 
 
 def _admission_record(core: Core, org: str, plugin: str,
-                      capability: str, worker_key_id: str) -> dict:
+                      capability: str, worker_key_id: str,
+                      *, require_connected: bool = True) -> dict:
     response = core.expect("plugin-publications/remote-admission-preflight", 200)
     require(isinstance(response, dict)
             and isinstance(response.get("items"), list),
@@ -195,8 +196,8 @@ def _admission_record(core: Core, org: str, plugin: str,
             and item.get("capabilities") == {capability: "1"}
             and isinstance(item.get("revision"), int)
             and item["revision"] >= 0
-            and item.get("connected") is True,
-            "Live Worker identity, capability or approval revision mismatch")
+            and (not require_connected or item.get("connected") is True),
+            "Worker identity, capability or approval revision mismatch")
     digest = item.get("manifest_sha256")
     require(isinstance(digest, str)
             and re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
@@ -282,7 +283,8 @@ def reset_staging_admission(core: Core, railway: Railway, org: str,
     trust_var = "QDIP_TRUSTED_REMOTE_MANIFESTS"
     matched = [row for row in rows if row.get("name") == trust_var]
     require(len(matched) <= 1, "Ambiguous Gateway admission variable")
-    item = _admission_record(core, org, plugin, capability, worker_key_id)
+    item = _admission_record(core, org, plugin, capability, worker_key_id,
+                             require_connected=False)
     if matched:
         require(matched[0].get("isSealed") is False
                 and values.get(trust_var) == item["manifest_sha256"],
@@ -477,9 +479,13 @@ def main() -> int:
         smoke(core, org, plugin, capability, fixture)
     finally:
         if ownership:
+            admission_cleanup_failure: GateError | None = None
             if reviewed_key_id is not None:
-                reset_staging_admission(core, rail, org, plugin, capability,
-                                        reviewed_key_id)
+                try:
+                    reset_staging_admission(core, rail, org, plugin, capability,
+                                            reviewed_key_id)
+                except GateError as exc:
+                    admission_cleanup_failure = exc
             if delivered:
                 # Never delete or revoke a credential until its rollback state is known.
                 # These names were absent on this exact disposable Worker
@@ -505,6 +511,8 @@ def main() -> int:
                 if get_worker_key(core, org, record["id"]).get("revoked_at") is None:
                     revocation(core, org, app, token, plugin, record["id"])
             lease(core, org, app, "release", token)
+            if admission_cleanup_failure is not None:
+                raise GateError("Review cleanup unverified: " + str(admission_cleanup_failure))
     require(restored, "Recovery was not verified")
     print("SDK383_SEALED_WORKER_LIFECYCLE_E2E=PASS", flush=True)
     return 0
