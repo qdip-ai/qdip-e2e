@@ -17,14 +17,14 @@ from uuid import uuid4
 import httpx
 
 
-async def run(base_url, fixture_file):
+async def run(base_url, fixture_file, concurrency):
     key = os.environ["RR_E2E_API_KEY"]
     secret = os.environ["RR_E2E_ACTOR_SECRET"]
     organization = os.environ["RR_E2E_ORGANIZATION_ID"]
     template = json.loads(Path(fixture_file).read_text())[0]
     measurements = {name: [] for name in ("create", "replan", "get", "replay")}
     sizes, runtimes, statuses = [], [], []
-    gate = asyncio.Semaphore(2)
+    gate = asyncio.Semaphore(concurrency)
 
     def headers(body, path, operation):
         raw = httpx.Request("POST", "http://fixture.invalid", json=body).content
@@ -85,7 +85,7 @@ async def run(base_url, fixture_file):
                 "max": round(max(values), 3)}
     print("RR_HTTP_PERFORMANCE=" + json.dumps({
         "scope": "synthetic fixture baseline; not commercial SLA qualification",
-        "concurrent_operators": 2, "operator_sequences": 10,
+        "concurrent_operators": concurrency, "operator_sequences": 10,
         "fixture_jobs": len(template["payload"]["jobs"]),
         "fixture_horizon_slots": template["payload"]["horizon_slots"],
         "http_ms": {name: summary(values) for name, values in measurements.items()},
@@ -99,5 +99,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--requests-file", required=True)
+    parser.add_argument("--concurrency", type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
-    asyncio.run(run(args.base_url, args.requests_file))
+    asyncio.run(run(args.base_url, args.requests_file, args.concurrency))
