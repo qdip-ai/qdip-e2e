@@ -75,7 +75,7 @@ async def run(base_url: str, requests_file: str, protocol: str) -> None:
         assertion = legacy() if protocol == "v2" else sign(bodies[0], "actor-original")
         first = await post(bodies[0], "actor-original", assertion)
         proof("authorized_initial", first.status_code == 201)
-        transferred = await post(bodies[1], "actor-original", assertion)
+        transferred = await post(bodies[1], "actor-transferred" if protocol == "v2" else "actor-original", assertion)
         print(f"RR_ACTOR_CONTEXT_PROBE:initial_status={first.status_code} transferred_status={transferred.status_code}", flush=True)
         proof("body_transfer_denied", transferred.status_code == 403)
         if protocol == "v2":
@@ -114,6 +114,9 @@ async def run(base_url: str, requests_file: str, protocol: str) -> None:
 
         replan = deepcopy(bodies[0])
         replan["execution_id"] = "actor-replan-" + uuid4().hex
+        replan["payload"]["operator_directives"] = {
+            "required_job_ids": [], "excluded_job_ids": [replan["payload"]["jobs"][0]["id"]],
+        }
         replan.update(change_id="actor-change-" + uuid4().hex, kind="OVERRIDE", reason="Synthetic request-context qualification", requested_at=(datetime.now(UTC) - timedelta(seconds=5)).isoformat())
         replan["source"]["snapshot_id"] = "actor-replan-source-" + uuid4().hex
         replan["source"]["captured_at"] = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
