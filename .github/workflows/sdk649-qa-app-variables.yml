@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/sdk649-qa-app-variables.yml
       - scripts/sdk649_qa_app_vars.mjs
+      - scripts/sdk649_qa_project_owner_live.mjs
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,3 +36,44 @@ jobs:
           QDIP_SDK_EXTERNAL_APP_ID: ${{ vars.QDIP_SDK_EXTERNAL_APP_ID }}
           QDIP_SDK_EXTERNAL_CLIENT_ID: ${{ vars.QDIP_SDK_EXTERNAL_CLIENT_ID }}
         run: node scripts/sdk649_qa_app_vars.mjs
+
+  qa21-project-owner:
+    needs: qa-application-variables
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sdk649-owner
+          cp scripts/sdk649_qa_project_owner_live.mjs scripts/sdk649_qa_app_vars.mjs /tmp/sdk649-owner/
+          cd /tmp/sdk649-owner
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Strict PROJECT_OWNER negative regression fixtures
+        run: |
+          set -euo pipefail
+          cd /tmp/sdk649-owner
+          node --check sdk649_qa_project_owner_live.mjs
+          node sdk649_qa_project_owner_live.mjs --self-test
+      - name: Read-only QA21 live OIDC and Zitadel owner proof
+        env:
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+          QDIP_SDK_EXTERNAL_APP_ID: ${{ vars.QDIP_SDK_EXTERNAL_APP_ID }}
+          QDIP_SDK_EXTERNAL_CLIENT_ID: ${{ vars.QDIP_SDK_EXTERNAL_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/sdk649-owner
+          node sdk649_qa_project_owner_live.mjs
