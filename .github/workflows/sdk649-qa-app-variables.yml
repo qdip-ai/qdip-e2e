@@ -1,5 +1,11 @@
 name: SDK649 QA application variable wiring preflight
 on:
+  push:
+    branches: [test/sdk649-qa-application-vars-20261104]
+    paths:
+      - .github/workflows/sdk649-qa-app-variables.yml
+      - scripts/sdk649_qa_app_vars.mjs
+      - scripts/sdk649_qa_project_owner_live.mjs
   pull_request:
     branches: [main]
     paths:
@@ -39,7 +45,7 @@ jobs:
 
   qa21-project-owner:
     needs: qa-application-variables
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104'
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104') || (github.event_name == 'push' && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104')
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
