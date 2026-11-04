@@ -108,6 +108,9 @@ async function run(){validateQaApplicationVariables(process.env);
       console.log('SDK649_'+label+'_AUTH_METHOD_TYPE='+
         (/^OIDC_AUTH_METHOD_TYPE_[A-Z_]+$/.test(oidc?.authMethodType||'')?
           oidc.authMethodType:'NOT_REPORTED'));
+      console.log('SDK649_'+label+'_OIDC_APP_TYPE='+
+        (/^OIDC_APP_TYPE_[A-Z_]+$/.test(oidc?.appType||'')?
+          oidc.appType:'NOT_REPORTED'));
     }
     const project=await readRpc(ctx.request,
       '/zitadel.project.v2.ProjectService/GetProject',token,{projectId:p},'QA_PROJECT');
@@ -135,6 +138,12 @@ async function run(){validateQaApplicationVariables(process.env);
     const apis=rows.filter(a=>a?.state==='APPLICATION_STATE_ACTIVE'&&
       a?.apiConfiguration&&typeof a.apiConfiguration==='object');
     console.log('SDK649_QA_PROJECT_ACTIVE_API_APP_COUNT='+apis.length);
+    console.log('SDK649_QA_PROJECT_API_BASIC_CONFIGURED='+(
+      apis.some(x=>x.apiConfiguration?.authMethodType==='API_AUTH_METHOD_TYPE_BASIC')?
+        'YES':'NO'));
+    console.log('SDK649_QA_PROJECT_API_AUTH_METHODS='+
+      apis.map(x=>/^API_AUTH_METHOD_TYPE_[A-Z_]+$/.test(x.apiConfiguration?.authMethodType||'')?
+        x.apiConfiguration.authMethodType:'NOT_REPORTED').join(','));
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
     console.log('SDK649_ZITADEL_READONLY_OWNER_PREFLIGHT=PASS');
     console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
