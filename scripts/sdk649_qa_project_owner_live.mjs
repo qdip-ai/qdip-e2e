@@ -89,7 +89,26 @@ async function run(){validateQaApplicationVariables(process.env);
       const app=await readRpc(ctx.request,
         '/zitadel.application.v2.ApplicationService/GetApplication',
         token,{applicationId:id},label+'_APP');
-      check(appOk(app,p,id,client,name),label+'_APP_ID_PROJECT_CLIENT');}
+      check(appOk(app,p,id,client,name),label+'_APP_ID_PROJECT_CLIENT');
+      const oidc=app?.application?.oidcConfiguration;
+      const grants=Array.isArray(oidc?.grantTypes)?oidc.grantTypes:[];
+      const responseTypes=Array.isArray(oidc?.responseTypes)?oidc.responseTypes:[];
+      const redirects=Array.isArray(oidc?.redirectUris)?oidc.redirectUris:[];
+      const hasAuthCode=grants.includes('OIDC_GRANT_TYPE_AUTHORIZATION_CODE');
+      const hasCodeResponse=responseTypes.includes('OIDC_RESPONSE_TYPE_CODE');
+      const validRedirects=redirects.length>0&&redirects.every(x=>{
+        try{const u=new URL(x);return u.protocol==='https:'||
+          (u.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(u.hostname));}
+        catch{return false;}
+      });
+      console.log('SDK649_'+label+'_AUTH_CODE_GRANT='+(hasAuthCode?'CONFIGURED':'NOT_CONFIGURED'));
+      console.log('SDK649_'+label+'_CODE_RESPONSE='+(hasCodeResponse?'CONFIGURED':'NOT_CONFIGURED'));
+      console.log('SDK649_'+label+'_REGISTERED_REDIRECT_COUNT='+redirects.length);
+      console.log('SDK649_'+label+'_REDIRECTS_HTTPS_OR_LOOPBACK='+(validRedirects?'YES':'NO'));
+      console.log('SDK649_'+label+'_AUTH_METHOD_TYPE='+
+        (/^OIDC_AUTH_METHOD_TYPE_[A-Z_]+$/.test(oidc?.authMethodType||'')?
+          oidc.authMethodType:'NOT_REPORTED'));
+    }
     const project=await readRpc(ctx.request,
       '/zitadel.project.v2.ProjectService/GetProject',token,{projectId:p},'QA_PROJECT');
     check(projectOk(project,p),'QA_PROJECT_ACTIVE_ORG');
