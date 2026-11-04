@@ -138,12 +138,23 @@ async function run(){validateQaApplicationVariables(process.env);
     const apis=rows.filter(a=>a?.state==='APPLICATION_STATE_ACTIVE'&&
       a?.apiConfiguration&&typeof a.apiConfiguration==='object');
     console.log('SDK649_QA_PROJECT_ACTIVE_API_APP_COUNT='+apis.length);
-    console.log('SDK649_QA_PROJECT_API_BASIC_CONFIGURED='+(
-      apis.some(x=>x.apiConfiguration?.authMethodType==='API_AUTH_METHOD_TYPE_BASIC')?
-        'YES':'NO'));
-    console.log('SDK649_QA_PROJECT_API_AUTH_METHODS='+
-      apis.map(x=>/^API_AUTH_METHOD_TYPE_[A-Z_]+$/.test(x.apiConfiguration?.authMethodType||'')?
-        x.apiConfiguration.authMethodType:'NOT_REPORTED').join(','));
+    // APIAuthMethodType proto enum value 0 is BASIC; ProtoJSON omits zero values.
+    // Prove the exact active API application using a second read, not a bare list row.
+    check(apis.length===1,'QA_PROJECT_EXACTLY_ONE_ACTIVE_API_APP');
+    const apiFull=await readRpc(ctx.request,
+      '/zitadel.application.v2.ApplicationService/GetApplication',token,
+      {applicationId:apis[0].applicationId},'QA_INTROSPECTION_APP');
+    const apiApp=apiFull?.application;
+    check(apiApp?.applicationId===apis[0].applicationId&&
+      apiApp?.projectId===p&&apiApp?.state==='APPLICATION_STATE_ACTIVE'&&
+      apiApp?.name==='qdip-sdk-qa-introspection'&&
+      typeof apiApp?.apiConfiguration?.clientId==='string'&&
+      apiApp.apiConfiguration.clientId.length>0,
+      'QA_INTROSPECTION_APP_EXACT_PROJECT_AND_CLIENT');
+    const apiMethod=apiApp.apiConfiguration.authMethodType??
+      'API_AUTH_METHOD_TYPE_BASIC';
+    check(apiMethod==='API_AUTH_METHOD_TYPE_BASIC','QA_INTROSPECTION_API_BASIC');
+    console.log('SDK649_INTROSPECTION_CLIENT_SECRET_MATCH=NOT_VERIFIED');
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
     console.log('SDK649_ZITADEL_READONLY_OWNER_PREFLIGHT=PASS');
     console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
