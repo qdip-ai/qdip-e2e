@@ -99,6 +99,24 @@ async function run(){validateQaApplicationVariables(process.env);
         {resource:{projectId:p}},{inUserIdsFilter:{ids:[sub]}},{role:{roleKey:'PROJECT_OWNER'}}]},
       'QA_OWNER');
     check(ownerOk(owners,p,sub),'QA21_EXACT_PROJECT_OWNER');
+    // Inspect only the exact QA project. An API application is a candidate
+    // resource-server client, not proof that Basic introspection is enabled.
+    const catalog=await readRpc(ctx.request,
+      '/zitadel.application.v2.ApplicationService/ListApplications',token,
+      {pagination:{limit:100},filters:[{projectIdFilter:{projectId:p}}]},
+      'QA_PROJECT_CATALOG');
+    const rows=catalog?.applications??[];
+    const pagination=catalog?.pagination;
+    const reported=pagination?.totalResult;
+    check(Array.isArray(rows)&&!!pagination&&rows.length<=100&&
+      rows.every(a=>a?.projectId===p)&&
+      (reported===undefined?rows.length===0:
+        Number.isInteger(Number(reported))&&Number(reported)===rows.length),
+      'QA_PROJECT_CATALOG_COMPLETE');
+    const apis=rows.filter(a=>a?.state==='APPLICATION_STATE_ACTIVE'&&
+      a?.apiConfiguration&&typeof a.apiConfiguration==='object');
+    console.log('SDK649_QA_PROJECT_ACTIVE_API_APP_COUNT='+apis.length);
+    console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
     console.log('SDK649_ZITADEL_READONLY_OWNER_PREFLIGHT=PASS');
     console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
   }finally{token=null;await ctx.close();await b.close();}
