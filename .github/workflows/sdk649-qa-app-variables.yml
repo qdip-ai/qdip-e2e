@@ -1,0 +1,37 @@
+name: SDK649 QA application variable wiring preflight
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/sdk649-qa-app-variables.yml
+      - scripts/sdk649_qa_app_vars.mjs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk649-qa-app-variables-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qa-application-variables:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Regression tests for missing and conflicting identity references
+        run: |
+          node --check scripts/sdk649_qa_app_vars.mjs
+          node scripts/sdk649_qa_app_vars.mjs --self-test
+      - name: Read the five existing repository variables without disclosing values
+        env:
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+          QDIP_SDK_EXTERNAL_APP_ID: ${{ vars.QDIP_SDK_EXTERNAL_APP_ID }}
+          QDIP_SDK_EXTERNAL_CLIENT_ID: ${{ vars.QDIP_SDK_EXTERNAL_CLIENT_ID }}
+        run: node scripts/sdk649_qa_app_vars.mjs
