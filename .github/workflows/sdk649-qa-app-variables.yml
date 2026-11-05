@@ -45,7 +45,7 @@ jobs:
 
   qa21-project-owner:
     needs: qa-application-variables
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104') || (github.event_name == 'push' && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104')
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104') || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104')
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
