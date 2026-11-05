@@ -55,7 +55,21 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
    // Intercept only the exact already-registered URI before it contacts its host.
    await page.goto(authorize.href,{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
    const end=Date.now()+15000;while(!callback&&Date.now()<end)await page.waitForTimeout(250);
-   if(!callback){marker(mode+'_CALLBACK','NOT_OBTAINED');return false;}
+   if(!callback){
+     // Classify only known UI states; never persist page text, URLs or hrefs containing codes.
+     const text=(await page.locator('body').innerText().catch(()=>'' )).toLowerCase();
+     marker(mode+'_ISSUER_PAGE',new URL(page.url()).origin===ISSUER);
+     marker(mode+'_LOGIN_FORM_VISIBLE',await page.locator('input[autocomplete="username"],input[name="loginName"],input[type="password"]').first().isVisible().catch(()=>false));
+     marker(mode+'_NATIVE_SUCCESS_UI',/success|close this|return to|back to|open.*app/.test(text));
+     marker(mode+'_CONSENT_UI',/consent|authorize|allow access/.test(text));
+     marker(mode+'_ACCESS_DENIED_UI',/access denied|not allowed|not authorized|permission denied|not permitted/.test(text));
+     marker(mode+'_INVALID_REQUEST_UI',/invalid request|invalid redirect|invalid scope|request.*expired|internal error/.test(text));
+     const callbackLink=await page.locator('a').evaluateAll((links,target)=>links.some(a=>{
+       try{const u=new URL(a.href),t=new URL(target);return u.origin===t.origin&&u.pathname===t.pathname;}catch{return false;}
+     }),redirect.href).catch(()=>false);
+     marker(mode+'_REGISTERED_CALLBACK_LINK_PRESENT',callbackLink);
+     marker(mode+'_CALLBACK','NOT_OBTAINED');return false;
+   }
    check(callback.searchParams.get('state')===state,mode+'_STATE');
    if(callback.searchParams.has('error')){
      const allowed=new Set(['invalid_scope','invalid_target','unauthorized_client','invalid_request','access_denied','interaction_required','login_required','consent_required']);
