@@ -51,6 +51,12 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
  const intercept=async route=>{callback=new URL(route.request().url());await route.fulfill({status:200,contentType:'text/plain',body:'QA OAuth callback received'});};
  await ctx.route(routeMatcher,intercept);
  const page=await ctx.newPage();
+ page.on('requestfailed',request=>{if(!request.isNavigationRequest())return;
+   const code=String(request.failure()?.errorText??'').match(/(?:net::)?(ERR_[A-Z_]+)/)?.[1];
+   marker(mode+'_FAILED_NAVIGATION',code??'OTHER');
+   try{const u=new URL(request.url());marker(mode+'_FAILED_NAVIGATION_IS_CALLBACK',callbackMatches(u,redirect));
+     marker(mode+'_FAILED_NAVIGATION_IS_ISSUER',u.origin===ISSUER);}catch{}
+ });
  try {
    // Intercept only the exact already-registered URI before it contacts its host.
    let navigation;
