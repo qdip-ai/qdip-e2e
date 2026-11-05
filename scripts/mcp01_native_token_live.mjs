@@ -53,12 +53,19 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
  const page=await ctx.newPage();
  try {
    // Intercept only the exact already-registered URI before it contacts its host.
-   await page.goto(authorize.href,{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
+   let navigation;
+   try{navigation=await page.goto(authorize.href,{waitUntil:'domcontentloaded',timeout:30000});}
+   catch(error){const code=String(error?.message??'').match(/net::(ERR_[A-Z_]+)/)?.[1];
+     marker(mode+'_NAVIGATION_ERROR',code??(error?.name==='TimeoutError'?'TIMEOUT':'OTHER'));}
+   marker(mode+'_AUTHORIZATION_HTTP',navigation?.status()??'NO_RESPONSE');
    const end=Date.now()+15000;while(!callback&&Date.now()<end)await page.waitForTimeout(250);
    if(!callback){
      // Classify only known UI states; never persist page text, URLs or hrefs containing codes.
      const text=(await page.locator('body').innerText().catch(()=>'' )).toLowerCase();
-     marker(mode+'_ISSUER_PAGE',new URL(page.url()).origin===ISSUER);
+     const current=new URL(page.url());
+     marker(mode+'_ISSUER_PAGE',current.origin===ISSUER);
+     marker(mode+'_PAGE_SCHEME', ['http:','https:','about:','chrome-error:'].includes(current.protocol)?current.protocol.slice(0,-1):'OTHER');
+     marker(mode+'_AT_REGISTERED_CALLBACK',callbackMatches(current,redirect));
      marker(mode+'_LOGIN_FORM_VISIBLE',await page.locator('input[autocomplete="username"],input[name="loginName"],input[type="password"]').first().isVisible().catch(()=>false));
      marker(mode+'_NATIVE_SUCCESS_UI',/success|close this|return to|back to|open.*app/.test(text));
      marker(mode+'_CONSENT_UI',/consent|authorize|allow access/.test(text));
