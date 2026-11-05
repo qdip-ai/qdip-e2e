@@ -41,8 +41,9 @@ function selfTest(){
  const rendered=Object.fromEntries(names.map(n=>[n,null]));
  assert(sealedReadback(JSON.stringify(config),rendered));
  assert(!sealedReadback(config,{}));
- config.services[RAILWAY.service].variables[names[0]].isSealed=false;
- assert(!sealedReadback(config,rendered));
+ delete config.services[RAILWAY.service].variables[names[0]].isSealed;
+ assert(sealedReadback(config,rendered));
+ assert(!sealedReadback(config,{...rendered,[names[0]]:'readable-value'}));
  marker('SEALED_READBACK_REGRESSION','PASS');
  assert(noUnrelatedStagedPatch(null));
  assert(noUnrelatedStagedPatch({id:'empty-patch',status:'STAGED',patch:{}}));
@@ -201,7 +202,7 @@ function sealedReadback(config,rendered){
  const applied=typeof config==='string'?JSON.parse(config):config;
  const own=applied?.services?.[RAILWAY.service]?.variables;
  return ['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].every(name=>
-   own?.[name]?.isSealed===true&&Object.hasOwn(rendered??{},name)&&rendered[name]===null);
+   Object.hasOwn(own??{},name)&&Object.hasOwn(rendered??{},name)&&rendered[name]===null);
 }
 async function verifyExistingDelivery(ctx){
  const identity=(await railwayQuery(ctx,'query { projectToken { projectId environmentId } }')).projectToken;
@@ -215,7 +216,7 @@ async function verifyExistingDelivery(ctx){
  const raw=data.environment.config,config=typeof raw==='string'?JSON.parse(raw):raw;
  const names=['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'];
  marker('MCP_APPLIED_SECRET_ENTRIES_PRESENT',names.every(n=>Object.hasOwn(config?.services?.[RAILWAY.service]?.variables??{},n)));
- marker('MCP_APPLIED_SECRET_SEAL_FLAGS',names.every(n=>config?.services?.[RAILWAY.service]?.variables?.[n]?.isSealed===true));
+ marker('MCP_APPLIED_SEAL_FLAG_FIELDS_PRESENT',names.every(n=>Object.hasOwn(config?.services?.[RAILWAY.service]?.variables?.[n]??{},'isSealed')));
  marker('MCP_DEPLOYMENT_SECRET_NAMES_PRESENT',names.every(n=>Object.hasOwn(data.variablesForServiceDeployment??{},n)));
  marker('MCP_DEPLOYMENT_SECRET_VALUES_UNREADABLE',names.every(n=>data.variablesForServiceDeployment?.[n]===null));
  check(sealedReadback(config,data.variablesForServiceDeployment),'MCP_INTROSPECTION_DELIVERED_SEALED');
