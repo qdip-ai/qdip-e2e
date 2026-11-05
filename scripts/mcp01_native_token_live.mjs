@@ -6,6 +6,7 @@
  */
 import {chromium} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
+import {createServer} from 'node:http';
 import {isDeepStrictEqual} from 'node:util';
 import assert from 'node:assert/strict';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
@@ -47,9 +48,19 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
    scope:scope.join(' '),state,nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'}))authorize.searchParams.set(k,v);
  if(mode==='MCP_RESOURCE')authorize.searchParams.set('resource',MCP);
  let callback,issuedAccess=null;
- const routeMatcher=url=>callbackMatches(url,redirect);
- const intercept=async route=>{callback=new URL(route.request().url());await route.fulfill({status:200,contentType:'text/plain',body:'QA OAuth callback received'});};
- await ctx.route(routeMatcher,intercept);
+ // Real Native-app callback listener. Browser routing is not a loopback server.
+ check(redirect.protocol==='http:'&&redirect.hostname==='127.0.0.1'&&redirect.port==='8765'&&
+   redirect.pathname==='/mcp01/callback',mode+'_APPROVED_LOOPBACK_CALLBACK');
+ const listener=createServer((req,res)=>{
+   const raw=req.url??'';
+   if(raw.length>8192||req.method!=='GET'||req.headers.host!==redirect.host){res.writeHead(400);res.end();return;}
+   const url=new URL(raw,redirect.origin);
+   if(!callbackMatches(url,redirect)||url.searchParams.get('state')!==state||callback){res.writeHead(400);res.end();return;}
+   callback=url;res.writeHead(200,{'Content-Type':'text/plain','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'"});
+   res.end('QA OAuth callback received. You may close this page.');
+ });
+ await new Promise((resolve,reject)=>{listener.once('error',()=>reject(Error('LOOPBACK_BIND_FAILED')));listener.listen(8765,'127.0.0.1',resolve);});
+ marker(mode+'_REAL_LOOPBACK_LISTENER','PASS');
  const page=await ctx.newPage();
  page.on('requestfailed',request=>{if(!request.isNavigationRequest())return;
    const code=String(request.failure()?.errorText??'').match(/(?:net::)?(ERR_[A-Z_]+)/)?.[1];
@@ -58,7 +69,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
      marker(mode+'_FAILED_NAVIGATION_IS_ISSUER',u.origin===ISSUER);}catch{}
  });
  try {
-   // Intercept only the exact already-registered URI before it contacts its host.
+   // Use the existing registered callback and a listening Native client on the same runner.
    let navigation;
    try{navigation=await page.goto(authorize.href,{waitUntil:'domcontentloaded',timeout:30000});}
    catch(error){const code=String(error?.message??'').match(/net::(ERR_[A-Z_]+)/)?.[1];
@@ -132,7 +143,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
        marker(mode+'_AFTER_REVOCATION_USERINFO_HTTP',after.status());
      }catch{marker(mode+'_DISPOSABLE_TOKEN_REVOCATION','NOT_VERIFIED');}
    }
-   issuedAccess=null;callback=null;await page.close();await ctx.unroute(routeMatcher,intercept);
+   issuedAccess=null;callback=null;await page.close();await new Promise(resolve=>listener.close(resolve));
  }
 
 }
