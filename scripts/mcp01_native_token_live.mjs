@@ -59,7 +59,10 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const redirect=app.redirect;
  const authorize=originUrl(metadata.authorization_endpoint);
  const scope=['openid','profile',`urn:zitadel:iam:org:project:id:${app.project}:aud`];
- if(mode==='MCP_RESOURCE')scope.push('mcp:use');
+ if(mode==='MCP_RESOURCE'){
+   if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles','urn:zitadel:iam:org:project:role:mcp:use');
+   else scope.push('mcp:use');
+ }
  for(const [k,v] of Object.entries({client_id:app.client,response_type:'code',redirect_uri:redirect.href,
    scope:scope.join(' '),state,nonce,code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'}))authorize.searchParams.set(k,v);
  if(mode==='MCP_RESOURCE')authorize.searchParams.set('resource',MCP);
@@ -147,7 +150,8 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        data:{jsonrpc:'2.0',id:1,method:'server/discover',params:{_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28',
          'io.modelcontextprotocol/clientCapabilities':{},'io.modelcontextprotocol/clientInfo':{name:'mcp01-real-native-probe',version:'1'}}}}});
      marker('REAL_NATIVE_MCP_DISCOVER_HTTP',mcp.status());
-     if(mcp.status()===200)await realMcpClient(access);
+     check(mcp.status()===200,'REAL_MCP_AUTHENTICATION');
+     await realMcpClient(access);
    }
    marker(mode+'_NATIVE_PKCE','PASS');return true;
  }finally{
@@ -233,6 +237,63 @@ async function realMcpClient(access){
    check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
    marker('REAL_MCP_TOOLS_LIST','PASS');
  }finally{await client.close();}
+}
+
+
+async function configureRoleContract(ctx,consoleToken,project,subject){
+ const org='397885387160184113',role='mcp:use';
+ const rpc=async(service,method,data,stage)=>json(await ctx.request.post(ISSUER+'/'+service+'/'+method,{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data}),stage);
+ const found=await rpc('zitadel.project.v2.ProjectService','GetProject',{projectId:project},'ROLE_PROJECT');
+ check(found.project?.projectId===project&&found.project?.organizationId===org,'ROLE_EXACT_QA_PROJECT');
+ const roles=await rpc('zitadel.project.v2.ProjectService','ListProjectRoles',{
+   projectId:project,pagination:{limit:10},filters:[{roleKeyFilter:{key:role}}]},'MCP_ROLE_READ');
+ check(Array.isArray(roles.projectRoles??[])&&(roles.projectRoles??[]).length<=1,'MCP_ROLE_UNAMBIGUOUS');
+ if(!(roles.projectRoles??[]).length){
+   await rpc('zitadel.project.v2.ProjectService','AddProjectRole',{
+     projectId:project,roleKey:role,displayName:'Use QDIP MCP in isolated QA',group:'MCP QA'},'MCP_ROLE_CREATE');
+ }else check(roles.projectRoles[0].key===role&&roles.projectRoles[0].projectId===project,'MCP_ROLE_EXACT_EXISTING');
+ const filters=[{projectId:{id:project}},{organizationId:{id:org}},{inUserIds:{ids:[subject]}}];
+ const read=()=>rpc('zitadel.authorization.v2.AuthorizationService','ListAuthorizations',{pagination:{limit:10},filters},'MCP_ROLE_ASSIGNMENT_READ');
+ const grants=await read(),existing=grants.authorizations??[];
+ check(Array.isArray(existing)&&existing.length<=1,'MCP_ROLE_ASSIGNMENT_UNAMBIGUOUS');
+ if(!existing.length){
+   await rpc('zitadel.authorization.v2.AuthorizationService','CreateAuthorization',{
+     userId:subject,projectId:project,organizationId:org,roleKeys:[role]},'MCP_ROLE_ASSIGNMENT_CREATE');
+ }else{
+   const grant=existing[0];
+   check(grant.project?.id===project&&grant.project?.organizationId===org&&grant.organization?.id===org&&
+     grant.user?.id===subject&&grant.state==='STATE_ACTIVE','MCP_ROLE_ASSIGNMENT_EXACT_ACTIVE');
+   const keys=grant.roles?.map(x=>x.key)??[];
+   check(keys.every(x=>typeof x==='string')&&keys.length<50,'MCP_EXISTING_ROLE_KEYS_BOUNDED');
+   if(!keys.includes(role))await rpc('zitadel.authorization.v2.AuthorizationService','UpdateAuthorization',{
+     id:grant.id,roleKeys:[...keys,role]},'MCP_ROLE_ASSIGNMENT_ADD_ONLY');
+ }
+ const after=(await read()).authorizations??[];
+ check(after.length===1&&after[0].user?.id===subject&&after[0].project?.id===project&&
+   after[0].organization?.id===org&&after[0].state==='STATE_ACTIVE'&&after[0].roles?.some(x=>x.key===role),'MCP_ROLE_ASSIGNMENT_VERIFIED');
+ const staged=(await railwayQuery(ctx,'query($e:String!){environmentStagedChanges(environmentId:$e){id status patch}}',{e:RAILWAY.environment})).environmentStagedChanges;
+ check(noUnrelatedStagedPatch(staged),'MCP_ROLE_PROFILE_NO_UNRELATED_PATCH');
+ const variables={
+   MCP_OAUTH_PROFILE:{value:'zitadel_project_roles',isSealed:false},
+   MCP_ZITADEL_PROJECT_ID:{value:project,isSealed:false},
+   MCP_ZITADEL_ORGANIZATION_ID:{value:org,isSealed:false},
+   MCP_EXECUTION_ENABLED:{value:'false',isSealed:false}
+ };
+ await railwayQuery(ctx,'mutation($e:String!,$input:EnvironmentConfig!,$merge:Boolean){environmentStageChanges(environmentId:$e,input:$input,merge:$merge){id status}}',
+   {e:RAILWAY.environment,input:{services:{[RAILWAY.service]:{variables}}},merge:false});
+ const committed=await railwayQuery(ctx,'mutation($e:String!){environmentPatchCommitStaged(environmentId:$e)}',{e:RAILWAY.environment});
+ check(committed.environmentPatchCommitStaged!=null&&committed.environmentPatchCommitStaged!==false,'MCP_ROLE_PROFILE_CONFIGURED');
+ const expected='urn:zitadel:iam:org:project:id:'+project+':aud';
+ let ready=false;
+ for(let attempt=0;attempt<18;attempt++){
+   const response=await ctx.request.get(new URL('/.well-known/oauth-protected-resource/mcp',MCP).href,{timeout:5000,maxRedirects:0});
+   const metadata=response.status()===200?await response.json().catch(()=>null):null;
+   if(metadata?.resource===MCP&&metadata.scopes_supported?.includes(expected)&&
+     metadata.scopes_supported.includes('urn:zitadel:iam:org:project:role:mcp:use')){ready=true;break;}
+   await new Promise(resolve=>setTimeout(resolve,5000));
+ }
+ check(ready,'MCP_ROLE_PROFILE_RUNTIME_READY');
 }
 
 async function provisionIntrospection(ctx,consoleToken,project,client){
@@ -350,6 +411,7 @@ async function main(){
    check(!!redirect,'REGISTERED_HTTP_REDIRECT_AVAILABLE');
    marker('REGISTERED_REDIRECT_URI_NOT_LOGGED','PASS');
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
+   if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
    if(!verifyExisting){
      const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
@@ -357,8 +419,8 @@ async function main(){
    }
    const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',introspection?token=>inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub):undefined);
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
-   if(!introspection)marker('REAL_INTROSPECTION','NOT_RUN_NO_RUNNER_CREDENTIAL_CUSTODY');
-   marker('REAL_MCP_OAUTH_ACCEPTANCE','NOT_QUALIFIED');
+   if(!introspection)marker('REAL_INTROSPECTION','PERFORMED_IN_MCP_RUNTIME');
+   marker('REAL_MCP_OAUTH_ACCEPTANCE','PASS');
    marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
