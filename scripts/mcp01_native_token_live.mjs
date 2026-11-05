@@ -2,9 +2,11 @@
  * Reuses QA21 login/Console read pattern independently qualified by E2E PR141.
  * All credentials, codes, tokens and claim values remain in process memory.
  * No screenshots, traces, videos, response bodies or auth URLs are persisted.
+ * Explicit QA setup mode may add ONE fixed loopback callback to an empty managed Native app; no identity or scope changes.
  */
 import {chromium} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 
 const SITE='https://qdip.ai';
@@ -120,9 +122,29 @@ async function main(){
    check(typeof owner.sub==='string'&&/^[0-9]{1,32}$/.test(owner.sub),'EXPECTED_OWNER_SUBJECT');
    const data=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
      timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:application}}),'MANAGED_APP_CONFIG');
-   const app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
+   let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
      app?.state==='APPLICATION_STATE_ACTIVE'&&app?.oidcConfiguration?.clientId===client,'EXACT_MANAGED_APP_CONFIG');
-   const oidc=app.oidcConfiguration;
+   let oidc=app.oidcConfiguration;
+   if((oidc.redirectUris??[]).length===0&&process.env.MCP01_REGISTER_QA_CALLBACK==='true'){
+     // Task-authorized minimal QA setup using the real project owner's session, not Agent/Controller keys.
+     check(oidc.applicationType==='OIDC_APP_TYPE_NATIVE'&&oidc.authMethodType==='OIDC_AUTH_METHOD_TYPE_NONE'&&
+       oidc.grantTypes?.includes('OIDC_GRANT_TYPE_AUTHORIZATION_CODE')&&oidc.responseTypes?.includes('OIDC_RESPONSE_TYPE_CODE'),'CALLBACK_WRITE_PUBLIC_NATIVE_PRECONDITIONS');
+     const qaProject=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/GetProject',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{projectId:project}}),'CALLBACK_WRITE_PROJECT');
+     check(qaProject.project?.projectId===project&&qaProject.project?.organizationId==='397885387160184113','CALLBACK_WRITE_EXACT_QA_PROJECT');
+     const registered='http://127.0.0.1:8765/mcp01/callback';
+     await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/UpdateApplication',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+       data:{applicationId:application,projectId:project,oidcConfiguration:{redirectUris:[registered]}}}),'CALLBACK_OWNER_WRITE');
+     const after=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:application}}),'CALLBACK_READBACK');
+     check(after.application?.applicationId===application&&after.application?.projectId===project&&
+       after.application?.oidcConfiguration?.clientId===client&&after.application?.name==='sdk-managed-qa','CALLBACK_READBACK_IDENTITY');
+     const updated=after.application.oidcConfiguration;
+     check(isDeepStrictEqual({...oidc,redirectUris:[]},{...updated,redirectUris:[]})&&
+       isDeepStrictEqual(updated.redirectUris,[registered]),'ONLY_APPROVED_QA_CALLBACK_CHANGED');
+     app=after.application;oidc=updated;
+   }
    // Config read only; this does not repeat project-owner listing/qualification.
    const uris=oidc.redirectUris;
    check(Array.isArray(uris)&&uris.length>0&&uris.length<=50,'REGISTERED_REDIRECTS_PRESENT');
