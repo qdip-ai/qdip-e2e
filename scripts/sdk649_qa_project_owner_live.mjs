@@ -104,6 +104,7 @@ async function verifyPkce(ctx,client,label,projectId,expectedSub){
     check(user.status()===200,label+'_PKCE_USERINFO_HTTP_200');
     const profile=await user.json().catch(()=>null);
     check(profile?.sub===expectedSub,label+'_PKCE_EXACT_QA21_SUBJECT');
+    return accessToken;
   }finally{
     accessToken=null;
     await page.close();
@@ -212,7 +213,7 @@ async function run(){validateQaApplicationVariables(process.env);
       console.log('SDK649_'+label+'_REGISTERED_REDIRECT_COUNT='+redirects.length);
       console.log('SDK649_'+label+'_QA_PKCE_CALLBACK='+
         (redirects.includes(CALLBACK_URI)?'REGISTERED':'MISSING'));
-      if(redirects.includes(CALLBACK_URI))readyPkce.push({label,client});
+      if(redirects.includes(CALLBACK_URI))readyPkce.push({label,client,appId:id});
       console.log('SDK649_'+label+'_REDIRECTS_HTTPS_OR_LOOPBACK='+(validRedirects?'YES':'NO'));
       console.log('SDK649_'+label+'_AUTH_METHOD_TYPE='+
         (/^OIDC_AUTH_METHOD_TYPE_[A-Z_]+$/.test(oidc?.authMethodType||'')?
@@ -268,9 +269,47 @@ async function run(){validateQaApplicationVariables(process.env);
       'API_AUTH_METHOD_TYPE_BASIC';
     check(apiMethod==='API_AUTH_METHOD_TYPE_BASIC','QA_INTROSPECTION_API_BASIC');
     if(readyPkce.length===2){
-      for(const app of readyPkce)
-        await verifyPkce(ctx,app.client,app.label,p,sub);
-      console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=PASS');
+      let tokens=[];
+      try{
+        for(const app of readyPkce)
+          tokens.push(await verifyPkce(ctx,app.client,app.label,p,sub));
+        console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=PASS');
+        const qaKeys=[
+          process.env.QDIP_SDK_QA_MANAGED_ORG_KEY||'',
+          process.env.QDIP_SDK_QA_EXTERNAL_ORG_KEY||'',
+        ];
+        const present=qaKeys.filter(Boolean).length;
+        if(present!==2){
+          console.log('SDK649_QA_CORE_CANONICAL_LINK=BLOCKED_'+
+            (present===0?'MISSING_SCOPED_SDK_KEYS':'INCOMPLETE_SCOPED_SDK_KEYS'));
+        }else{
+          check(qaKeys[0]!==qaKeys[1]&&qaKeys.every(k=>k.length>=16&&
+            /^[^\\s\\x00-\\x1f\\x7f]+$/u.test(k)),
+            'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
+          for(let i=0;i<2;i++){
+            const app=readyPkce[i];
+            const r=await ctx.request.post(
+              STAGING_CORE+'/api/v1/private-resource-access/applications/link',{
+                data:{application_id:app.appId},timeout:20000,maxRedirects:0,
+                headers:{'x-api-key':qaKeys[i],Authorization:'Bearer '+tokens[i]},
+              });
+            check(r.status()===204,app.label+'_CORE_LINK_HTTP_204');
+          }
+          for(let i=0;i<2;i++){
+            const j=1-i;
+            const r=await ctx.request.post(
+              STAGING_CORE+'/api/v1/private-resource-access/applications/link',{
+                data:{application_id:readyPkce[i].appId},timeout:20000,
+                maxRedirects:0,
+                headers:{'x-api-key':qaKeys[i],Authorization:'Bearer '+tokens[j]},
+              });
+            check(r.status()===403,
+              readyPkce[i].label+'_CROSS_APP_TOKEN_DENIED_403');
+          }
+          console.log('SDK649_QA_CORE_CANONICAL_LINK=PASS_TWO_204');
+          console.log('SDK649_QA_MONGO_READBACK=NOT_VERIFIED');
+        }
+      }finally{tokens.fill(null);tokens=[];}
     }else console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=BLOCKED_UNREGISTERED_CALLBACK');
     console.log('SDK649_INTROSPECTION_CLIENT_SECRET_MATCH=NOT_VERIFIED');
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
