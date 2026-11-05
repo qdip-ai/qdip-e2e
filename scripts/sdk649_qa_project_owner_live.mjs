@@ -6,6 +6,7 @@ import {validateQaApplicationVariables} from './sdk649_qa_app_vars.mjs';
 const SITE='https://qdip.ai', ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const ORG='397885387160184113', USER='qa-21@qdip.ai';
 const CALLBACK_URI='http://127.0.0.1:8765/oidc/callback';
+const STAGING_CORE='https://qdip-core-staging-staging.up.railway.app';
 function check(ok,id){console.log('SDK649_'+id+'='+(ok?'PASS':'FAIL'));if(!ok)throw Error(id);}
 function appOk(x,p,id,client,name){const a=x?.application;
   return a?.applicationId===id&&a?.projectId===p&&a?.name===name&&
@@ -17,6 +18,21 @@ function ownerOk(x,p,sub){const a=x?.administrators,m=x?.pagination??x?.details;
     a.some(o=>o?.instance!==true&&o?.user?.id===sub&&
     Array.isArray(o?.roles)&&o.roles.includes('PROJECT_OWNER')&&
     o?.project?.id===p&&o?.project?.organizationId===ORG);}
+async function proveCoreRejectsMissingOrForgedSdkKey(req,appId,label){
+  const url=STAGING_CORE+'/api/v1/private-resource-access/applications/link';
+  const body={application_id:appId};
+  // Both probes MUST be rejected before introspection, ownership or a Mongo write.
+  // No Authorization bearer or valid organization-scoped SDK key is sent.
+  for(const [scenario,headers] of [
+    ['MISSING_SDK_KEY',{}],
+    ['FORGED_SDK_KEY',{'x-api-key':'sdk649-intentionally-invalid-key'}],
+  ]){
+    const r=await req.post(url,{
+      data:body,headers,timeout:15000,maxRedirects:0,
+    });
+    check(r.status()===401,label+'_CORE_'+scenario+'_DENIED_401');
+  }
+}
 async function openCallback(expectedState){
   let receive;
   const code=new Promise(resolve=>{receive=resolve;});
@@ -230,6 +246,10 @@ async function run(){validateQaApplicationVariables(process.env);
       'QA_PROJECT_CATALOG_COMPLETE');
     const apis=rows.filter(a=>a?.state==='APPLICATION_STATE_ACTIVE'&&
       a?.apiConfiguration&&typeof a.apiConfiguration==='object');
+    await proveCoreRejectsMissingOrForgedSdkKey(ctx.request,
+      process.env.QDIP_SDK_MANAGED_APP_ID,'MANAGED');
+    await proveCoreRejectsMissingOrForgedSdkKey(ctx.request,
+      process.env.QDIP_SDK_EXTERNAL_APP_ID,'EXTERNAL');
     console.log('SDK649_QA_PROJECT_ACTIVE_API_APP_COUNT='+apis.length);
     // APIAuthMethodType proto enum value 0 is BASIC; ProtoJSON omits zero values.
     // Prove the exact active API application using a second read, not a bare list row.
