@@ -4,7 +4,7 @@
  * No screenshots, traces, videos, response bodies or auth URLs are persisted.
  * Explicit QA setup mode may add ONE fixed loopback callback to an empty managed Native app; no identity or scope changes.
  */
-import {chromium} from '@playwright/test';
+import {chromium,request as requestAPI} from '@playwright/test';
 import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createHash,randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
@@ -352,6 +352,25 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
  marker('REAL_INTROSPECTION_MCP_USE_GRANTED',typeof active.scope==='string'&&active.scope.split(' ').includes('mcp:use'));
 }
 
+
+async function sdkSetupAccess(){
+ // The MCP token cannot authorize the separate existing SDK QA project.
+ // This is the credential custody prerequisite for running the existing
+ // SDK provisioner and wiring sealed Core references, not a new key issuer.
+ const token=process.env.RAILWAY_SDK_QA_PROJECT_TOKEN||process.env.RAILWAY_PROJECT_TOKEN;
+ check(typeof token==='string'&&token.length>=20,'SDK_QA_OPERATOR_TOKEN_PRESENT');
+ const ctx=await requestAPI.newContext({ignoreHTTPSErrors:false});
+ try{
+   const result=await json(await ctx.post('https://backboard.railway.com/graphql/v2',{
+     timeout:15000,maxRedirects:0,headers:{'Project-Access-Token':token},
+     data:{query:'query { projectToken { projectId environmentId } }'}}),'SDK_QA_OPERATOR_AUTH');
+   check(!result.errors&&result.data?.projectToken?.projectId==='f1326384-1e2d-4bea-99a9-bbae2233e36e'&&
+     result.data.projectToken.environmentId==='9e4a6dac-717c-4327-bb1e-1491a4e5c080','SDK_QA_OPERATOR_EXACT_SCOPE');
+   marker('SDK_QA_SETUP_ACCESS','PASS');
+   marker('SDK_WORKER_EXECUTION','NOT_RUN');
+ }finally{await ctx.dispose();}
+}
+
 async function main(){
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
@@ -425,5 +444,5 @@ async function main(){
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
-if(process.argv.includes('--self-test'))selfTest();else main().catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
+if(process.argv.includes('--self-test'))selfTest();else (process.argv.includes('--sdk-setup-access')?sdkSetupAccess():main()).catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
  marker('NATIVE_TOKEN_CONTRACT_PROBE','FAIL_'+stage);process.exitCode=1;});

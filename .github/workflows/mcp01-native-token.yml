@@ -38,6 +38,8 @@ jobs:
           MCP01_PROVISION_OAUTH: "false"
           MCP01_VERIFY_EXISTING_OAUTH: "true"
           MCP01_CONFIGURE_ROLE_CONTRACT: "true"
+          RAILWAY_SDK_QA_PROJECT_TOKEN: ${{ secrets.RAILWAY_SDK_QA_PROJECT_TOKEN }}
+          RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
           RAILWAY_MCP_QA_PROJECT_TOKEN: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN || secrets.RAILWAY_PROJECT_TOKEN }}
           MCP01_REGISTER_QA_CALLBACK: "false"
           QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
@@ -48,4 +50,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs
+          node mcp01_native_token_live.mjs --sdk-setup-access
