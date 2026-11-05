@@ -293,6 +293,8 @@ async function run(){validateQaApplicationVariables(process.env);
         if(present!==2){
           console.log('SDK649_QA_CORE_CANONICAL_LINK=BLOCKED_'+
             (present===0?'MISSING_SCOPED_SDK_KEYS':'INCOMPLETE_SCOPED_SDK_KEYS'));
+          if(Number(process.env.GITHUB_RUN_ATTEMPT||'1')>1)
+            throw Error('QA_SCOPED_KEYS_REQUIRED_ON_RERUN');
         }else{
           check(validScopedQaKeys(qaKeys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
           for(let i=0;i<2;i++){
