@@ -79,6 +79,8 @@ jobs:
           QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
           QDIP_SDK_EXTERNAL_APP_ID: ${{ vars.QDIP_SDK_EXTERNAL_APP_ID }}
           QDIP_SDK_EXTERNAL_CLIENT_ID: ${{ vars.QDIP_SDK_EXTERNAL_CLIENT_ID }}
+          QDIP_SDK_QA_MANAGED_ORG_KEY: ${{ secrets.QDIP_SDK_QA_MANAGED_ORG_KEY }}
+          QDIP_SDK_QA_EXTERNAL_ORG_KEY: ${{ secrets.QDIP_SDK_QA_EXTERNAL_ORG_KEY }}
         run: |
           set -euo pipefail
           cd /tmp/sdk649-owner
