@@ -35,6 +35,12 @@ function selfTest(){
  assert(sameOtherSettings(before,after));
  for(const changed of [{grantTypes:['implicit']},{authMethodType:'basic'},{clientId:'foreign'}])assert(!sameOtherSettings(before,{...after,...changed}));
  marker('OIDC_MUTABLE_SETTINGS_REGRESSION','PASS');
+ assert(noUnrelatedStagedPatch(null));
+ assert(noUnrelatedStagedPatch({id:'empty-patch',status:'STAGED',patch:{}}));
+ assert(!noUnrelatedStagedPatch({id:'foreign',status:'STAGED',patch:{services:{other:{}}}}));
+ assert(!noUnrelatedStagedPatch({id:'applying',status:'APPLYING',patch:{}}));
+ assert(!noUnrelatedStagedPatch({id:'unknown',status:'STAGED'}));
+ marker('MCP_EMPTY_STAGED_PATCH_REGRESSION','PASS');
 }
 
 async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
@@ -149,6 +155,13 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
 
 }
 
+// Railway can return STAGED with an empty patch when there are no pending changes.
+// Reject APPLYING and any non-empty/unknown patch before credential provisioning.
+function noUnrelatedStagedPatch(stage){
+ return stage==null||(typeof stage==='object'&&!Array.isArray(stage)&&stage.status==='STAGED'&&
+   stage.patch!==null&&typeof stage.patch==='object'&&!Array.isArray(stage.patch)&&Object.keys(stage.patch).length===0);
+}
+
 // Uses the same sealed EnvironmentConfig delivery contract as Core's SDK
 // reconciler. Never exports a secret or creates a public provisioning endpoint.
 const RAILWAY={project:'b4c18e5e-9ae8-461c-921c-0ac97049be2e',environment:'73a05860-cec4-4678-b3bf-1d32ac363a85',service:'ba13c2d1-6150-4d95-9a73-793ec2ed1228'};
@@ -166,7 +179,7 @@ async function deliveryPreflight(ctx){
  const data=await railwayQuery(ctx,'query($p:String!,$e:String!){ project(id:$p){id services{edges{node{id name}}} environments{edges{node{id name}}}} environment(id:$e,projectId:$p){variables(first:10000){edges{node{name serviceId isSealed}}}} environmentStagedChanges(environmentId:$e){id status patch} }',{p:RAILWAY.project,e:RAILWAY.environment});
  check(data.project?.services?.edges?.some(x=>x.node?.id===RAILWAY.service&&x.node?.name==='qdip-mcp')&&
    data.project?.environments?.edges?.some(x=>x.node?.id===RAILWAY.environment&&x.node?.name==='sandbox'),'MCP_QA_DELIVERY_TARGET');
- check(data.environmentStagedChanges==null,'MCP_QA_NO_UNRELATED_STAGED_PATCH');
+ check(noUnrelatedStagedPatch(data.environmentStagedChanges),'MCP_QA_NO_UNRELATED_STAGED_PATCH');
  const variables=data.environment?.variables?.edges;
  check(Array.isArray(variables),'MCP_QA_VARIABLE_METADATA_AVAILABLE');
  const own=variables.map(x=>x.node).filter(x=>x?.serviceId===RAILWAY.service);
