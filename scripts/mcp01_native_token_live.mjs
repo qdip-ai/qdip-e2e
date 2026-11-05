@@ -7,6 +7,7 @@
 import {chromium} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
+import assert from 'node:assert/strict';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 
 const SITE='https://qdip.ai';
@@ -23,6 +24,17 @@ async function visible(page,selectors,ms=14000){const end=Date.now()+ms;
  while(Date.now()<end){for(const selector of selectors){const n=page.locator(selector).first();if(await n.isVisible().catch(()=>false))return n;}await page.waitForTimeout(250);}return null;}
 function callbackMatches(actual,target){return actual.origin===target.origin&&actual.pathname===target.pathname&&
  [...target.searchParams].every(([k,v])=>actual.searchParams.get(k)===v);}
+
+// These are provider-generated read-only fields, not UpdateApplication settings.
+function mutableOidc(config){const {nonCompliant,complianceProblems,allowedOrigins,...settings}=config;return settings;}
+function sameOtherSettings(before,after){return isDeepStrictEqual({...mutableOidc(before),redirectUris:[]},{...mutableOidc(after),redirectUris:[]});}
+function selfTest(){
+ const before={clientId:'fixture',redirectUris:[],grantTypes:['code'],authMethodType:'none',allowedOrigins:[],nonCompliant:true,complianceProblems:['missing redirect']};
+ const after={...before,redirectUris:['http://127.0.0.1:8765/mcp01/callback'],allowedOrigins:['http://127.0.0.1:8765'],nonCompliant:false,complianceProblems:[]};
+ assert(sameOtherSettings(before,after));
+ for(const changed of [{grantTypes:['implicit']},{authMethodType:'basic'},{clientId:'foreign'}])assert(!sameOtherSettings(before,{...after,...changed}));
+ marker('OIDC_MUTABLE_SETTINGS_REGRESSION','PASS');
+}
 
 async function nativeFlow(ctx,metadata,app,subject,mode){
  const verifier=randomBytes(32).toString('base64url'),state=randomBytes(24).toString('base64url');
@@ -141,7 +153,7 @@ async function main(){
      check(after.application?.applicationId===application&&after.application?.projectId===project&&
        after.application?.oidcConfiguration?.clientId===client&&after.application?.name==='sdk-managed-qa','CALLBACK_READBACK_IDENTITY');
      const updated=after.application.oidcConfiguration;
-     check(isDeepStrictEqual({...oidc,redirectUris:[]},{...updated,redirectUris:[]})&&
+     check(sameOtherSettings(oidc,updated)&&
        isDeepStrictEqual(updated.redirectUris,[registered]),'ONLY_APPROVED_QA_CALLBACK_CHANGED');
      app=after.application;oidc=updated;
    }
@@ -161,5 +173,5 @@ async function main(){
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;await ctx.close();await browser.close();}
 }
-main().catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
+if(process.argv.includes('--self-test'))selfTest();else main().catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
  marker('NATIVE_TOKEN_CONTRACT_PROBE','FAIL_'+stage);process.exitCode=1;});

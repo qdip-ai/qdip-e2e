@@ -32,9 +32,10 @@ jobs:
           npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1 jose@6.1.3
           npx playwright install --with-deps chromium
           node --check mcp01_native_token_live.mjs
+          node mcp01_native_token_live.mjs --self-test
       - name: Actual same-client authorization code PKCE and sanitized token contract
         env:
-          MCP01_REGISTER_QA_CALLBACK: "true"
+          MCP01_REGISTER_QA_CALLBACK: "false"
           QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
           QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
           QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
