@@ -18,6 +18,11 @@ function ownerOk(x,p,sub){const a=x?.administrators,m=x?.pagination??x?.details;
     a.some(o=>o?.instance!==true&&o?.user?.id===sub&&
     Array.isArray(o?.roles)&&o.roles.includes('PROJECT_OWNER')&&
     o?.project?.id===p&&o?.project?.organizationId===ORG);}
+function validScopedQaKeys(keys){
+  return Array.isArray(keys)&&keys.length===2&&keys[0]!==keys[1]&&
+    keys.every(k=>typeof k==='string'&&k.length>=16&&
+      !/[\s\x00-\x1f\x7f]/u.test(k));
+}
 async function proveCoreRejectsMissingOrForgedSdkKey(req,appId,label){
   const url=STAGING_CORE+'/api/v1/private-resource-access/applications/link';
   const body={application_id:appId};
@@ -133,7 +138,13 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
     assert.equal(await local.code,'code-sample-1234');
     assert.equal((await fetch(CALLBACK_URI+'?state=test-state-123&code=replay-code-1234')).status,400);
   }finally{await local.close();}
-  console.log('SDK649_PKCE_LOOPBACK_NEGATIVE_REGRESSIONS=PASS');}
+  console.log('SDK649_PKCE_LOOPBACK_NEGATIVE_REGRESSIONS=PASS');
+  assert(validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002']));
+  assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-001']));
+  assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
+  assert(!validScopedQaKeys(['','scoped-key-qa-002']));
+  console.log('SDK649_SCOPED_KEY_NEGATIVE_REGRESSIONS=PASS');
+}
 async function visible(page,selectors,ms=14000){const end=Date.now()+ms;
   while(Date.now()<end){for(const s of selectors){const n=page.locator(s).first();
     if(await n.isVisible().catch(()=>false))return n;}await page.waitForTimeout(250);}
@@ -283,9 +294,7 @@ async function run(){validateQaApplicationVariables(process.env);
           console.log('SDK649_QA_CORE_CANONICAL_LINK=BLOCKED_'+
             (present===0?'MISSING_SCOPED_SDK_KEYS':'INCOMPLETE_SCOPED_SDK_KEYS'));
         }else{
-          check(qaKeys[0]!==qaKeys[1]&&qaKeys.every(k=>k.length>=16&&
-            /^[^\\s\\x00-\\x1f\\x7f]+$/u.test(k)),
-            'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
+          check(validScopedQaKeys(qaKeys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
           for(let i=0;i<2;i++){
             const app=readyPkce[i];
             const r=await ctx.request.post(
