@@ -37,4 +37,4 @@ The callback addition remains on the existing managed QA application. No externa
 4. Actual authenticated tools/list; SDK list/describe/invoke; registered SDK-02 Worker -> frozen Kernel result; Manifest/Replay/decimals; security, schema, timeout/no-duplicate, outage and result-release negatives.
 5. Actual end-to-end phase timings remain NOT RUN. No SLA inferred from this small authorization probe.
 
-MCP PR2, Core PR654 and E2E PR143 stay Draft. No merge, production deployment or execution enablement. Sanitized marker transcript is adjacent; no token/code/password/subject/client ID values, full auth URLs, browser traces or screenshots were persisted.
+MCP PR2, Core PR654 and E2E PR143 stay Draft. No merge, production deployment or execution enablement. The adjacent committed marker transcript omits token/code/password/subject/client ID values and full auth URLs. No browser traces or screenshots were collected.
