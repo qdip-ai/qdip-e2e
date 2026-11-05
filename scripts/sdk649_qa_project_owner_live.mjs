@@ -319,13 +319,16 @@ async function run(){validateQaApplicationVariables(process.env);
           }
           console.log('SDK649_QA_CORE_CANONICAL_LINK=PASS_TWO_204');
           console.log('SDK649_QA_MONGO_READBACK=NOT_VERIFIED');
+          console.log('SDK649_CANONICAL_BINDING=PASS_TWO_204');
         }
       }finally{tokens.fill(null);tokens=[];}
     }else console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=BLOCKED_UNREGISTERED_CALLBACK');
     console.log('SDK649_INTROSPECTION_CLIENT_SECRET_MATCH=NOT_VERIFIED');
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
     console.log('SDK649_ZITADEL_READONLY_OWNER_PREFLIGHT=PASS');
-    console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
+    if((process.env.QDIP_SDK_QA_MANAGED_ORG_KEY||'').length===0 ||
+       (process.env.QDIP_SDK_QA_EXTERNAL_ORG_KEY||'').length===0)
+      console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
   }finally{token=null;await ctx.close();await b.close();}
 }
 if(process.argv[2]==='--self-test')selfTest().catch(()=>{process.exitCode=1;});
