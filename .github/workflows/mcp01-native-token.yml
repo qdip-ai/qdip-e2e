@@ -35,6 +35,8 @@ jobs:
           node mcp01_native_token_live.mjs --self-test
       - name: Actual same-client authorization code PKCE and sanitized token contract
         env:
+          MCP01_PROVISION_OAUTH: "true"
+          RAILWAY_MCP_QA_PROJECT_TOKEN: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN || secrets.RAILWAY_PROJECT_TOKEN }}
           MCP01_REGISTER_QA_CALLBACK: "false"
           QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
           QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}

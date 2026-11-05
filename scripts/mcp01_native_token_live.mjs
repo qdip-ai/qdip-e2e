@@ -37,7 +37,7 @@ function selfTest(){
  marker('OIDC_MUTABLE_SETTINGS_REGRESSION','PASS');
 }
 
-async function nativeFlow(ctx,metadata,app,subject,mode){
+async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const verifier=randomBytes(32).toString('base64url'),state=randomBytes(24).toString('base64url');
  const nonce=randomBytes(24).toString('base64url');
  const redirect=app.redirect;
@@ -50,7 +50,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
  let callback,issuedAccess=null;
  // Real Native-app callback listener. Browser routing is not a loopback server.
  check(redirect.protocol==='http:'&&redirect.hostname==='127.0.0.1'&&redirect.port==='8765'&&
-   redirect.pathname==='/mcp01/callback',mode+'_APPROVED_LOOPBACK_CALLBACK');
+   ['/mcp01/callback','/oidc/callback'].includes(redirect.pathname),mode+'_APPROVED_LOOPBACK_CALLBACK');
  const listener=createServer((req,res)=>{
    const raw=req.url??'';
    if(raw.length>8192||req.method!=='GET'||req.headers.host!==redirect.host){res.writeHead(400);res.end();return;}
@@ -123,6 +123,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
      marker(mode+'_JWT_SCOPE_PRESENT',typeof verified.scope==='string');
      marker(mode+'_JWT_MCP_SCOPE',typeof verified.scope==='string'&&verified.scope.split(' ').includes('mcp:use'));
    }else marker(mode+'_JWT_SIGNATURE_AND_CLIENT_BINDING','NOT_VERIFIED_OPAQUE');
+   if(onAccess)await onAccess(access);
    if(mode==='MCP_RESOURCE'){
      const mcp=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
        headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
@@ -148,13 +149,97 @@ async function nativeFlow(ctx,metadata,app,subject,mode){
 
 }
 
+// Uses the same sealed EnvironmentConfig delivery contract as Core's SDK
+// reconciler. Never exports a secret or creates a public provisioning endpoint.
+const RAILWAY={project:'b4c18e5e-9ae8-461c-921c-0ac97049be2e',environment:'73a05860-cec4-4678-b3bf-1d32ac363a85',service:'ba13c2d1-6150-4d95-9a73-793ec2ed1228'};
+async function railwayQuery(ctx,query,variables={}){
+ const token=process.env.RAILWAY_MCP_QA_PROJECT_TOKEN;
+ check(typeof token==='string'&&token.length>=20,'MCP_QA_DELIVERY_TOKEN_PRESENT');
+ const result=await json(await ctx.request.post('https://backboard.railway.com/graphql/v2',{
+   timeout:15000,maxRedirects:0,headers:{'Project-Access-Token':token},data:{query,variables}}),'RAILWAY_OPERATION');
+ check(!result.errors&&result.data&&typeof result.data==='object','RAILWAY_OPERATION_ACK');
+ return result.data;
+}
+async function deliveryPreflight(ctx){
+ const identity=(await railwayQuery(ctx,'query { projectToken { projectId environmentId } }')).projectToken;
+ check(identity?.projectId===RAILWAY.project&&identity?.environmentId===RAILWAY.environment,'MCP_QA_DELIVERY_TOKEN_EXACT_SCOPE');
+ const data=await railwayQuery(ctx,'query($p:String!,$e:String!){ project(id:$p){id services{edges{node{id name}}} environments{edges{node{id name}}}} environment(id:$e,projectId:$p){variables(first:10000){edges{node{name serviceId isSealed}}}} environmentStagedChanges(environmentId:$e){id status patch} }',{p:RAILWAY.project,e:RAILWAY.environment});
+ check(data.project?.services?.edges?.some(x=>x.node?.id===RAILWAY.service&&x.node?.name==='qdip-mcp')&&
+   data.project?.environments?.edges?.some(x=>x.node?.id===RAILWAY.environment&&x.node?.name==='sandbox'),'MCP_QA_DELIVERY_TARGET');
+ check(data.environmentStagedChanges==null,'MCP_QA_NO_UNRELATED_STAGED_PATCH');
+ const variables=data.environment?.variables?.edges;
+ check(Array.isArray(variables),'MCP_QA_VARIABLE_METADATA_AVAILABLE');
+ const own=variables.map(x=>x.node).filter(x=>x?.serviceId===RAILWAY.service);
+ check(!own.some(x=>['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].includes(x.name)),
+   'MCP_QA_NO_EXISTING_INTROSPECTION_OVERWRITE');
+}
+async function provisionIntrospection(ctx,consoleToken,project,client){
+ await deliveryPreflight(ctx); // Must succeed BEFORE any AS write or new secret.
+ const projectData=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/GetProject',{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{projectId:project}}),'MCP_QA_PROJECT');
+ check(projectData.project?.projectId===project&&projectData.project?.organizationId==='397885387160184113','MCP_QA_PROJECT_EXACT_ORGANIZATION');
+ const name='qdip-mcp-qa-introspection';
+ const list=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/ListApplications',{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+   data:{pagination:{limit:10},filters:[{projectIdFilter:{projectId:project}},{nameFilter:{name}}]}}),'MCP_API_APPLICATION_INVENTORY');
+ check(Array.isArray(list.applications??[])&&(list.applications??[]).length===0,'MCP_API_NO_EXISTING_APP_OR_SECRET_ROTATION');
+ // Only a dedicated API introspection application; never duplicate SDK Native A/B.
+ const created=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/CreateApplication',{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+   data:{projectId:project,name,apiConfiguration:{authMethodType:'API_AUTH_METHOD_TYPE_BASIC'}}}),'MCP_API_APPLICATION_CREATE');
+ const id=created.applicationId,api=created.apiConfiguration;
+ check(typeof id==='string'&&/^[0-9]{1,32}$/.test(id)&&typeof api?.clientId==='string'&&api.clientId.length<256&&
+   typeof api?.clientSecret==='string'&&api.clientSecret.length>=16&&api.clientSecret.length<4096,'MCP_API_ONE_TIME_SECRET_COMPLETE');
+ // From this point any ambiguous delivery stops; do not retry issuance or reset/delete a secret.
+ const read=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:id}}),'MCP_API_APPLICATION_READBACK');
+ check(read.application?.applicationId===id&&read.application?.projectId===project&&read.application?.name===name&&
+   read.application?.state==='APPLICATION_STATE_ACTIVE'&&read.application?.apiConfiguration?.clientId===api.clientId&&
+   (!read.application.apiConfiguration.authMethodType||read.application.apiConfiguration.authMethodType==='API_AUTH_METHOD_TYPE_BASIC'),
+   'MCP_API_APPLICATION_EXACT_READBACK');
+ await deliveryPreflight(ctx);
+ const variables={
+   ZITADEL_INTROSPECTION_CLIENT_ID:{value:api.clientId,isSealed:true},
+   ZITADEL_INTROSPECTION_CLIENT_SECRET:{value:api.clientSecret,isSealed:true},
+   MCP_ALLOWED_CLIENT_IDS:{value:client,isSealed:false},
+   MCP_INTROSPECTION_APPLICATION_ID:{value:id,isSealed:false},
+   MCP_EXECUTION_ENABLED:{value:'false',isSealed:false}
+ };
+ const staged=await railwayQuery(ctx,'mutation($e:String!,$input:EnvironmentConfig!,$merge:Boolean){environmentStageChanges(environmentId:$e,input:$input,merge:$merge){id status}}',
+   {e:RAILWAY.environment,input:{services:{[RAILWAY.service]:{variables}}},merge:false});
+ check(typeof staged.environmentStageChanges?.id==='string','MCP_SEALED_CONFIGURATION_STAGED');
+ const committed=await railwayQuery(ctx,'mutation($e:String!){environmentPatchCommitStaged(environmentId:$e)}',{e:RAILWAY.environment});
+ check(committed.environmentPatchCommitStaged!=null&&committed.environmentPatchCommitStaged!==false,'MCP_SEALED_CONFIGURATION_COMMITTED');
+ const metadata=await railwayQuery(ctx,'query($p:String!,$e:String!){environment(id:$e,projectId:$p){variables(first:10000){edges{node{name serviceId isSealed}}}}}',{p:RAILWAY.project,e:RAILWAY.environment});
+ const own=metadata.environment?.variables?.edges?.map(x=>x.node).filter(x=>x?.serviceId===RAILWAY.service)??[];
+ check(['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].every(name=>own.filter(x=>x.name===name&&x.isSealed===true).length===1),'MCP_INTROSPECTION_DELIVERED_SEALED');
+ return {clientId:api.clientId,clientSecret:api.clientSecret};
+}
+async function inspectOpaque(ctx,metadata,credential,token,app,subject){
+ const auth=Buffer.from(encodeURIComponent(credential.clientId)+':'+encodeURIComponent(credential.clientSecret)).toString('base64');
+ const active=await json(await ctx.request.post(originUrl(metadata.introspection_endpoint).href,{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Basic '+auth},form:{token,token_type_hint:'access_token'}}),'REAL_INTROSPECTION');
+ check(active.active===true,'REAL_INTROSPECTION_ACTIVE');
+ check(active.iss===ISSUER&&active.sub===subject&&active.exp>Date.now()/1000,'REAL_INTROSPECTION_ISSUER_OWNER_EXPIRY');
+ const ids=[active.client_id,active.azp].filter(x=>x!==undefined);
+ check(ids.length>0&&ids.every(x=>x===app.client),'REAL_INTROSPECTION_SAME_NATIVE_CLIENT');
+ const aud=Array.isArray(active.aud)?active.aud:[active.aud];
+ marker('REAL_INTROSPECTION_MCP_RESOURCE_AUDIENCE',aud.includes(MCP));
+ marker('REAL_INTROSPECTION_DEDICATED_API_AUDIENCE',aud.includes(credential.clientId));
+ marker('REAL_INTROSPECTION_QA_PROJECT_AUDIENCE',aud.includes(app.project));
+ marker('REAL_INTROSPECTION_SCOPE_PRESENT',typeof active.scope==='string');
+ marker('REAL_INTROSPECTION_MCP_USE_GRANTED',typeof active.scope==='string'&&active.scope.split(' ').includes('mcp:use'));
+}
+
 async function main(){
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
  check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_MANAGED_REFERENCES_PRESENT');
  const browser=await chromium.launch({headless:true});const ctx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
- let consoleToken=null;
+ let consoleToken=null,introspection=null;
+ const provision=process.env.MCP01_PROVISION_OAUTH==='true';
  try{
+   if(provision)await deliveryPreflight(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
@@ -200,16 +285,18 @@ async function main(){
    check(Array.isArray(uris)&&uris.length>0&&uris.length<=50,'REGISTERED_REDIRECTS_PRESENT');
    const redirect=uris.map(value=>{try{return new URL(value);}catch{return null;}}).find(u=>u&&(u.protocol==='https:'||(u.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(u.hostname)))&&!u.username&&!u.password&&!u.hash);
    check(!!redirect,'REGISTERED_HTTP_REDIRECT_AVAILABLE');
-   marker('REGISTERED_REDIRECT_URI_NOT_LOGGED','PASS');consoleToken=null;await consolePage.close();
+   marker('REGISTERED_REDIRECT_URI_NOT_LOGGED','PASS');
+   if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
+   consoleToken=null;await consolePage.close();
    const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
    check(baseline,'MATCHED_NATIVE_BASELINE');
-   const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE');
+   const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',introspection?token=>inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub):undefined);
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
-   marker('REAL_INTROSPECTION','NOT_RUN_NO_RUNNER_CREDENTIAL_CUSTODY');
+   if(!introspection)marker('REAL_INTROSPECTION','NOT_RUN_NO_RUNNER_CREDENTIAL_CUSTODY');
    marker('REAL_MCP_OAUTH_ACCEPTANCE','NOT_QUALIFIED');
    marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
- }finally{consoleToken=null;await ctx.close();await browser.close();}
+ }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
 if(process.argv.includes('--self-test'))selfTest();else main().catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
  marker('NATIVE_TOKEN_CONTRACT_PROBE','FAIL_'+stage);process.exitCode=1;});
