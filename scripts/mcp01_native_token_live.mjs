@@ -5,6 +5,7 @@
  * Explicit QA setup mode may add ONE fixed loopback callback to an empty managed Native app; no identity or scope changes.
  */
 import {chromium} from '@playwright/test';
+import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createHash,randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
 import {isDeepStrictEqual} from 'node:util';
@@ -35,6 +36,14 @@ function selfTest(){
  assert(sameOtherSettings(before,after));
  for(const changed of [{grantTypes:['implicit']},{authMethodType:'basic'},{clientId:'foreign'}])assert(!sameOtherSettings(before,{...after,...changed}));
  marker('OIDC_MUTABLE_SETTINGS_REGRESSION','PASS');
+ const names=['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'];
+ const config={services:{[RAILWAY.service]:{variables:Object.fromEntries(names.map(n=>[n,{isSealed:true}]))}}};
+ const rendered=Object.fromEntries(names.map(n=>[n,null]));
+ assert(sealedReadback(JSON.stringify(config),rendered));
+ assert(!sealedReadback(config,{}));
+ config.services[RAILWAY.service].variables[names[0]].isSealed=false;
+ assert(!sealedReadback(config,rendered));
+ marker('SEALED_READBACK_REGRESSION','PASS');
  assert(noUnrelatedStagedPatch(null));
  assert(noUnrelatedStagedPatch({id:'empty-patch',status:'STAGED',patch:{}}));
  assert(!noUnrelatedStagedPatch({id:'foreign',status:'STAGED',patch:{services:{other:{}}}}));
@@ -137,6 +146,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        data:{jsonrpc:'2.0',id:1,method:'server/discover',params:{_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28',
          'io.modelcontextprotocol/clientCapabilities':{},'io.modelcontextprotocol/clientInfo':{name:'mcp01-real-native-probe',version:'1'}}}}});
      marker('REAL_NATIVE_MCP_DISCOVER_HTTP',mcp.status());
+     if(mcp.status()===200)await realMcpClient(access);
    }
    marker(mode+'_NATIVE_PKCE','PASS');return true;
  }finally{
@@ -186,6 +196,44 @@ async function deliveryPreflight(ctx){
  check(!own.some(x=>['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].includes(x.name)),
    'MCP_QA_NO_EXISTING_INTROSPECTION_OVERWRITE');
 }
+
+function sealedReadback(config,rendered){
+ const applied=typeof config==='string'?JSON.parse(config):config;
+ const own=applied?.services?.[RAILWAY.service]?.variables;
+ return ['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].every(name=>
+   own?.[name]?.isSealed===true&&Object.hasOwn(rendered??{},name)&&rendered[name]===null);
+}
+async function verifyExistingDelivery(ctx){
+ const identity=(await railwayQuery(ctx,'query { projectToken { projectId environmentId } }')).projectToken;
+ check(identity?.projectId===RAILWAY.project&&identity?.environmentId===RAILWAY.environment,'MCP_QA_DELIVERY_TOKEN_EXACT_SCOPE');
+ // Official CLI GetEnvironmentConfig / VariablesForServiceDeployment contracts.
+ // decryptVariables:false never requests plaintext sealed values; rendered null
+ // means installed-but-unreadable, not absent.
+ const data=await railwayQuery(ctx,'query($p:String!,$e:String!,$s:String!){environment(id:$e){id name config(decryptVariables:false)} variablesForServiceDeployment(projectId:$p,environmentId:$e,serviceId:$s)}',
+   {p:RAILWAY.project,e:RAILWAY.environment,s:RAILWAY.service});
+ check(data.environment?.id===RAILWAY.environment&&data.environment?.name==='sandbox','MCP_QA_EXISTING_ENVIRONMENT');
+ const raw=data.environment.config,config=typeof raw==='string'?JSON.parse(raw):raw;
+ const names=['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'];
+ marker('MCP_APPLIED_SECRET_ENTRIES_PRESENT',names.every(n=>Object.hasOwn(config?.services?.[RAILWAY.service]?.variables??{},n)));
+ marker('MCP_APPLIED_SECRET_SEAL_FLAGS',names.every(n=>config?.services?.[RAILWAY.service]?.variables?.[n]?.isSealed===true));
+ marker('MCP_DEPLOYMENT_SECRET_NAMES_PRESENT',names.every(n=>Object.hasOwn(data.variablesForServiceDeployment??{},n)));
+ marker('MCP_DEPLOYMENT_SECRET_VALUES_UNREADABLE',names.every(n=>data.variablesForServiceDeployment?.[n]===null));
+ check(sealedReadback(config,data.variablesForServiceDeployment),'MCP_INTROSPECTION_DELIVERED_SEALED');
+ marker('MCP_EXISTING_SECRET_VALUES_NOT_READ','PASS');
+}
+async function realMcpClient(access){
+ const client=new Client({name:'independent-mcp01-native-client',version:'1'},{
+   versionNegotiation:{mode:{pin:'2026-07-28'}},supportedProtocolVersions:['2026-07-28']});
+ const transport=new StreamableHTTPClientTransport(new URL(MCP),{
+   requestInit:{headers:{authorization:'Bearer '+access}}});
+ try{
+   await client.connect(transport);
+   const tools=await client.listTools();
+   check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
+   marker('REAL_MCP_TOOLS_LIST','PASS');
+ }finally{await client.close();}
+}
+
 async function provisionIntrospection(ctx,consoleToken,project,client){
  await deliveryPreflight(ctx); // Must succeed BEFORE any AS write or new secret.
  const projectData=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/GetProject',{
@@ -223,9 +271,7 @@ async function provisionIntrospection(ctx,consoleToken,project,client){
  check(typeof staged.environmentStageChanges?.id==='string','MCP_SEALED_CONFIGURATION_STAGED');
  const committed=await railwayQuery(ctx,'mutation($e:String!){environmentPatchCommitStaged(environmentId:$e)}',{e:RAILWAY.environment});
  check(committed.environmentPatchCommitStaged!=null&&committed.environmentPatchCommitStaged!==false,'MCP_SEALED_CONFIGURATION_COMMITTED');
- const metadata=await railwayQuery(ctx,'query($p:String!,$e:String!){environment(id:$e,projectId:$p){variables(first:10000){edges{node{name serviceId isSealed}}}}}',{p:RAILWAY.project,e:RAILWAY.environment});
- const own=metadata.environment?.variables?.edges?.map(x=>x.node).filter(x=>x?.serviceId===RAILWAY.service)??[];
- check(['ZITADEL_INTROSPECTION_CLIENT_ID','ZITADEL_INTROSPECTION_CLIENT_SECRET'].every(name=>own.filter(x=>x.name===name&&x.isSealed===true).length===1),'MCP_INTROSPECTION_DELIVERED_SEALED');
+ await verifyExistingDelivery(ctx);
  return {clientId:api.clientId,clientSecret:api.clientSecret};
 }
 async function inspectOpaque(ctx,metadata,credential,token,app,subject){
@@ -251,8 +297,11 @@ async function main(){
  const browser=await chromium.launch({headless:true});const ctx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
  let consoleToken=null,introspection=null;
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
+ const verifyExisting=process.env.MCP01_VERIFY_EXISTING_OAUTH==='true';
+ check(!(provision&&verifyExisting),'MCP_OAUTH_MODES_EXCLUSIVE');
  try{
    if(provision)await deliveryPreflight(ctx);
+   if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
@@ -301,8 +350,10 @@ async function main(){
    marker('REGISTERED_REDIRECT_URI_NOT_LOGGED','PASS');
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    consoleToken=null;await consolePage.close();
-   const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
-   check(baseline,'MATCHED_NATIVE_BASELINE');
+   if(!verifyExisting){
+     const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
+     check(baseline,'MATCHED_NATIVE_BASELINE');
+   }
    const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',introspection?token=>inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub):undefined);
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
    if(!introspection)marker('REAL_INTROSPECTION','NOT_RUN_NO_RUNNER_CREDENTIAL_CUSTODY');
