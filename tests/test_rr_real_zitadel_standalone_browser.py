@@ -7,6 +7,7 @@ One real-account login per run to avoid account lockout across viewports.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -16,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import asyncpg
 import pytest
 from playwright.sync_api import sync_playwright
 
@@ -28,6 +30,34 @@ def _required(name: str) -> str:
     if not value:
         pytest.fail(f"RR_BROWSER_E2E_MISSING_{name}", pytrace=False)
     return value
+
+
+async def _journal_readback(dsn: str, organization_id: str, execution_id: str) -> dict | None:
+    """Independently read the RR-owned QA journal, not the HTTP/BFF response."""
+    connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
+    try:
+        payload = await connection.fetchval(
+            """SELECT record::text FROM rr_execution_records
+               WHERE organization_id = $1 AND execution_id = $2""",
+            organization_id, execution_id,
+        )
+        return None if payload is None else json.loads(payload)
+    finally:
+        await connection.close()
+
+
+async def _foreign_record_exists(dsn: str, organization_id: str, execution_id: str) -> bool:
+    connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
+    try:
+        return bool(await connection.fetchval(
+            """SELECT EXISTS(
+                 SELECT 1 FROM rr_execution_records
+                 WHERE organization_id <> $1 AND execution_id = $2
+               )""",
+            organization_id, execution_id,
+        ))
+    finally:
+        await connection.close()
 
 
 def _visible_input(page, selectors: tuple[str, ...], timeout: float):
@@ -46,6 +76,13 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
     password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
     execution_id = _required("RR_E2E_VALID_EXECUTION_ID")
+    dsn = _required("RR_E2E_TEST_POSTGRES_DSN")
+    organization_id = _required("RR_E2E_ORGANIZATION_ID")
+    foreign_execution_id = _required("RR_E2E_FOREIGN_EXECUTION_ID")
+    assert urlparse(dsn).path.rsplit("/", 1)[-1].endswith("_test"), (
+        "RR_E2E_POSTGRES_MUST_BE_DEDICATED_TEST_DATABASE"
+    )
+    assert foreign_execution_id != execution_id, "RR_E2E_FOREIGN_FIXTURE_NOT_ISOLATED"
     assert _required("RR_E2E_STAGING_WRITE") == "1", (
         "RR_E2E_REQUIRES_EXPLICIT_STAGING_MUTATION_PERMISSION"
     )
@@ -63,9 +100,13 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
+        context = None
         try:
             context = browser.new_context(ignore_https_errors=False)
+            context.tracing.start(screenshots=True, snapshots=True, sources=False)
             page = context.new_page()
+            browser_errors = []
+            page.on("pageerror", lambda error: browser_errors.append(type(error).__name__))
             anonymous = page.request.get(api)
             assert anonymous.status == 401, f"RR_ANONYMOUS_HTTP_{anonymous.status}"
 
@@ -180,6 +221,19 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
 
             read = page.request.get(prefix + "/executions/" + first_id)
             assert read.status == 200 and read.json() == record
+            assert record["organization_id"] == organization_id, "RR_ORGANIZATION_BINDING_MISMATCH"
+            stored = asyncio.run(_journal_readback(dsn, organization_id, first_id))
+            assert stored == record, "RR_POSTGRES_HTTP_READBACK_MISMATCH"
+            assert asyncio.run(_foreign_record_exists(
+                dsn, organization_id, foreign_execution_id
+            )), "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
+            foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
+            assert foreign.status in (403, 404), (
+                f"RR_FOREIGN_ORGANIZATION_READ_HTTP_{foreign.status}"
+            )
+            assert organization_id != foreign_execution_id
+            print("RR_STANDALONE_POSTGRES_READBACK=PASS")
+            print("RR_CROSS_ORG_HTTP_ISOLATION=PASS")
             replay = page.request.get(
                 prefix + "/executions/" + first_id + "/replay-verification"
             )
@@ -335,6 +389,17 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                 page.get_by_test_id("rr-production-operator").wait_for(
                     state="visible", timeout=20000
                 )
+                field = page.get_by_label("Execution ID", exact=True)
+                field.wait_for(state="visible", timeout=20000)
+                field.fill(first_id)
+                inspect = page.get_by_role("button", name="Inspect saved execution")
+                assert inspect.is_visible() and inspect.is_enabled(), (
+                    f"RR_INSPECT_CONTROL_UNAVAILABLE_{width}x{height}"
+                )
+                inspect.click()
+                page.get_by_test_id("rr-kernel-evidence").wait_for(
+                    state="visible", timeout=30000
+                )
                 page.screenshot(
                     path=str(tmp_path / f"rr-result-{width}x{height}.png"),
                     full_page=True,
@@ -343,6 +408,11 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                     "document.documentElement.scrollWidth <= window.innerWidth + 1"
                 ), f"RR_RESULT_HORIZONTAL_OVERFLOW_{width}x{height}"
 
-            context.close()
+            assert not browser_errors, (
+                f"RR_BROWSER_UNHANDLED_EXCEPTIONS_{len(browser_errors)}"
+            )
         finally:
+            if context is not None:
+                context.tracing.stop(path=str(tmp_path / "rr-browser-trace.zip"))
+                context.close()
             browser.close()
