@@ -116,6 +116,54 @@ async function verifyPkce(ctx,client,label,projectId,expectedSub){
     await local.close();
   }
 }
+const QA_OIDC_AUDIENCE='qdip-sdk649-qa-caller-v1';
+async function githubQaWorkloadJwt(){
+  const url=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if(typeof url!=='string'||typeof requestToken!=='string'||
+     requestToken.length<20)throw Error('QA_GITHUB_OIDC_MISSING');
+  let target;
+  try{target=new URL(url);}catch{throw Error('QA_GITHUB_OIDC_URL_INVALID');}
+  if(target.protocol!=='https:'||
+     !target.hostname.endsWith('.actions.githubusercontent.com')||
+     target.username||target.password)throw Error('QA_GITHUB_OIDC_URL_INVALID');
+  target.searchParams.set('audience',QA_OIDC_AUDIENCE);
+  let result;
+  try{result=await fetch(target,{
+    headers:{Authorization:'Bearer '+requestToken,Accept:'application/json'},
+    redirect:'error',signal:AbortSignal.timeout(12000),
+  });}catch{throw Error('QA_GITHUB_OIDC_FETCH_FAILED');}
+  if(!result.ok)throw Error('QA_GITHUB_OIDC_DENIED');
+  const data=await result.json().catch(()=>null);
+  if(typeof data?.value!=='string'||data.value.length<50||data.value.length>8192)
+    throw Error('QA_GITHUB_OIDC_MALFORMED');
+  return data.value;
+}
+async function coreQaKeys(){
+  const identity=await githubQaWorkloadJwt();
+  const url=STAGING_CORE+'/api/v1/sdk/qa/oidc-credentials';
+  const result=await fetch(url,{
+    method:'POST',headers:{Authorization:'Bearer '+identity},redirect:'error',
+    signal:AbortSignal.timeout(20000),
+  }).catch(()=>{throw Error('QA_CORE_OIDC_EXCHANGE_UNAVAILABLE');});
+  if(result.status!==201)throw Error('QA_CORE_OIDC_EXCHANGE_DENIED');
+  const body=await result.json().catch(()=>null);
+  const keys=[body?.managed_key,body?.external_key];
+  check(validScopedQaKeys(keys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
+  const expiry=Date.parse(body?.expires_at);
+  check(Number.isFinite(expiry)&&expiry>Date.now()&&
+    expiry<=Date.now()+11*60*1000,'QA_SCOPED_KEYS_SHORT_TTL');
+  return keys;
+}
+async function revokeCoreQaKeys(){
+  const identity=await githubQaWorkloadJwt();
+  const response=await fetch(STAGING_CORE+'/api/v1/sdk/qa/oidc-credentials/revoke',{
+    method:'POST',headers:{Authorization:'Bearer '+identity},redirect:'error',
+    signal:AbortSignal.timeout(20000),
+  }).catch(()=>{throw Error('QA_CORE_OIDC_REVOKE_UNAVAILABLE');});
+  check(response.status===204,'QA_CORE_OIDC_KEYS_REVOKED');
+}
+
 async function selfTest(){const p='111111111111111111',s='222222222222222222',id='333333333333333333';
   const app={application:{applicationId:id,projectId:p,name:'sdk-managed-qa',
     state:'APPLICATION_STATE_ACTIVE',oidcConfiguration:{clientId:'a'}}};
