@@ -1,0 +1,58 @@
+name: RR standalone real-browser qualification
+on:
+  push:
+    branches: [feat/rr-e2e-01-standalone]
+    paths:
+      - tests/test_rr_real_zitadel_standalone_browser.py
+      - .github/workflows/rr-standalone-production-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rr-e2e-01-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  rr-browser:
+    if: github.ref == 'refs/heads/feat/rr-e2e-01-standalone'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      RR_BROWSER_URL: ${{ vars.RR_E2E_STAGING_BROWSER_URL }}
+      RR_E2E_STAGING_WRITE: ${{ vars.RR_E2E_STAGING_WRITE }}
+      RR_E2E_VALID_EXECUTION_ID: ${{ vars.RR_E2E_VALID_EXECUTION_ID }}
+      RR_E2E_ORGANIZATION_ID: ${{ vars.RR_E2E_ORGANIZATION_ID }}
+      RR_E2E_FOREIGN_EXECUTION_ID: ${{ vars.RR_E2E_FOREIGN_EXECUTION_ID }}
+      RR_E2E_TEST_POSTGRES_DSN: ${{ secrets.RR_E2E_TEST_POSTGRES_DSN }}
+      QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require existing scoped staging and identity bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_VALID_EXECUTION_ID RR_E2E_ORGANIZATION_ID RR_E2E_FOREIGN_EXECUTION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "RR_E2E_BLOCKED_MISSING_BINDING=${name}"
+              exit 2
+            fi
+          done
+          if [[ "$RR_E2E_STAGING_WRITE" != '1' ]]; then
+            echo 'RR_E2E_BLOCKED_STAGING_WRITE_NOT_APPROVED'
+            exit 2
+          fi
+          echo 'RR_E2E_STAGING_BINDINGS_PRESENT=PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install real browser and PostgreSQL client
+        run: |
+          python -m pip install pytest==8.4.2 playwright==1.56.0 asyncpg==0.30.0
+          python -m playwright install --with-deps chromium
+      - name: Run real Zitadel RR BFF and PostgreSQL browser acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q --tb=short tests/test_rr_real_zitadel_standalone_browser.py --basetemp="$RUNNER_TEMP/rr-e2e-artifacts"
