@@ -85,6 +85,49 @@ jobs:
             exit 2
           fi
           echo 'RR_RAILWAY_WEB_HTTP=200'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Chromium for real Railway anonymous browser smoke
+        run: |
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Verify Railway Web UI in desktop, mobile portrait and landscape
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/rr-railway-bff-smoke
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          base = 'https://rr-standalone-web-qa-qa.up.railway.app'
+          with sync_playwright() as pw:
+              browser = pw.chromium.launch()
+              try:
+                  for width, height in ((1440, 900), (390, 844), (844, 390)):
+                      page = browser.new_page(viewport={'width': width, 'height': height})
+                      errors = []
+                      page.on('pageerror', lambda error: errors.append(type(error).__name__))
+                      response = page.goto(base + '/en/readiness-recovery', wait_until='domcontentloaded', timeout=30000)
+                      assert response and response.status == 200, f'RR_RAILWAY_PAGE_HTTP_{width}x{height}'
+                      assert page.locator('body').is_visible(), f'RR_RAILWAY_PAGE_BLANK_{width}x{height}'
+                      assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), (
+                          f'RR_RAILWAY_OVERFLOW_{width}x{height}'
+                      )
+                      assert not errors, f'RR_RAILWAY_JS_ERRORS_{width}x{height}: {len(errors)}'
+                      page.screenshot(path=f'test-results/rr-railway-bff-smoke/anonymous-{width}x{height}.png', full_page=True)
+                      print(f'RR_RAILWAY_ANONYMOUS_BROWSER_{width}x{height}=PASS')
+                      page.close()
+              finally:
+                  browser.close()
+          PY
+      - name: Preserve anonymous Railway BFF screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-railway-bff-anonymous-viewport-evidence
+          path: test-results/rr-railway-bff-smoke/anonymous-*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Verify anonymous BFF enforces authentication, not missing configuration
         shell: bash
         run: |
