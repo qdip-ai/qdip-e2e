@@ -5,6 +5,11 @@ on:
     paths:
       - .github/workflows/mcp01-native-token.yml
       - scripts/mcp01_native_token_live.mjs
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/mcp01-native-token.yml
+      - scripts/mcp01_native_token_live.mjs
 permissions:
   contents: read
 concurrency:
@@ -12,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   token-contract:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && !contains(github.event.head_commit.message, '[MCP-QA:')
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'push' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && !contains(github.event.head_commit.message, '[MCP-QA:')
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
@@ -124,7 +129,7 @@ jobs:
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-execution
   qa-worker-fault:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && (contains(github.event.head_commit.message, '[MCP-QA:TIMEOUT]') || contains(github.event.head_commit.message, '[MCP-QA:UNAVAILABLE]'))
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'pull_request' && github.head_ref == 'test/mcp01-native-token-contract'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -159,8 +164,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          if [[ "${{ contains(github.event.head_commit.message, '[MCP-QA:TIMEOUT]') }}" == "true" ]]; then
-            node mcp01_native_token_live.mjs --mcp-worker-timeout
-          else
-            node mcp01_native_token_live.mjs --mcp-worker-unavailable
-          fi
+          node mcp01_native_token_live.mjs --mcp-worker-timeout
