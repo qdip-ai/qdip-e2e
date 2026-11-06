@@ -231,7 +231,7 @@ async function verifyExistingDelivery(ctx){
  // Official CLI GetEnvironmentConfig / VariablesForServiceDeployment contracts.
  // decryptVariables:false never requests plaintext sealed values; rendered null
  // means installed-but-unreadable, not absent.
- const data=await railwayQuery(ctx,'query($p:String!,$e:String!,$s:String!){environment(id:$e){id name config(decryptVariables:false)} variablesForServiceDeployment(projectId:$p,environmentId:$e,serviceId:$s)}',
+ const data=await railwayQuery(ctx,'query($p:String!,$e:String!,$s:String!){environment(id:$e){id name config(decryptVariables:false) variables(first:10000){edges{node{name serviceId isSealed}}}} variablesForServiceDeployment(projectId:$p,environmentId:$e,serviceId:$s)}',
    {p:RAILWAY.project,e:RAILWAY.environment,s:RAILWAY.service});
  check(data.environment?.id===RAILWAY.environment&&data.environment?.name==='sandbox','MCP_QA_EXISTING_ENVIRONMENT');
  const raw=data.environment.config,config=typeof raw==='string'?JSON.parse(raw):raw;
@@ -242,6 +242,17 @@ async function verifyExistingDelivery(ctx){
  marker('MCP_DEPLOYMENT_SECRET_VALUES_UNREADABLE',names.every(n=>data.variablesForServiceDeployment?.[n]===null));
  check(sealedReadback(config,data.variablesForServiceDeployment),'MCP_INTROSPECTION_DELIVERED_SEALED');
  marker('MCP_EXISTING_SECRET_VALUES_NOT_READ','PASS');
+ const own=(data.environment.variables?.edges??[]).map(x=>x.node).filter(x=>x?.serviceId===RAILWAY.service);
+ const callerEntries=own.filter(x=>x.name==='QDIP_API_KEY');
+ check(callerEntries.length===1&&callerEntries[0].isSealed===true,'MCP_QA_CALLER_SEALED_METADATA');
+ const v=data.variablesForServiceDeployment??{};
+ check(v.QDIP_API_KEY===null&&typeof v.QDIP_API_KEY_ID==='string'&&
+   /^[a-f0-9-]{36}$/.test(v.QDIP_API_KEY_ID),'MCP_QA_CALLER_KEY_ID_READBACK');
+ check(v.QDIP_GATEWAY_URL===QA_GATEWAY&&v.MCP_APPROVED_CAPABILITY_ID==='mcp.qa.choice'&&
+   v.MCP_APPROVED_CAPABILITY_VERSION==='1'&&['true','false'].includes(v.MCP_EXECUTION_ENABLED),
+   'MCP_QA_CALLER_PROTECTED_CONTRACT_EXACT');
+ marker('MCP_QA_SEALED_CALLER_KEY_ID',v.QDIP_API_KEY_ID);
+ marker('MCP_QA_SEALED_DELIVERY','PASS');
 }
 async function realMcpClient(access){
  const client=new Client({name:'independent-mcp01-native-client',version:'1'},{
