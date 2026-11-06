@@ -55,7 +55,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
 
             page.goto(base, wait_until="domcontentloaded")
             login = page.get_by_role("button", name="Sign in with Zitadel")
-            assert login.is_visible(), "RR_REAL_LOGIN_ENTRY_NOT_FOUND"
+            login.wait_for(state="visible", timeout=20000)
             login.click()
             page.wait_for_url(lambda url: "zitadel" in str(url).lower(), timeout=30000)
             user = _visible_input(page, (
@@ -84,7 +84,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                 page.set_viewport_size({"width": width, "height": height})
                 page.goto(base, wait_until="domcontentloaded")
                 panel = page.get_by_test_id("rr-production-operator")
-                assert panel.is_visible(), f"RR_OPERATOR_PANEL_MISSING_{width}x{height}"
+                panel.wait_for(state="visible", timeout=20000)
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), (
                     f"RR_HORIZONTAL_OVERFLOW_{width}x{height}"
                 )
