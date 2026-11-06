@@ -18,6 +18,7 @@ const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
+const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
 const QA_ZITADEL_ORG='397885387160184113';
 const ownerPreviewSetup=process.argv.includes('--configure-owner-preview');
@@ -418,6 +419,24 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
 
 
 // Exact QA-only credential boundary; no Vercel, no admin API key in GitHub.
+// Owner-bound, zero-key-exposure application linking through isolated QA Core.
+async function linkQaApplication(ctx,token,application){
+ const endpoint=QA_GATEWAY+'/api/v1/qa/mcp652/application-link';
+ const body={application_id:application};
+ const anonymous=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{'Content-Type':'application/json'},data:body});
+ check(anonymous.status()===403,'QA_APP_LINK_ANONYMOUS_DENIED');
+ const foreign=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   data:{application_id:'123456789012345678'}});
+ check(foreign.status()===403,'QA_APP_LINK_FOREIGN_APPLICATION_DENIED');
+ const response=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},data:body});
+ marker('QA_APP_LINK_HTTP',response.status());
+ check(response.status()===204,'QA_APP_LINK_VERIFIED_OWNER_HTTP_204');
+ marker('QA_APP_LINK_PERSISTED','PASS');
+}
+
 async function bootstrapQaOwner(ctx,token){
  const endpoint=QA_GATEWAY+'/api/v1/qa/mcp652/owner-bootstrap';
  const unauthorized=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
@@ -442,8 +461,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap'].includes(arg))&&
+ const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
@@ -453,14 +472,14 @@ async function main(){
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
  const verifyExisting=process.env.MCP01_VERIFY_EXISTING_OAUTH==='true';
  check(!(provision&&verifyExisting),'MCP_OAUTH_MODES_EXCLUSIVE');
- if(executionMode||ownerBootstrapMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
+ if(executionMode||ownerBootstrapMode||applicationLinkMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
    process.env.MCP01_REGISTER_QA_CALLBACK!=='true','EXECUTION_HAS_NO_PROVISIONING_AUTHORITY');
  try{
    if(provision)await deliveryPreflight(ctx);
    if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
-   if(executionMode||ownerBootstrapMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
+   if(executionMode||ownerBootstrapMode||applicationLinkMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
    check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
    const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
@@ -569,13 +588,15 @@ async function main(){
      async token=>{
        if(introspection)await inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub);
        if(ownerBootstrapMode)await bootstrapQaOwner(ctx,token);
+       if(applicationLinkMode)await linkQaApplication(ctx,token,application);
      });
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
    check(requested===true,'MCP_RESOURCE_FLOW_COMPLETED');
    if(!introspection)marker('REAL_INTROSPECTION','PERFORMED_IN_MCP_RUNTIME');
    marker('REAL_MCP_OAUTH_ACCEPTANCE','PASS');
-   if(!executionMode&&!ownerBootstrapMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
+   if(!executionMode&&!ownerBootstrapMode&&!applicationLinkMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
    if(ownerBootstrapMode)marker('CANONICAL_OWNER_LINK','PASS');
+   if(applicationLinkMode)marker('CANONICAL_APPLICATION_LINK','PASS');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
