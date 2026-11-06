@@ -321,6 +321,15 @@ async function executeMcpDecision(client){
      ir_hash:r.ir_hash,compiler_version:r.compiler_version}}));
  const invalid=await client.callTool({name:'qdip_invoke_decision',arguments:{...args,input:{first_value:'7',second_value:3},timeout_seconds:10}},{timeout:20000});
  check(invalid.isError===true&&invalid.structuredContent?.error?.code==='INVALID_REQUEST','INVALID_SCHEMA_DENIED');
+ // Validate hard timeout budget at the externally exposed MCP boundary.
+ // These are rejected before dispatch: NOT a substitute for a real delayed Worker.
+ for(const timeout_seconds of [0,31]){
+   const denied=await client.callTool({name:'qdip_invoke_decision',
+     arguments:{...args,input:{first_value:7,second_value:3},timeout_seconds}},{timeout:20000});
+   check(denied.isError===true,'INVALID_TIMEOUT_BOUNDS_DENIED');
+ }
+ marker('REAL_WORKER_TIMEOUT_INJECTION','NOT_RUN');
+
  marker('REAL_MCP_POSITIVE_VERTICAL_SLICE','PASS');
  marker('REMAINING_TENANT_KEY_WORKER_TIMEOUT_QUALIFICATION','NOT_RUN');
 }
