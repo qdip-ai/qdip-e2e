@@ -1,10 +1,10 @@
-/** Real owner-only Native-client PKCE probe. Not MCP/Worker acceptance.
+/** Real owner-only Native PKCE and opt-in MCP decision execution.
  * Reuses QA21 login/Console read pattern independently qualified by E2E PR141.
  * All credentials, codes, tokens and claim values remain in process memory.
  * No screenshots, traces, videos, response bodies or auth URLs are persisted.
  * Explicit QA setup mode may add ONE fixed loopback callback to an empty managed Native app; no identity or scope changes.
  */
-import {chromium,request as requestAPI} from '@playwright/test';
+import {chromium} from '@playwright/test';
 import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {createHash,randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
@@ -16,6 +16,7 @@ const SITE='https://qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
+const executionMode=process.argv.includes('--mcp-execution');
 const marker=(key,value)=>console.log('MCP01_'+key+'='+value);
 function check(ok,stage){marker(stage,ok?'PASS':'FAIL');if(!ok)throw Error(stage);}
 function originUrl(value){const u=new URL(value);if(u.origin!==ISSUER||u.protocol!=='https:'||u.username||u.password)throw Error('UNTRUSTED_ISSUER_ENDPOINT');return u;}
@@ -60,7 +61,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const authorize=originUrl(metadata.authorization_endpoint);
  const scope=['openid','profile',`urn:zitadel:iam:org:project:id:${app.project}:aud`];
  if(mode==='MCP_RESOURCE'){
-   if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles','urn:zitadel:iam:org:project:role:mcp:use');
+   if(process.env.MCP01_OAUTH_PROFILE==='zitadel_project_roles'||process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles','urn:zitadel:iam:org:project:role:mcp:use');
    else scope.push('mcp:use');
  }
  for(const [k,v] of Object.entries({client_id:app.client,response_type:'code',redirect_uri:redirect.href,
@@ -156,6 +157,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
    marker(mode+'_NATIVE_PKCE','PASS');return true;
  }finally{
    // Revoke only the disposable access token minted by this flow, never the Console/site session token.
+   let revocationFailed=false;
    if(issuedAccess&&metadata.revocation_endpoint){
      try{
        const revoke=await ctx.request.post(originUrl(metadata.revocation_endpoint).href,{timeout:15000,maxRedirects:0,
@@ -163,9 +165,18 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        marker(mode+'_DISPOSABLE_TOKEN_REVOCATION_HTTP',revoke.status());
        const after=await ctx.request.get(originUrl(metadata.userinfo_endpoint).href,{timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+issuedAccess}});
        marker(mode+'_AFTER_REVOCATION_USERINFO_HTTP',after.status());
-     }catch{marker(mode+'_DISPOSABLE_TOKEN_REVOCATION','NOT_VERIFIED');}
+       if(executionMode){
+         check(revoke.status()===200&&after.status()===401,'DISPOSABLE_TOKEN_REVOCATION_ENFORCED');
+         const denied=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
+           headers:{Authorization:'Bearer '+issuedAccess,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
+             'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'server/discover'},
+           data:{jsonrpc:'2.0',id:99,method:'server/discover',params:{}}});
+         check([401,403].includes(denied.status()),'REVOKED_TOKEN_MCP_DENIED');
+       }
+     }catch{marker(mode+'_DISPOSABLE_TOKEN_REVOCATION','NOT_VERIFIED');revocationFailed=executionMode;}
    }
    issuedAccess=null;callback=null;await page.close();await new Promise(resolve=>listener.close(resolve));
+   if(revocationFailed)throw Error('DISPOSABLE_TOKEN_REVOCATION_UNVERIFIED');
  }
 
 }
@@ -236,7 +247,55 @@ async function realMcpClient(access){
    const tools=await client.listTools();
    check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
    marker('REAL_MCP_TOOLS_LIST','PASS');
+   if(executionMode)await executeMcpDecision(client);
  }finally{await client.close();}
+}
+
+async function executeMcpDecision(client){
+ const args={capability_id:'mcp.qa.choice',capability_version:'1'};
+ const call=async(name,arguments_)=>{
+   // One request only: never replay an invoke after timeout/unknown outcome.
+   const response=await client.callTool({name,arguments:arguments_},{timeout:20000});
+   const code=response.structuredContent?.error?.code;
+   if(response.isError&&typeof code==='string'&&/^[A-Z_]{1,80}$/.test(code))marker('TOOL_DIAGNOSTIC',code);
+   check(!response.isError&&response.structuredContent&&typeof response.structuredContent==='object','TOOL_'+name.toUpperCase());
+   check(JSON.stringify(response.structuredContent).length<=131072,'TOOL_RESULT_BOUNDED');
+   return response.structuredContent;
+ };
+ const listed=await call('qdip_list_capabilities',{});
+ check(isDeepStrictEqual(listed.capabilities,[{plugin_id:'sdk-managed-qa',...args}]),'AUTHORIZED_CAPABILITY_EXACT');
+ const manifest=await call('qdip_describe_capability',args);
+ check(manifest.plugin_id==='sdk-managed-qa'&&manifest.capability_id===args.capability_id&&
+   manifest.capability_version==='1'&&manifest.execution_mode==='managed_kernel'&&
+   isDeepStrictEqual(manifest.required_scopes,['plugins:execute']),'AUTHORIZED_MANIFEST_EXACT');
+ check(isDeepStrictEqual(manifest.input_schema,{type:'object',properties:{
+   first_value:{type:'integer',minimum:0,maximum:1000000},second_value:{type:'integer',minimum:0,maximum:1000000}},
+   required:['first_value','second_value'],additionalProperties:false}),'PUBLISHED_WORKER_SCHEMA_EXACT');
+ const result=await call('qdip_invoke_decision',{...args,input:{first_value:7,second_value:3},timeout_seconds:10});
+ check(typeof result.execution_id==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(result.execution_id),'REAL_KERNEL_EXECUTION_ID');
+ check(result.semantic_status==='EXACT'&&result.backend_status==='OPTIMAL'&&result.actionable===true,'KERNEL_EXACT_OPTIMAL');
+ // Compare decimal strings without converting them to JavaScript floats.
+ const integer=(value,expected)=>typeof value==='string'&&/^-?(0|[1-9][0-9]*)(\.0+)?$/.test(value)&&BigInt(value.split('.')[0])===expected;
+ check(isDeepStrictEqual(Object.keys(result.solution??{}).sort(),['first','second'])&&
+   integer(result.solution.first,1n)&&integer(result.solution.second,0n)&&integer(result.objective_value,7n),'KERNEL_CHOICE_CONSTRAINTS_AND_OBJECTIVE');
+ const m=result.manifest,r=result.replay_contract;
+ check(m?.semantic_version==='1.0.0'&&r?.semantic_version==='1.0.0'&&m.execution_id===result.execution_id&&
+   m.backend_id==='cp-sat'&&m.runtime_version==='qdip-runtime-kernel.v1'&&m.compiler_version==='qdip-runtime-compiler.v1'&&
+   /^[A-Za-z0-9_.:-]{1,128}$/.test(m.decision_id)&&
+   ['decision_id','decision_spec_hash','ir_hash','compiler_version'].every(k=>typeof m[k]==='string'&&m[k]===r[k])&&
+   ['decision_spec_hash','ir_hash'].every(k=>/^[a-f0-9]{64}$/.test(m[k])),'MANIFEST_REPLAY_BOUND_TO_EXECUTION');
+ check(isDeepStrictEqual(result.diagnostics,{redacted:true}),'DIAGNOSTICS_REDACTED');
+ // Only this bounded, known QA result is written; no raw diagnostics or auth material.
+ marker('REAL_MCP_DECISION',JSON.stringify({execution_id:result.execution_id,semantic_status:result.semantic_status,
+   backend_status:result.backend_status,actionable:result.actionable,solution:result.solution,objective_value:result.objective_value,
+   manifest:{execution_id:m.execution_id,decision_id:m.decision_id,decision_spec_hash:m.decision_spec_hash,ir_hash:m.ir_hash,
+     semantic_version:m.semantic_version,compiler_version:m.compiler_version,runtime_version:m.runtime_version,backend_id:m.backend_id},
+   replay_contract:{semantic_version:r.semantic_version,decision_id:r.decision_id,decision_spec_hash:r.decision_spec_hash,
+     ir_hash:r.ir_hash,compiler_version:r.compiler_version}}));
+ const invalid=await client.callTool({name:'qdip_invoke_decision',arguments:{...args,input:{first_value:'7',second_value:3},timeout_seconds:10}},{timeout:20000});
+ check(invalid.isError===true&&invalid.structuredContent?.error?.code==='INVALID_REQUEST','INVALID_SCHEMA_DENIED');
+ marker('REAL_MCP_POSITIVE_VERTICAL_SLICE','PASS');
+ marker('REMAINING_TENANT_KEY_WORKER_TIMEOUT_QUALIFICATION','NOT_RUN');
 }
 
 
@@ -353,25 +412,8 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
 }
 
 
-async function sdkSetupAccess(){
- // The MCP token cannot authorize the separate existing SDK QA project.
- // This is the credential custody prerequisite for running the existing
- // SDK provisioner and wiring sealed Core references, not a new key issuer.
- const token=process.env.RAILWAY_SDK_QA_PROJECT_TOKEN||process.env.RAILWAY_PROJECT_TOKEN;
- check(typeof token==='string'&&token.length>=20,'SDK_QA_OPERATOR_TOKEN_PRESENT');
- const ctx=await requestAPI.newContext({ignoreHTTPSErrors:false});
- try{
-   const result=await json(await ctx.post('https://backboard.railway.com/graphql/v2',{
-     timeout:15000,maxRedirects:0,headers:{'Project-Access-Token':token},
-     data:{query:'query { projectToken { projectId environmentId } }'}}),'SDK_QA_OPERATOR_AUTH');
-   check(!result.errors&&result.data?.projectToken?.projectId==='f1326384-1e2d-4bea-99a9-bbae2233e36e'&&
-     result.data.projectToken.environmentId==='9e4a6dac-717c-4327-bb1e-1491a4e5c080','SDK_QA_OPERATOR_EXACT_SCOPE');
-   marker('SDK_QA_SETUP_ACCESS','PASS');
-   marker('SDK_WORKER_EXECUTION','NOT_RUN');
- }finally{await ctx.dispose();}
-}
-
 async function main(){
+ check(process.argv.slice(2).every(arg=>arg==='--mcp-execution'),'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
  check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_MANAGED_REFERENCES_PRESENT');
@@ -380,11 +422,14 @@ async function main(){
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
  const verifyExisting=process.env.MCP01_VERIFY_EXISTING_OAUTH==='true';
  check(!(provision&&verifyExisting),'MCP_OAUTH_MODES_EXCLUSIVE');
+ if(executionMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
+   process.env.MCP01_REGISTER_QA_CALLBACK!=='true','EXECUTION_HAS_NO_PROVISIONING_AUTHORITY');
  try{
    if(provision)await deliveryPreflight(ctx);
    if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
+   if(executionMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
    check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
    const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
@@ -432,17 +477,18 @@ async function main(){
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
-   if(!verifyExisting){
+   if(!verifyExisting&&!executionMode){
      const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
      check(baseline,'MATCHED_NATIVE_BASELINE');
    }
    const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',introspection?token=>inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub):undefined);
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
+   check(requested===true,'MCP_RESOURCE_FLOW_COMPLETED');
    if(!introspection)marker('REAL_INTROSPECTION','PERFORMED_IN_MCP_RUNTIME');
    marker('REAL_MCP_OAUTH_ACCEPTANCE','PASS');
-   marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
+   if(!executionMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
-if(process.argv.includes('--self-test'))selfTest();else (process.argv.includes('--sdk-setup-access')?sdkSetupAccess():main()).catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
+if(process.argv.includes('--self-test'))selfTest();else main().catch(error=>{const stage=error instanceof Error&&/^[A-Z0-9_]{4,100}$/.test(error.message)?error.message:'SANITIZED_FAILURE';
  marker('NATIVE_TOKEN_CONTRACT_PROBE','FAIL_'+stage);process.exitCode=1;});
