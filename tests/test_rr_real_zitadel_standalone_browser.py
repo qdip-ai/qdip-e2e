@@ -41,8 +41,13 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     username = _required("RR_ZITADEL_USERNAME")
     password = _required("RR_ZITADEL_PASSWORD")
     execution_id = _required("RR_E2E_VALID_EXECUTION_ID")
-    assert urlparse(base).scheme == "https", "RR_BROWSER_E2E_REQUIRES_TLS"
+    parsed = urlparse(base)
+    assert parsed.scheme == "https", "RR_BROWSER_E2E_REQUIRES_TLS"
+    assert parsed.path in ("", "/") and not parsed.query and not parsed.fragment, (
+        "RR_BROWSER_URL_MUST_BE_ORIGIN"
+    )
     assert "/" not in execution_id and "?" not in execution_id
+    page_url = base + "/en/readiness-recovery"
     api = base + "/api/rr-operator/kernel/executions/" + execution_id
 
     with sync_playwright() as playwright:
@@ -53,7 +58,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             anonymous = page.request.get(api)
             assert anonymous.status == 401, f"RR_ANONYMOUS_HTTP_{anonymous.status}"
 
-            page.goto(base, wait_until="domcontentloaded")
+            page.goto(page_url, wait_until="domcontentloaded")
             login = page.get_by_role("button", name="Sign in with Zitadel")
             login.wait_for(state="visible", timeout=20000)
             login.click()
@@ -78,11 +83,11 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             passwd.fill(password)
             passwd.press("Enter")
             # Never make a second password attempt; MFA/consent is a hard blocker.
-            page.wait_for_url(lambda url: str(url).startswith(base), timeout=45000)
+            page.wait_for_url(lambda url: str(url).startswith(page_url), timeout=45000)
 
             for width, height in VIEWPORTS:
                 page.set_viewport_size({"width": width, "height": height})
-                page.goto(base, wait_until="domcontentloaded")
+                page.goto(page_url, wait_until="domcontentloaded")
                 panel = page.get_by_test_id("rr-production-operator")
                 panel.wait_for(state="visible", timeout=20000)
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), (
