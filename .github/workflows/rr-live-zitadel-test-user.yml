@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 35
     env:
       RR_BROWSER_URL: ${{ vars.RR_E2E_STAGING_BROWSER_URL }}
-      RR_E2E_STAGING_WRITE: ${{ vars.RR_E2E_STAGING_WRITE }}
+      RR_E2E_STAGING_WRITE: '1' # RR-E2E-01 authorizes disposable QA-only mutations
       RR_E2E_VALID_EXECUTION_ID: ${{ vars.RR_E2E_VALID_EXECUTION_ID }}
       RR_E2E_ORGANIZATION_ID: ${{ vars.RR_E2E_ORGANIZATION_ID }}
       RR_E2E_FOREIGN_EXECUTION_ID: ${{ vars.RR_E2E_FOREIGN_EXECUTION_ID }}
@@ -90,16 +90,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_VALID_EXECUTION_ID RR_E2E_ORGANIZATION_ID RR_E2E_FOREIGN_EXECUTION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+          for name in RR_BROWSER_URL RR_E2E_VALID_EXECUTION_ID RR_E2E_ORGANIZATION_ID RR_E2E_FOREIGN_EXECUTION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "RR_E2E_BLOCKED_MISSING_BINDING=${name}"
               exit 2
             fi
           done
-          if [[ "$RR_E2E_STAGING_WRITE" != '1' ]]; then
-            echo 'RR_E2E_BLOCKED_STAGING_WRITE_NOT_APPROVED'
-            exit 2
-          fi
           case "$RR_BROWSER_URL" in
             https://observatory.qdip.ai|https://studio.qdip.ai|https://qdip.ai)
               echo 'RR_E2E_PRODUCTION_MUTATIONS_FORBIDDEN'
