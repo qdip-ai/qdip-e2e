@@ -18,6 +18,10 @@ function ownerOk(x,p,sub){const a=x?.administrators,m=x?.pagination??x?.details;
     a.some(o=>o?.instance!==true&&o?.user?.id===sub&&
     Array.isArray(o?.roles)&&o.roles.includes('PROJECT_OWNER')&&
     o?.project?.id===p&&o?.project?.organizationId===ORG);}
+function exactActiveIntrospectionApps(rows){return rows.filter(a=>
+  a?.state==='APPLICATION_STATE_ACTIVE'&&
+  a?.name==='qdip-sdk-qa-introspection'&&
+  a?.apiConfiguration&&typeof a.apiConfiguration==='object');}
 function validScopedQaKeys(keys){
   return Array.isArray(keys)&&keys.length===2&&keys[0]!==keys[1]&&
     keys.every(k=>typeof k==='string'&&k.length>=16&&
@@ -178,6 +182,15 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
     pagination:{totalResult:1}},p,s));
   assert(!ownerOk({administrators:[row],pagination:{totalResult:2}},p,s));
   console.log('SDK649_OWNER_PROOF_NEGATIVE_REGRESSIONS=PASS');
+  const targetApi={applicationId:'333333333333333333',
+    name:'qdip-sdk-qa-introspection',state:'APPLICATION_STATE_ACTIVE',
+    apiConfiguration:{clientId:'qa-api-client'}};
+  const unrelatedApi={...targetApi,applicationId:'444444444444444444',name:'other-api'};
+  assert.deepEqual(exactActiveIntrospectionApps([targetApi,unrelatedApi]),[targetApi]);
+  assert.equal(exactActiveIntrospectionApps([unrelatedApi]).length,0);
+  assert.equal(exactActiveIntrospectionApps([targetApi,{...targetApi}]).length,2);
+  console.log('SDK649_EXACT_INTROSPECTION_UNIQUENESS_REGRESSIONS=PASS');
+
   const local=await openCallback('test-state-123');
   try{
     assert.equal((await fetch(CALLBACK_URI+'?state=wrong&code=code-sample-1234')).status,400);
@@ -327,12 +340,13 @@ async function run(){validateQaApplicationVariables(process.env);
     console.log('SDK649_QA_PROJECT_ACTIVE_API_APP_COUNT='+apis.length);
     // APIAuthMethodType proto enum value 0 is BASIC; ProtoJSON omits zero values.
     // Prove the exact active API application using a second read, not a bare list row.
-    check(apis.length===1,'QA_PROJECT_EXACTLY_ONE_ACTIVE_API_APP');
+    const introspections=exactActiveIntrospectionApps(apis);
+    check(introspections.length===1,'QA_PROJECT_EXACTLY_ONE_ACTIVE_INTROSPECTION_APP');
     const apiFull=await readRpc(ctx.request,
       '/zitadel.application.v2.ApplicationService/GetApplication',token,
-      {applicationId:apis[0].applicationId},'QA_INTROSPECTION_APP');
+      {applicationId:introspections[0].applicationId},'QA_INTROSPECTION_APP');
     const apiApp=apiFull?.application;
-    check(apiApp?.applicationId===apis[0].applicationId&&
+    check(apiApp?.applicationId===introspections[0].applicationId&&
       apiApp?.projectId===p&&apiApp?.state==='APPLICATION_STATE_ACTIVE'&&
       apiApp?.name==='qdip-sdk-qa-introspection'&&
       typeof apiApp?.apiConfiguration?.clientId==='string'&&
