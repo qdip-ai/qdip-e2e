@@ -17,6 +17,9 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
+const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
+const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
+const QA_ZITADEL_ORG='397885387160184113';
 const ownerPreviewSetup=process.argv.includes('--configure-owner-preview');
 const ownerPreviewCallback='https://qdip-web-git-feat-425-core-backed-zi-6de08f-taras-gezs-projects.vercel.app/api/auth/callback/zitadel';
 const marker=(key,value)=>console.log('MCP01_'+key+'='+value);
@@ -414,9 +417,34 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
 }
 
 
+// Exact QA-only credential boundary; no Vercel, no admin API key in GitHub.
+async function bootstrapQaOwner(ctx,token){
+ const endpoint=QA_GATEWAY+'/api/v1/qa/mcp652/owner-bootstrap';
+ const unauthorized=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{'Content-Type':'application/json'},data:{organization_id:QA_ZITADEL_ORG}});
+ check(unauthorized.status()===403,'QA_OWNER_MISSING_TOKEN_DENIED');
+ const foreign=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   data:{organization_id:'123456789012345678'}});
+ check(foreign.status()===403,'QA_OWNER_FOREIGN_ORG_DENIED');
+ const result=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
+   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+   data:{organization_id:QA_ZITADEL_ORG}});
+ marker('QA_OWNER_CANONICAL_LINK_HTTP',result.status());
+ check(result.status()===201,'QA_OWNER_CANONICAL_LINK_HTTP_201');
+ const raw=await result.body();
+ check(raw.length<16384,'QA_OWNER_CANONICAL_LINK_BOUNDED');
+ const linked=JSON.parse(raw.toString('utf8'));
+ check(typeof linked.id==='string'&&/^[0-9a-f-]{36}$/i.test(linked.id)&&
+       linked.identity_provider==='zitadel'&&linked.zitadel_organization_id===QA_ZITADEL_ORG&&
+       linked.zitadel_issuer===ISSUER,'QA_OWNER_CANONICAL_LINK_IDENTITY');
+ marker('QA_OWNER_CANONICAL_LINK','PASS');
+}
+
 async function main(){
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview'].includes(arg))&&
-   !(executionMode&&ownerPreviewSetup),'CLI_MODE_SUPPORTED');
+ const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap'].includes(arg))&&
+   modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
  check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_MANAGED_REFERENCES_PRESENT');
@@ -425,14 +453,14 @@ async function main(){
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
  const verifyExisting=process.env.MCP01_VERIFY_EXISTING_OAUTH==='true';
  check(!(provision&&verifyExisting),'MCP_OAUTH_MODES_EXCLUSIVE');
- if(executionMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
+ if(executionMode||ownerBootstrapMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
    process.env.MCP01_REGISTER_QA_CALLBACK!=='true','EXECUTION_HAS_NO_PROVISIONING_AUTHORITY');
  try{
    if(provision)await deliveryPreflight(ctx);
    if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
-   if(executionMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
+   if(executionMode||ownerBootstrapMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
    check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
    const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
@@ -518,16 +546,21 @@ async function main(){
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
-   if(!verifyExisting&&!executionMode){
+   if(!verifyExisting&&!executionMode&&!ownerBootstrapMode){
      const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
      check(baseline,'MATCHED_NATIVE_BASELINE');
    }
-   const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',introspection?token=>inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub):undefined);
+   const requested=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE',
+     async token=>{
+       if(introspection)await inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub);
+       if(ownerBootstrapMode)await bootstrapQaOwner(ctx,token);
+     });
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
    check(requested===true,'MCP_RESOURCE_FLOW_COMPLETED');
    if(!introspection)marker('REAL_INTROSPECTION','PERFORMED_IN_MCP_RUNTIME');
    marker('REAL_MCP_OAUTH_ACCEPTANCE','PASS');
-   if(!executionMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
+   if(!executionMode&&!ownerBootstrapMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
+   if(ownerBootstrapMode)marker('CANONICAL_OWNER_LINK','PASS');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
