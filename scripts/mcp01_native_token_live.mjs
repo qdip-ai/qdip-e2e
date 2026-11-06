@@ -654,7 +654,7 @@ async function main(){
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
-   if(!verifyExisting&&!executionMode&&!ownerBootstrapMode){
+   if(!verifyExisting&&!realDecisionMode&&!ownerBootstrapMode){
      const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
      check(baseline,'MATCHED_NATIVE_BASELINE');
    }
