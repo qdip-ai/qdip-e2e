@@ -333,18 +333,11 @@ async function run(){validateQaApplicationVariables(process.env);
         for(const app of readyPkce)
           tokens.push(await verifyPkce(ctx,app.client,app.label,p,sub));
         console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=PASS');
-        const qaKeys=[
-          process.env.QDIP_SDK_QA_MANAGED_ORG_KEY||'',
-          process.env.QDIP_SDK_QA_EXTERNAL_ORG_KEY||'',
-        ];
-        const present=qaKeys.filter(Boolean).length;
-        if(present!==2){
-          console.log('SDK649_QA_CORE_CANONICAL_LINK=BLOCKED_'+
-            (present===0?'MISSING_SCOPED_SDK_KEYS':'INCOMPLETE_SCOPED_SDK_KEYS'));
-          if(Number(process.env.GITHUB_RUN_ATTEMPT||'1')>1)
-            throw Error('QA_SCOPED_KEYS_REQUIRED_ON_RERUN');
-        }else{
-          check(validScopedQaKeys(qaKeys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
+        let qaKeys=[];
+        let issued=false;
+        try{
+          qaKeys=await coreQaKeys();
+          issued=true;
           for(let i=0;i<2;i++){
             const app=readyPkce[i];
             const r=await ctx.request.post(
@@ -368,15 +361,16 @@ async function run(){validateQaApplicationVariables(process.env);
           console.log('SDK649_QA_CORE_CANONICAL_LINK=PASS_TWO_204');
           console.log('SDK649_QA_MONGO_READBACK=NOT_VERIFIED');
           console.log('SDK649_CANONICAL_BINDING=PASS_TWO_204');
+        }finally{
+          try{if(issued)await revokeCoreQaKeys();}
+          finally{qaKeys.fill(null);qaKeys=[];}
         }
       }finally{tokens.fill(null);tokens=[];}
     }else console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=BLOCKED_UNREGISTERED_CALLBACK');
     console.log('SDK649_INTROSPECTION_CLIENT_SECRET_MATCH=NOT_VERIFIED');
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
     console.log('SDK649_ZITADEL_READONLY_OWNER_PREFLIGHT=PASS');
-    if((process.env.QDIP_SDK_QA_MANAGED_ORG_KEY||'').length===0 ||
-       (process.env.QDIP_SDK_QA_EXTERNAL_ORG_KEY||'').length===0)
-      console.log('SDK649_CANONICAL_BINDING=NOT_VERIFIED');
+    // Positive canonical binding is mandatory for this trusted push job.
   }finally{token=null;await ctx.close();await b.close();}
 }
 if(process.argv[2]==='--self-test')selfTest().catch(()=>{process.exitCode=1;});
