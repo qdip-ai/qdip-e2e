@@ -464,6 +464,14 @@ async function main(){
        data:{applicationId:application,projectId:project,oidcConfiguration:{redirectUris:desired}}}),'OWNER_PREVIEW_CALLBACK_ADD');
      const read=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
        timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:application}}),'OWNER_PREVIEW_CALLBACK_READ');
+     const observed=read.application?.oidcConfiguration;
+     if(observed&&!sameOtherSettings(oidc,observed)){
+       const beforeMutable=mutableOidc(oidc),afterMutable=mutableOidc(observed);
+       const fields=[...new Set([...Object.keys(beforeMutable),...Object.keys(afterMutable)])]
+         .filter(key=>!isDeepStrictEqual(beforeMutable[key],afterMutable[key]))
+         .filter(key=>/^[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(key)).slice(0,30);
+       marker('OWNER_PREVIEW_CHANGED_FIELD_NAMES',fields.join(',')||'NONE');
+     }
      check(read.application?.applicationId===application&&read.application?.projectId===project&&
        sameOtherSettings(oidc,read.application.oidcConfiguration)&&isDeepStrictEqual(read.application.oidcConfiguration.redirectUris,desired),
        'OWNER_PREVIEW_ONLY_EXACT_CALLBACK_ADDED');
