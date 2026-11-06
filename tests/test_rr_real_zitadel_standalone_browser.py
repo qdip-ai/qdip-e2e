@@ -1,7 +1,7 @@
 """Real Zitadel -> standalone RR BFF browser acceptance (no mocked sessions).
 
 Execute only against a deployed standalone pair verified out of band:
-RR_BROWSER_URL, RR_ZITADEL_USERNAME, RR_ZITADEL_PASSWORD,
+RR_BROWSER_URL, QDIP_E2E_ZITADEL_TEST_LOGIN, QDIP_E2E_ZITADEL_TEST_PASSWORD,
 RR_E2E_VALID_EXECUTION_ID. No session injection or credential logging.
 One real-account login per run to avoid account lockout across viewports.
 """
@@ -38,8 +38,8 @@ def _visible_input(page, selectors: tuple[str, ...], timeout: float):
 
 def test_real_zitadel_standalone_rr_bff(tmp_path):
     base = _required("RR_BROWSER_URL").rstrip("/")
-    username = _required("RR_ZITADEL_USERNAME")
-    password = _required("RR_ZITADEL_PASSWORD")
+    username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
+    password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
     execution_id = _required("RR_E2E_VALID_EXECUTION_ID")
     parsed = urlparse(base)
     assert parsed.scheme == "https", "RR_BROWSER_E2E_REQUIRES_TLS"
