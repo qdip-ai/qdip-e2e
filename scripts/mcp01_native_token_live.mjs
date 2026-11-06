@@ -276,14 +276,17 @@ async function realMcpClient(access){
 async function assertWorkerUnavailable(client){
  const args={capability_id:'mcp.qa.choice',capability_version:'1'};
  const list=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
- check(!list.isError&&list.structuredContent?.capabilities?.length===1,'UNAVAILABLE_LIST_REMAINS_AUTHORIZED');
+ check(!list.isError&&Array.isArray(list.structuredContent?.capabilities)&&
+   list.structuredContent.capabilities.length===0,'UNAVAILABLE_CAPABILITY_REMOVED_FROM_DISCOVERY');
  const started=Date.now();
  const denied=await client.callTool({name:'qdip_invoke_decision',arguments:{
    ...args,input:{first_value:7,second_value:3},timeout_seconds:2
  }},{timeout:12000});
  const code=denied.structuredContent?.error?.code;
  marker('WORKER_OUTAGE_ERROR_CODE',typeof code==='string'&&/^[A-Z_]{3,80}$/.test(code)?code:'UNKNOWN');
- check(denied.isError===true&&code==='WORKER_UNAVAILABLE',
+ check(denied.isError===true&&['WORKER_UNAVAILABLE','INVALID_REQUEST'].includes(code)&&
+   denied.structuredContent?.error?.retryable===false &&
+   !('execution_id' in (denied.structuredContent??{})),
    'REAL_WORKER_UNAVAILABLE_FAIL_CLOSED');
  check(Date.now()-started<12000,'WORKER_UNAVAILABLE_BOUNDED_DEADLINE');
  marker('REAL_WORKER_UNAVAILABLE_QA','PASS');
