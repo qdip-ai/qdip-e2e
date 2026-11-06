@@ -1,4 +1,4 @@
-name: MCP01 real Native MCP decision execution
+name: MCP01 real Native QA ownership bootstrap
 on:
   push:
     branches: [test/mcp01-native-token-contract]
@@ -34,7 +34,7 @@ jobs:
           npx playwright install chromium
           node --check mcp01_native_token_live.mjs
           node mcp01_native_token_live.mjs --self-test
-      - name: Configure exact QA owner-preview callback once
+      - name: Verify real Zitadel owner and canonical Core QA link
         env:
           MCP01_PROVISION_OAUTH: "false"
           MCP01_VERIFY_EXISTING_OAUTH: "false"
@@ -49,4 +49,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs --configure-owner-preview
+          node mcp01_native_token_live.mjs --mcp-owner-bootstrap
