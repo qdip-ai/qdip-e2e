@@ -30,10 +30,11 @@ jobs:
           cd /tmp/mcp01-native
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1 jose@6.1.3 @modelcontextprotocol/client@2.4.0
-          npx playwright install --with-deps chromium
+          # Hosted Ubuntu24.04 already supplies the runtime libraries; real browser launch is the hard check.
+          npx playwright install chromium
           node --check mcp01_native_token_live.mjs
           node mcp01_native_token_live.mjs --self-test
-      - name: Real OAuth and MCP list describe invoke through existing QA
+      - name: Configure exact QA owner-preview callback once
         env:
           MCP01_PROVISION_OAUTH: "false"
           MCP01_VERIFY_EXISTING_OAUTH: "false"
@@ -48,4 +49,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs --mcp-execution
+          node mcp01_native_token_live.mjs --configure-owner-preview

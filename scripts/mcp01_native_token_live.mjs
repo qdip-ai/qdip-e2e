@@ -17,6 +17,8 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
+const ownerPreviewSetup=process.argv.includes('--configure-owner-preview');
+const ownerPreviewCallback='https://qdip-web-git-feat-425-core-backed-zi-6de08f-taras-gezs-projects.vercel.app/api/auth/callback/zitadel';
 const marker=(key,value)=>console.log('MCP01_'+key+'='+value);
 function check(ok,stage){marker(stage,ok?'PASS':'FAIL');if(!ok)throw Error(stage);}
 function originUrl(value){const u=new URL(value);if(u.origin!==ISSUER||u.protocol!=='https:'||u.username||u.password)throw Error('UNTRUSTED_ISSUER_ENDPOINT');return u;}
@@ -413,7 +415,8 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
 
 
 async function main(){
- check(process.argv.slice(2).every(arg=>arg==='--mcp-execution'),'CLI_MODE_SUPPORTED');
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview'].includes(arg))&&
+   !(executionMode&&ownerPreviewSetup),'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
  check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_MANAGED_REFERENCES_PRESENT');
@@ -448,6 +451,24 @@ async function main(){
    let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
      app?.state==='APPLICATION_STATE_ACTIVE'&&app?.oidcConfiguration?.clientId===client,'EXACT_MANAGED_APP_CONFIG');
    let oidc=app.oidcConfiguration;
+   if(ownerPreviewSetup){
+     check(oidc.applicationType==='OIDC_APP_TYPE_NATIVE'&&oidc.authMethodType==='OIDC_AUTH_METHOD_TYPE_NONE'&&
+       oidc.grantTypes?.includes('OIDC_GRANT_TYPE_AUTHORIZATION_CODE'),'OWNER_PREVIEW_PUBLIC_NATIVE_CLIENT');
+     const qa=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/GetProject',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{projectId:project}}),'OWNER_PREVIEW_PROJECT');
+     check(qa.project?.projectId===project&&qa.project.organizationId==='397885387160184113','OWNER_PREVIEW_EXACT_ORGANIZATION');
+     check(Array.isArray(oidc.redirectUris)&&oidc.redirectUris.length<50,'OWNER_PREVIEW_REDIRECTS_BOUNDED');
+     const desired=oidc.redirectUris.includes(ownerPreviewCallback)?oidc.redirectUris:[...oidc.redirectUris,ownerPreviewCallback];
+     if(!oidc.redirectUris.includes(ownerPreviewCallback))await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/UpdateApplication',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+       data:{applicationId:application,projectId:project,oidcConfiguration:{redirectUris:desired}}}),'OWNER_PREVIEW_CALLBACK_ADD');
+     const read=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:application}}),'OWNER_PREVIEW_CALLBACK_READ');
+     check(read.application?.applicationId===application&&read.application?.projectId===project&&
+       sameOtherSettings(oidc,read.application.oidcConfiguration)&&isDeepStrictEqual(read.application.oidcConfiguration.redirectUris,desired),
+       'OWNER_PREVIEW_ONLY_EXACT_CALLBACK_ADDED');
+     marker('OWNER_PREVIEW_CALLBACK_CONFIGURED','PASS');return;
+   }
    if((oidc.redirectUris??[]).length===0&&process.env.MCP01_REGISTER_QA_CALLBACK==='true'){
      // Task-authorized minimal QA setup using the real project owner's session, not Agent/Controller keys.
      check(oidc.applicationType==='OIDC_APP_TYPE_NATIVE'&&oidc.authMethodType==='OIDC_AUTH_METHOD_TYPE_NONE'&&
