@@ -1,18 +1,21 @@
-"""Real Zitadel -> RR BFF -> browser acceptance. No mocked sessions.
+"""Real Zitadel -> standalone RR BFF browser acceptance (no mocked sessions).
 
-Run in the existing secret-bound browser QA job with:
- RR_BROWSER_URL, RR_ZITADEL_USERNAME, RR_ZITADEL_PASSWORD,
- RR_E2E_VALID_EXECUTION_ID (a real execution belonging to the operator org).
-The deployed Web BFF must have RR_STANDALONE_ENABLED=1 and a verified
-RR_ORGANIZATION_ID/RR_ORG_API_KEY binding. Never print credentials.
+Execute only against a deployed standalone pair verified out of band:
+RR_BROWSER_URL, RR_ZITADEL_USERNAME, RR_ZITADEL_PASSWORD,
+RR_E2E_VALID_EXECUTION_ID. No session injection or credential logging.
+One real-account login per run to avoid account lockout across viewports.
 """
 from __future__ import annotations
 
 import os
+import time
 from urllib.parse import urlparse
 
 import pytest
 from playwright.sync_api import sync_playwright
+
+
+VIEWPORTS = ((1440, 900), (390, 844), (844, 390))
 
 
 def _required(name: str) -> str:
@@ -22,12 +25,18 @@ def _required(name: str) -> str:
     return value
 
 
-@pytest.mark.parametrize("viewport", [
-    {"width": 1440, "height": 900},
-    {"width": 390, "height": 844},
-    {"width": 844, "height": 390},
-])
-def test_real_zitadel_standalone_rr_bff(viewport, tmp_path):
+def _visible_input(page, selectors: tuple[str, ...], timeout: float):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for selector in selectors:
+            field = page.locator(selector).first
+            if field.is_visible():
+                return field
+        page.wait_for_timeout(200)
+    pytest.fail("RR_ZITADEL_LOGIN_FORM_UNAVAILABLE", pytrace=False)
+
+
+def test_real_zitadel_standalone_rr_bff(tmp_path):
     base = _required("RR_BROWSER_URL").rstrip("/")
     username = _required("RR_ZITADEL_USERNAME")
     password = _required("RR_ZITADEL_PASSWORD")
@@ -38,49 +47,68 @@ def test_real_zitadel_standalone_rr_bff(viewport, tmp_path):
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport=viewport, ignore_https_errors=False)
-        page = context.new_page()
-        # An anonymous request must not reach the privileged standalone RR BFF.
-        anonymous = page.request.get(api)
-        assert anonymous.status == 401, f"RR_ANONYMOUS_HTTP_{anonymous.status}"
+        try:
+            context = browser.new_context(ignore_https_errors=False)
+            page = context.new_page()
+            anonymous = page.request.get(api)
+            assert anonymous.status == 401, f"RR_ANONYMOUS_HTTP_{anonymous.status}"
 
-        page.goto(base, wait_until="domcontentloaded")
-        # Use the actual product login link; do not inject session cookies or tokens.
-        login = page.get_by_role("link", name="Sign in").or_(
-            page.get_by_role("button", name="Sign in")
-        )
-        assert login.count() > 0, "RR_REAL_LOGIN_ENTRY_NOT_FOUND"
-        login.first.click()
-        page.wait_for_url(lambda url: "zitadel" in url.lower(), timeout=30000)
-        page.get_by_role("textbox").first.fill(username)
-        page.get_by_role("button", name="Next").or_(
-            page.get_by_role("button", name="Continue")
-        ).first.click()
-        page.locator('input[type="password"]').fill(password)
-        page.get_by_role("button", name="Login").or_(
-            page.get_by_role("button", name="Sign in")
-        ).first.click()
-        page.wait_for_url(lambda url: url.startswith(base), timeout=45000)
+            page.goto(base, wait_until="domcontentloaded")
+            login = page.get_by_role("button", name="Sign in with Zitadel")
+            assert login.is_visible(), "RR_REAL_LOGIN_ENTRY_NOT_FOUND"
+            login.click()
+            page.wait_for_url(lambda url: "zitadel" in str(url).lower(), timeout=30000)
+            user = _visible_input(page, (
+                'input[autocomplete="username"]', 'input[name="loginName"]',
+                'input[name="loginname"]', 'input[name="username"]',
+                'input[name="email"]', 'input[type="email"]',
+            ), 12)
+            user.fill(username)
+            passwd = None
+            for selector in ('input[autocomplete="current-password"]', 'input[type="password"]'):
+                field = page.locator(selector).first
+                if field.is_visible():
+                    passwd = field
+                    break
+            if passwd is None:
+                user.press("Enter")
+                passwd = _visible_input(page, (
+                    'input[autocomplete="current-password"]', 'input[type="password"]',
+                ), 12)
+            passwd.fill(password)
+            passwd.press("Enter")
+            # Never make a second password attempt; MFA/consent is a hard blocker.
+            page.wait_for_url(lambda url: str(url).startswith(base), timeout=45000)
 
-        # Browser requests share real OIDC cookies with the BFF; never call Core
-        # directly or inject an API key. This must return the known org's record.
-        authorized = page.request.get(api)
-        assert authorized.status == 200, f"RR_STANDALONE_READ_HTTP_{authorized.status}"
-        assert authorized.json()["result"]["workflow"]["execution_id"] == execution_id
+            for width, height in VIEWPORTS:
+                page.set_viewport_size({"width": width, "height": height})
+                page.goto(base, wait_until="domcontentloaded")
+                panel = page.get_by_test_id("rr-production-operator")
+                assert panel.is_visible(), f"RR_OPERATOR_PANEL_MISSING_{width}x{height}"
+                assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), (
+                    f"RR_HORIZONTAL_OVERFLOW_{width}x{height}"
+                )
+                page.screenshot(
+                    path=str(tmp_path / f"rr-{width}x{height}.png"),
+                    full_page=True,
+                )
 
-        # Invalid write must fail validation, not authorization or upstream routing.
-        invalid = page.request.post(
-            base + "/api/rr-operator/kernel/executions",
-            data="{}",
-            headers={"content-type": "application/json", "origin": base},
-        )
-        assert invalid.status == 422, f"RR_STANDALONE_WRITE_PREFLIGHT_HTTP_{invalid.status}"
-        wrong_origin = page.request.post(
-            base + "/api/rr-operator/kernel/executions",
-            data="{}",
-            headers={"content-type": "application/json", "origin": "https://invalid.example"},
-        )
-        assert wrong_origin.status == 403
-        page.screenshot(path=str(tmp_path / f"rr-{viewport['width']}x{viewport['height']}.png"), full_page=True)
-        context.close()
-        browser.close()
+            # Cookies are created through the real OIDC flow. Never call Core
+            # directly or inject a platform or organization API key.
+            authorized = page.request.get(api)
+            assert authorized.status == 200, f"RR_STANDALONE_READ_HTTP_{authorized.status}"
+            assert authorized.json()["result"]["workflow"]["execution_id"] == execution_id
+
+            invalid = page.request.post(
+                base + "/api/rr-operator/kernel/executions", data="{}",
+                headers={"content-type": "application/json", "origin": urlparse(base).scheme + "://" + urlparse(base).netloc},
+            )
+            assert invalid.status == 422, f"RR_STANDALONE_WRITE_PREFLIGHT_HTTP_{invalid.status}"
+            wrong_origin = page.request.post(
+                base + "/api/rr-operator/kernel/executions", data="{}",
+                headers={"content-type": "application/json", "origin": "https://invalid.example"},
+            )
+            assert wrong_origin.status == 403, f"RR_CROSS_ORIGIN_HTTP_{wrong_origin.status}"
+            context.close()
+        finally:
+            browser.close()
