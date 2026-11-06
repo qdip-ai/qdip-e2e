@@ -298,7 +298,7 @@ async function executeMcpDecision(client){
    integer(result.solution.first,1n)&&integer(result.solution.second,0n)&&integer(result.objective_value,7n),'KERNEL_CHOICE_CONSTRAINTS_AND_OBJECTIVE');
  const m=result.manifest,r=result.replay_contract;
  check(m?.semantic_version==='1.0.0'&&r?.semantic_version==='1.0.0'&&m.execution_id===result.execution_id&&
-   m.backend_id==='cp-sat'&&m.runtime_version==='qdip-runtime-kernel.v1'&&m.compiler_version==='qdip-runtime-compiler.v1'&&
+   m.backend_id==='ortools-cp-sat'&&m.runtime_version==='qdip-runtime-kernel.v1'&&m.compiler_version==='qdip-runtime-compiler.v1'&&
    /^[A-Za-z0-9_.:-]{1,128}$/.test(m.decision_id)&&
    ['decision_id','decision_spec_hash','ir_hash','compiler_version'].every(k=>typeof m[k]==='string'&&m[k]===r[k])&&
    ['decision_spec_hash','ir_hash'].every(k=>/^[a-f0-9]{64}$/.test(m[k])),'MANIFEST_REPLAY_BOUND_TO_EXECUTION');
