@@ -44,8 +44,11 @@ jobs:
         run: node scripts/sdk649_qa_app_vars.mjs
 
   qa21-project-owner:
+    permissions:
+      contents: read
+      id-token: write
     needs: qa-application-variables
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'test/sdk649-qa-application-vars-20261104') || ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104'
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     steps:
@@ -79,8 +82,6 @@ jobs:
           QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
           QDIP_SDK_EXTERNAL_APP_ID: ${{ vars.QDIP_SDK_EXTERNAL_APP_ID }}
           QDIP_SDK_EXTERNAL_CLIENT_ID: ${{ vars.QDIP_SDK_EXTERNAL_CLIENT_ID }}
-          QDIP_SDK_QA_MANAGED_ORG_KEY: ${{ secrets.QDIP_SDK_QA_MANAGED_ORG_KEY }}
-          QDIP_SDK_QA_EXTERNAL_ORG_KEY: ${{ secrets.QDIP_SDK_QA_EXTERNAL_ORG_KEY }}
         run: |
           set -euo pipefail
           cd /tmp/sdk649-owner
