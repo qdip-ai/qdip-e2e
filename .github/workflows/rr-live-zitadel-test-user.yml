@@ -147,10 +147,8 @@ jobs:
     timeout-minutes: 35
     env:
       RR_BROWSER_URL: 'https://rr-standalone-web-qa-qa.up.railway.app'
-      RR_E2E_STAGING_WRITE: ${{ vars.RR_E2E_STAGING_WRITE }}
-      RR_E2E_VALID_EXECUTION_ID: ${{ vars.RR_E2E_VALID_EXECUTION_ID }}
+      RR_E2E_STAGING_WRITE: '1' # RR-E2E-01 explicitly authorizes writes only to the pinned isolated Railway QA
       RR_E2E_ORGANIZATION_ID: ${{ vars.RR_E2E_ORGANIZATION_ID }}
-      RR_E2E_FOREIGN_EXECUTION_ID: ${{ vars.RR_E2E_FOREIGN_EXECUTION_ID }}
       RR_E2E_TEST_POSTGRES_DSN: ${{ secrets.RR_E2E_TEST_POSTGRES_DSN }}
       QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
       QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
@@ -163,7 +161,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_VALID_EXECUTION_ID RR_E2E_ORGANIZATION_ID RR_E2E_FOREIGN_EXECUTION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_ORGANIZATION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "RR_E2E_BLOCKED_MISSING_BINDING=${name}"
               missing=1
