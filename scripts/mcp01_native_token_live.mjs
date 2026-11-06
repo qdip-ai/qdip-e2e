@@ -17,6 +17,8 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
+const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
+const realDecisionMode=executionMode||workerUnavailableMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -264,8 +266,27 @@ async function realMcpClient(access){
    const tools=await client.listTools();
    check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
    marker('REAL_MCP_TOOLS_LIST','PASS');
-   if(executionMode)await executeMcpDecision(client);
+   if(workerUnavailableMode)await assertWorkerUnavailable(client);
+   else if(executionMode)await executeMcpDecision(client);
  }finally{await client.close();}
+}
+
+// QA fault-injection qualification. Run ONLY while the reviewed QA worker is
+// deliberately offline; never treat a normal positive invocation as this proof.
+async function assertWorkerUnavailable(client){
+ const args={capability_id:'mcp.qa.choice',capability_version:'1'};
+ const list=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
+ check(!list.isError&&list.structuredContent?.capabilities?.length===1,'UNAVAILABLE_LIST_REMAINS_AUTHORIZED');
+ const started=Date.now();
+ const denied=await client.callTool({name:'qdip_invoke_decision',arguments:{
+   ...args,input:{first_value:7,second_value:3},timeout_seconds:2
+ }},{timeout:12000});
+ const code=denied.structuredContent?.error?.code;
+ marker('WORKER_OUTAGE_ERROR_CODE',typeof code==='string'&&/^[A-Z_]{3,80}$/.test(code)?code:'UNKNOWN');
+ check(denied.isError===true&&code==='WORKER_UNAVAILABLE',
+   'REAL_WORKER_UNAVAILABLE_FAIL_CLOSED');
+ check(Date.now()-started<12000,'WORKER_UNAVAILABLE_BOUNDED_DEADLINE');
+ marker('REAL_WORKER_UNAVAILABLE_QA','PASS');
 }
 
 async function executeMcpDecision(client){
@@ -491,8 +512,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link'].includes(arg))&&
+ const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
@@ -502,7 +523,7 @@ async function main(){
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
  const verifyExisting=process.env.MCP01_VERIFY_EXISTING_OAUTH==='true';
  check(!(provision&&verifyExisting),'MCP_OAUTH_MODES_EXCLUSIVE');
- if(executionMode||ownerBootstrapMode||applicationLinkMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
+ if(realDecisionMode||ownerBootstrapMode||applicationLinkMode)check(!provision&&!verifyExisting&&process.env.MCP01_CONFIGURE_ROLE_CONTRACT!=='true'&&
    process.env.MCP01_REGISTER_QA_CALLBACK!=='true','EXECUTION_HAS_NO_PROVISIONING_AUTHORITY');
  try{
    if(provision)await deliveryPreflight(ctx);
@@ -528,7 +549,7 @@ async function main(){
    let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
      app?.state==='APPLICATION_STATE_ACTIVE'&&app?.oidcConfiguration?.clientId===client,'EXACT_MANAGED_APP_CONFIG');
    let oidc=app.oidcConfiguration;
-   if(executionMode){
+   if(realDecisionMode){
      // Match Core's live PROJECT_OWNER application-binding policy before any key issue.
      const owned=await json(await ctx.request.post(ISSUER+'/zitadel.internal_permission.v2.InternalPermissionService/ListAdministrators',{
        timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
