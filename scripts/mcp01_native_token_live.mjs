@@ -475,7 +475,12 @@ async function main(){
      check(read.application?.applicationId===application&&read.application?.projectId===project&&
        sameOtherSettings(oidc,read.application.oidcConfiguration)&&isDeepStrictEqual(read.application.oidcConfiguration.redirectUris,desired),
        'OWNER_PREVIEW_ONLY_EXACT_CALLBACK_ADDED');
-     marker('OWNER_PREVIEW_CALLBACK_CONFIGURED','PASS');return;
+     marker('OWNER_PREVIEW_CALLBACK_CONFIGURED','PASS');
+     const loginEntry=new URL('/api/auth/login',ownerPreviewCallback);
+     const loginResponse=await ctx.request.get(loginEntry.href,{maxRedirects:0,timeout:15000});
+     marker('OWNER_PREVIEW_LOGIN_ENTRY_HTTP',loginResponse.status());
+     check(loginResponse.status()===302,'OWNER_PREVIEW_LOGIN_AT_PREVIEW_ORIGIN');
+     return;
    }
    if((oidc.redirectUris??[]).length===0&&process.env.MCP01_REGISTER_QA_CALLBACK==='true'){
      // Task-authorized minimal QA setup using the real project owner's session, not Agent/Controller keys.
