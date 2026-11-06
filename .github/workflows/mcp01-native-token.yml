@@ -50,3 +50,20 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-owner-bootstrap
+      - name: Verify existing MCP Railway sealed custody (read-only)
+        env:
+          MCP01_PROVISION_OAUTH: "false"
+          MCP01_VERIFY_EXISTING_OAUTH: "true"
+          MCP01_CONFIGURE_ROLE_CONTRACT: "false"
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: "false"
+          RAILWAY_MCP_QA_PROJECT_TOKEN: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN }}
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp01-native
+          node mcp01_native_token_live.mjs
