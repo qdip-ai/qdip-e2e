@@ -3,10 +3,11 @@ on:
   # Credential-bearing browser E2E runs only from reviewed public main,
   # never a PR/untrusted branch. Manual dispatch remains available.
   push:
-    branches: [main]
+    branches: [main, feat/rr-e2e-01-standalone]
     paths:
       - scripts/rr_live_zitadel_test_user.mjs
       - .github/workflows/rr-live-zitadel-test-user.yml
+      - tests/test_rr_real_zitadel_standalone_browser.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -66,3 +67,61 @@ jobs:
           echo 'REAL_WRONG_ORG_ACCOUNT=NOT_TESTED'
           echo 'REAL_ROLELESS_ACCOUNT=NOT_TESTED'
           echo 'NO_PRODUCTION_RR_MUTATION_PERFORMED=TRUE'
+
+  rr-standalone-browser:
+    # Reuse this established RR QA workflow. No PR events, no production mutations.
+    if: github.event.repository.private == false && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      RR_BROWSER_URL: ${{ vars.RR_E2E_STAGING_BROWSER_URL }}
+      RR_E2E_STAGING_WRITE: ${{ vars.RR_E2E_STAGING_WRITE }}
+      RR_E2E_VALID_EXECUTION_ID: ${{ vars.RR_E2E_VALID_EXECUTION_ID }}
+      RR_E2E_ORGANIZATION_ID: ${{ vars.RR_E2E_ORGANIZATION_ID }}
+      RR_E2E_FOREIGN_EXECUTION_ID: ${{ vars.RR_E2E_FOREIGN_EXECUTION_ID }}
+      RR_E2E_TEST_POSTGRES_DSN: ${{ secrets.RR_E2E_TEST_POSTGRES_DSN }}
+      QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require real isolated staging bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_VALID_EXECUTION_ID RR_E2E_ORGANIZATION_ID RR_E2E_FOREIGN_EXECUTION_ID RR_E2E_TEST_POSTGRES_DSN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "RR_E2E_BLOCKED_MISSING_BINDING=${name}"
+              exit 2
+            fi
+          done
+          if [[ "$RR_E2E_STAGING_WRITE" != '1' ]]; then
+            echo 'RR_E2E_BLOCKED_STAGING_WRITE_NOT_APPROVED'
+            exit 2
+          fi
+          case "$RR_BROWSER_URL" in
+            https://observatory.qdip.ai|https://studio.qdip.ai|https://qdip.ai)
+              echo 'RR_E2E_PRODUCTION_MUTATIONS_FORBIDDEN'
+              exit 2 ;;
+          esac
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install real Chromium and PostgreSQL client
+        run: |
+          python -m pip install pytest==8.4.2 playwright==1.56.0 asyncpg==0.30.0
+          python -m playwright install --with-deps chromium
+      - name: Real RR standalone browser E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests/test_rr_real_zitadel_standalone_browser.py --basetemp=test-results/rr-standalone -ra
+      - name: Upload 6 standalone RR viewport screenshots (no authenticated trace)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-standalone-six-viewport-screenshots
+          path: test-results/rr-standalone/**/rr-*.png
+          if-no-files-found: warn
+          retention-days: 7
