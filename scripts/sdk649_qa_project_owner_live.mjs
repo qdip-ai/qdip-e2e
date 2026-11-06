@@ -192,6 +192,20 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
   assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
   assert(!validScopedQaKeys(['','scoped-key-qa-002']));
   console.log('SDK649_SCOPED_KEY_NEGATIVE_REGRESSIONS=PASS');
+  // The exact QA job must never downgrade to a missing-OIDC soft skip.
+  const savedUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const savedToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  try{
+    await assert.rejects(githubQaWorkloadJwt(),/QA_GITHUB_OIDC_MISSING/);
+  }finally{
+    if(savedUrl===undefined)delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    else process.env.ACTIONS_ID_TOKEN_REQUEST_URL=savedUrl;
+    if(savedToken===undefined)delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    else process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN=savedToken;
+  }
+  console.log('SDK649_GITHUB_OIDC_MISSING_DENIED=PASS');
 }
 async function visible(page,selectors,ms=14000){const end=Date.now()+ms;
   while(Date.now()<end){for(const s of selectors){const n=page.locator(s).first();
