@@ -280,6 +280,7 @@ async function executeMcpDecision(client){
    return response.structuredContent;
  };
  const listed=await call('qdip_list_capabilities',{});
+ marker('AUTHORIZED_CAPABILITY_COUNT',Array.isArray(listed.capabilities)?listed.capabilities.length:'INVALID');
  check(isDeepStrictEqual(listed.capabilities,[{plugin_id:'sdk-managed-qa',...args}]),'AUTHORIZED_CAPABILITY_EXACT');
  const manifest=await call('qdip_describe_capability',args);
  check(manifest.plugin_id==='sdk-managed-qa'&&manifest.capability_id===args.capability_id&&
