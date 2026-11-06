@@ -107,7 +107,7 @@ jobs:
           cd /tmp/mcp01-native
           node --check zitadel_qa21_reverse_org_live.mjs
           node zitadel_qa21_reverse_org_live.mjs
-      - name: Execute real MCP list, describe and Kernel invoke (no provisioning)
+      - name: Expect unavailable isolated QA Worker, no hidden retry
         env:
           MCP01_PROVISION_OAUTH: "false"
           MCP01_VERIFY_EXISTING_OAUTH: "false"
@@ -122,4 +122,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs --mcp-execution
+          node mcp01_native_token_live.mjs --mcp-worker-unavailable
