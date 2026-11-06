@@ -164,4 +164,4 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs --mcp-worker-timeout
+          node mcp01_native_token_live.mjs --mcp-worker-unavailable
