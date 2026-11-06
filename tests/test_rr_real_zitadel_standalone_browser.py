@@ -46,17 +46,16 @@ async def _journal_readback(dsn: str, organization_id: str, execution_id: str) -
         await connection.close()
 
 
-async def _foreign_record_organization(
-    dsn: str, organization_id: str, execution_id: str,
-) -> str | None:
+async def _foreign_record(dsn: str, organization_id: str) -> tuple[str, str] | None:
+    """Find a persisted existing foreign-tenant fixture, never an invented ID."""
     connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
     try:
-        return await connection.fetchval(
-            """SELECT organization_id FROM rr_execution_records
-               WHERE organization_id <> $1 AND execution_id = $2
-               LIMIT 1""",
-            organization_id, execution_id,
+        row = await connection.fetchrow(
+            """SELECT organization_id, execution_id FROM rr_execution_records
+               WHERE organization_id <> $1 ORDER BY execution_id LIMIT 1""",
+            organization_id,
         )
+        return None if row is None else (row["organization_id"], row["execution_id"])
     finally:
         await connection.close()
 
@@ -76,14 +75,11 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     base = _required("RR_BROWSER_URL").rstrip("/")
     username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
     password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
-    execution_id = _required("RR_E2E_VALID_EXECUTION_ID")
     dsn = _required("RR_E2E_TEST_POSTGRES_DSN")
     organization_id = _required("RR_E2E_ORGANIZATION_ID")
-    foreign_execution_id = _required("RR_E2E_FOREIGN_EXECUTION_ID")
     assert urlparse(dsn).path.rsplit("/", 1)[-1].endswith("_test"), (
         "RR_E2E_POSTGRES_MUST_BE_DEDICATED_TEST_DATABASE"
     )
-    assert foreign_execution_id != execution_id, "RR_E2E_FOREIGN_FIXTURE_NOT_ISOLATED"
     assert _required("RR_E2E_STAGING_WRITE") == "1", (
         "RR_E2E_REQUIRES_EXPLICIT_STAGING_MUTATION_PERMISSION"
     )
@@ -98,9 +94,8 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     assert parsed.hostname not in {"qdip.ai", "observatory.qdip.ai", "studio.qdip.ai"}, (
         "RR_E2E_PRODUCTION_MUTATIONS_FORBIDDEN"
     )
-    assert "/" not in execution_id and "?" not in execution_id
     page_url = base + "/en/readiness-recovery"
-    api = base + "/api/rr-operator/kernel/executions/" + execution_id
+    api = base + "/api/rr-operator/kernel/executions/rr-anonymous-unauthorized"
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -154,12 +149,8 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                     full_page=True,
                 )
 
-            # Cookies are created through the real OIDC flow. Never call Core
-            # directly or inject a platform or organization API key.
-            authorized = page.request.get(api)
-            assert authorized.status == 200, f"RR_STANDALONE_READ_HTTP_{authorized.status}"
-            assert authorized.json()["result"]["workflow"]["execution_id"] == execution_id
-
+            # Cookies come from the real Zitadel OIDC flow; the test creates its
+            # own execution below rather than relying on a stale preseeded ID.
             invalid = page.request.post(
                 base + "/api/rr-operator/kernel/executions", data="{}",
                 headers={"content-type": "application/json", "origin": urlparse(base).scheme + "://" + urlparse(base).netloc},
@@ -228,10 +219,10 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             assert record["organization_id"] == organization_id, "RR_ORGANIZATION_BINDING_MISMATCH"
             stored = asyncio.run(_journal_readback(dsn, organization_id, first_id))
             assert stored == record, "RR_POSTGRES_HTTP_READBACK_MISMATCH"
-            foreign_org = asyncio.run(_foreign_record_organization(
-                dsn, organization_id, foreign_execution_id
-            ))
-            assert foreign_org is not None, "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
+            foreign_fixture = asyncio.run(_foreign_record(dsn, organization_id))
+            assert foreign_fixture is not None, "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
+            foreign_org, foreign_execution_id = foreign_fixture
+            assert foreign_execution_id != first_id, "RR_FOREIGN_FIXTURE_INVALID"
             foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
             assert foreign.status in (403, 404), (
                 f"RR_FOREIGN_ORGANIZATION_READ_HTTP_{foreign.status}"
