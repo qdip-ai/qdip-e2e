@@ -5,11 +5,13 @@ on:
     paths:
       - .github/workflows/mcp01-native-token.yml
       - scripts/mcp01_native_token_live.mjs
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/mcp01-native-token.yml
-      - scripts/mcp01_native_token_live.mjs
+  workflow_dispatch:
+    inputs:
+      worker_fault:
+        type: choice
+        description: 'Explicitly fault-injected QA Worker only'
+        required: true
+        options: [timeout, unavailable]
 permissions:
   contents: read
 concurrency:
@@ -129,7 +131,7 @@ jobs:
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-execution
   qa-worker-fault:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'pull_request' && github.head_ref == 'test/mcp01-native-token-contract'
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/mcp01-native-token-contract'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -164,4 +166,8 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp01-native
-          node mcp01_native_token_live.mjs --mcp-worker-unavailable
+          if [[ "${{ github.event.inputs.worker_fault }}" == "timeout" ]]; then
+            node mcp01_native_token_live.mjs --mcp-worker-timeout
+          else
+            node mcp01_native_token_live.mjs --mcp-worker-unavailable
+          fi
