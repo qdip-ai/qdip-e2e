@@ -479,6 +479,21 @@ async function main(){
    let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
      app?.state==='APPLICATION_STATE_ACTIVE'&&app?.oidcConfiguration?.clientId===client,'EXACT_MANAGED_APP_CONFIG');
    let oidc=app.oidcConfiguration;
+   if(executionMode){
+     // Match Core's live PROJECT_OWNER application-binding policy before any key issue.
+     const owned=await json(await ctx.request.post(ISSUER+'/zitadel.internal_permission.v2.InternalPermissionService/ListAdministrators',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+       data:{pagination:{offset:0,limit:100},filters:[
+         {resource:{projectId:project}},{inUserIdsFilter:{ids:[owner.sub]}},{role:{roleKey:'PROJECT_OWNER'}}
+       ]}}),'MCP_QA_PROJECT_ADMIN_READ');
+     const entries=owned.administrators;
+     check(Array.isArray(entries)&&entries.length<=100,'MCP_QA_PROJECT_ADMIN_BOUNDED');
+     const exact=entries.filter(row=>row&&row.instance!==true&&row.user?.id===owner.sub&&
+       row.project?.id===project&&row.project?.organizationId==='397885387160184113'&&
+       Array.isArray(row.roles)&&row.roles.includes('PROJECT_OWNER'));
+     marker('MCP_QA_PROJECT_OWNER_EXACT',exact.length===1);
+     check(exact.length===1,'MCP_QA_PROJECT_OWNER_REQUIRED_FOR_CANONICAL_SDK_BINDING');
+   }
    if(ownerPreviewSetup){
      check(oidc.applicationType==='OIDC_APP_TYPE_NATIVE'&&oidc.authMethodType==='OIDC_AUTH_METHOD_TYPE_NONE'&&
        oidc.grantTypes?.includes('OIDC_GRANT_TYPE_AUTHORIZATION_CODE'),'OWNER_PREVIEW_PUBLIC_NATIVE_CLIENT');
