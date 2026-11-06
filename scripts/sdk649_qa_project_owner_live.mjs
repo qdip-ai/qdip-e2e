@@ -143,12 +143,21 @@ async function githubQaWorkloadJwt(){
     throw Error('QA_GITHUB_OIDC_MALFORMED');
   return data.value;
 }
-async function coreQaKeys(){
+async function coreQaKeys(verifiedOwnerAccessToken){
+  // The user token is already proven through browser PKCE/userinfo.
+  // Core independently introspects it and requires live ORG_OWNER before
+  // projecting the existing Zitadel organization. PROJECT_OWNER alone fails.
+  if(typeof verifiedOwnerAccessToken!=='string'||
+     verifiedOwnerAccessToken.length<16||
+     /[\s\x00-\x1f\x7f]/u.test(verifiedOwnerAccessToken))
+    throw Error('QA_ZITADEL_OWNER_TOKEN_MISSING');
   const identity=await githubQaWorkloadJwt();
   const url=STAGING_CORE+'/api/v1/sdk/qa/oidc-credentials';
   const result=await fetch(url,{
-    method:'POST',headers:{Authorization:'Bearer '+identity},redirect:'error',
-    signal:AbortSignal.timeout(20000),
+    method:'POST',headers:{
+      Authorization:'Bearer '+identity,
+      'x-zitadel-access-token':verifiedOwnerAccessToken,
+    },redirect:'error',signal:AbortSignal.timeout(20000),
   }).catch(()=>{throw Error('QA_CORE_OIDC_EXCHANGE_UNAVAILABLE');});
   if(result.status!==201)throw Error('QA_CORE_OIDC_EXCHANGE_DENIED');
   const body=await result.json().catch(()=>null);
@@ -219,6 +228,9 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
     else process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN=savedToken;
   }
   console.log('SDK649_GITHUB_OIDC_MISSING_DENIED=PASS');
+  await assert.rejects(coreQaKeys(''),/QA_ZITADEL_OWNER_TOKEN_MISSING/);
+  await assert.rejects(coreQaKeys('invalid token value'),/QA_ZITADEL_OWNER_TOKEN_MISSING/);
+  console.log('SDK649_ORG_OWNER_TOKEN_REQUIRED=PASS');
 }
 async function visible(page,selectors,ms=14000){const end=Date.now()+ms;
   while(Date.now()<end){for(const s of selectors){const n=page.locator(s).first();
@@ -364,7 +376,7 @@ async function run(){validateQaApplicationVariables(process.env);
         let qaKeys=[];
         let issued=false;
         try{
-          qaKeys=await coreQaKeys();
+          qaKeys=await coreQaKeys(tokens[0]);
           issued=true;
           for(let i=0;i<2;i++){
             const app=readyPkce[i];
