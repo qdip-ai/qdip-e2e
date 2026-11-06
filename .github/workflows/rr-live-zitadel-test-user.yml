@@ -68,13 +68,42 @@ jobs:
           echo 'REAL_ROLELESS_ACCOUNT=NOT_TESTED'
           echo 'NO_PRODUCTION_RR_MUTATION_PERFORMED=TRUE'
 
+  rr-railway-web-bff-smoke:
+    # No credentials or writes. Confirms the actual Railway-hosted UI and BFF auth boundary.
+    if: github.event.repository.private == false && github.ref == 'refs/heads/feat/rr-e2e-01-standalone'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Railway Observatory UI is served
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://rr-standalone-web-qa-qa.up.railway.app'
+          status=$(curl --silent --show-error --location --max-time 20 --output /dev/null --write-out '%{http_code}' "$origin/en/readiness-recovery")
+          if [[ "$status" != 200 ]]; then
+            echo "RR_RAILWAY_WEB_HTTP=$status"
+            exit 2
+          fi
+          echo 'RR_RAILWAY_WEB_HTTP=200'
+      - name: Verify anonymous BFF enforces authentication, not missing configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://rr-standalone-web-qa-qa.up.railway.app'
+          status=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' "$origin/api/rr-operator/kernel/executions/nonexistent-qa-smoke")
+          if [[ "$status" != 401 ]]; then
+            echo "RR_RAILWAY_BFF_AUTH_GATE_HTTP=$status"
+            exit 2
+          fi
+          echo 'RR_RAILWAY_BFF_AUTH_GATE_HTTP=401'
+
   rr-standalone-browser:
     # Reuse this established RR QA workflow. No PR events, no production mutations.
     if: github.event.repository.private == false && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      RR_BROWSER_URL: ${{ vars.RR_E2E_STAGING_BROWSER_URL }}
+      RR_BROWSER_URL: 'https://rr-standalone-web-qa-qa.up.railway.app'
       RR_E2E_STAGING_WRITE: ${{ vars.RR_E2E_STAGING_WRITE }}
       RR_E2E_VALID_EXECUTION_ID: ${{ vars.RR_E2E_VALID_EXECUTION_ID }}
       RR_E2E_ORGANIZATION_ID: ${{ vars.RR_E2E_ORGANIZATION_ID }}
