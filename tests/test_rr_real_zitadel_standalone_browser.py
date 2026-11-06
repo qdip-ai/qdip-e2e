@@ -46,16 +46,17 @@ async def _journal_readback(dsn: str, organization_id: str, execution_id: str) -
         await connection.close()
 
 
-async def _foreign_record_exists(dsn: str, organization_id: str, execution_id: str) -> bool:
+async def _foreign_record_organization(
+    dsn: str, organization_id: str, execution_id: str,
+) -> str | None:
     connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
     try:
-        return bool(await connection.fetchval(
-            """SELECT EXISTS(
-                 SELECT 1 FROM rr_execution_records
-                 WHERE organization_id <> $1 AND execution_id = $2
-               )""",
+        return await connection.fetchval(
+            """SELECT organization_id FROM rr_execution_records
+               WHERE organization_id <> $1 AND execution_id = $2
+               LIMIT 1""",
             organization_id, execution_id,
-        ))
+        )
     finally:
         await connection.close()
 
@@ -224,14 +225,15 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             assert record["organization_id"] == organization_id, "RR_ORGANIZATION_BINDING_MISMATCH"
             stored = asyncio.run(_journal_readback(dsn, organization_id, first_id))
             assert stored == record, "RR_POSTGRES_HTTP_READBACK_MISMATCH"
-            assert asyncio.run(_foreign_record_exists(
+            foreign_org = asyncio.run(_foreign_record_organization(
                 dsn, organization_id, foreign_execution_id
-            )), "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
+            ))
+            assert foreign_org is not None, "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
             foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
             assert foreign.status in (403, 404), (
                 f"RR_FOREIGN_ORGANIZATION_READ_HTTP_{foreign.status}"
             )
-            assert organization_id != foreign_execution_id
+            assert foreign_org not in foreign.text(), "RR_FOREIGN_ORG_ID_EXPOSED"
             print("RR_STANDALONE_POSTGRES_READBACK=PASS")
             print("RR_CROSS_ORG_HTTP_ISOLATION=PASS")
             replay = page.request.get(
