@@ -18,6 +18,16 @@ function ownerOk(x,p,sub){const a=x?.administrators,m=x?.pagination??x?.details;
     a.some(o=>o?.instance!==true&&o?.user?.id===sub&&
     Array.isArray(o?.roles)&&o.roles.includes('PROJECT_OWNER')&&
     o?.project?.id===p&&o?.project?.organizationId===ORG);}
+function orgOwnerOk(x,sub){const a=x?.administrators,m=x?.pagination??x?.details;
+  return Array.isArray(a)&&a.length>0&&a.length<=100&&
+    m?.totalResult!==undefined&&Number(m.totalResult)===a.length&&
+    a.some(o=>{const r=o?.organization;
+      const org=typeof r==='string'?r:
+        r&&typeof r==='object'?(r.organizationId??r.id):o?.organizationId;
+      return o?.instance!==true&&o?.user?.id===sub&&
+        Array.isArray(o?.roles)&&o.roles.includes('ORG_OWNER')&&
+        (org===undefined||org===ORG);
+    });}
 function exactActiveIntrospectionApps(rows){return rows.filter(a=>
   a?.state==='APPLICATION_STATE_ACTIVE'&&
   a?.name==='qdip-sdk-qa-introspection'&&
@@ -191,6 +201,18 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
     pagination:{totalResult:1}},p,s));
   assert(!ownerOk({administrators:[row],pagination:{totalResult:2}},p,s));
   console.log('SDK649_OWNER_PROOF_NEGATIVE_REGRESSIONS=PASS');
+  const orgRow={user:{id:s},organization:{id:ORG},roles:['ORG_OWNER']};
+  assert(orgOwnerOk({administrators:[orgRow],pagination:{totalResult:1}},s));
+  assert(!orgOwnerOk({administrators:[{...orgRow,roles:['PROJECT_OWNER']}],
+    pagination:{totalResult:1}},s));
+  assert(!orgOwnerOk({administrators:[{...orgRow,organization:{id:'wrong-org'}}],
+    pagination:{totalResult:1}},s));
+  assert(!orgOwnerOk({administrators:[orgRow],pagination:{totalResult:2}},s));
+  assert(!orgOwnerOk({administrators:[{...orgRow,instance:true}],
+    pagination:{totalResult:1}},s));
+  assert(!orgOwnerOk({pagination:{appliedLimit:100}},s));
+  console.log('SDK649_ORG_OWNER_PROOF_NEGATIVE_REGRESSIONS=PASS');
+
   const targetApi={applicationId:'333333333333333333',
     name:'qdip-sdk-qa-introspection',state:'APPLICATION_STATE_ACTIVE',
     apiConfiguration:{clientId:'qa-api-client'}};
@@ -329,6 +351,14 @@ async function run(){validateQaApplicationVariables(process.env);
         {resource:{projectId:p}},{inUserIdsFilter:{ids:[sub]}},{role:{roleKey:'PROJECT_OWNER'}}]},
       'QA_OWNER');
     check(ownerOk(owners,p,sub),'QA21_EXACT_PROJECT_OWNER');
+    const orgOwners=await readRpc(ctx.request,
+      '/zitadel.internal_permission.v2.InternalPermissionService/ListAdministrators',
+      token,{pagination:{offset:0,limit:100},filters:[
+        {resource:{organizationId:ORG}},{inUserIdsFilter:{ids:[sub]}},
+        {role:{roleKey:'ORG_OWNER'}}]},
+      'QA_ORG_OWNER');
+    check(orgOwnerOk(orgOwners,sub),'QA21_EXACT_ORG_OWNER');
+
     // Inspect only the exact QA project. An API application is a candidate
     // resource-server client, not proof that Basic introspection is enabled.
     const catalog=await readRpc(ctx.request,
