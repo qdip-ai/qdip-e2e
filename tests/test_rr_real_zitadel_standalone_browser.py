@@ -89,6 +89,9 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     )
     parsed = urlparse(base)
     assert parsed.scheme == "https", "RR_BROWSER_E2E_REQUIRES_TLS"
+    assert parsed.hostname and parsed.hostname.endswith(".up.railway.app"), (
+        "RR_E2E_RAILWAY_ONLY"
+    )
     assert parsed.path in ("", "/") and not parsed.query and not parsed.fragment, (
         "RR_BROWSER_URL_MUST_BE_ORIGIN"
     )
