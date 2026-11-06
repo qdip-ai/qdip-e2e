@@ -50,6 +50,19 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-owner-bootstrap
+      - name: Check existing isolated QA Core operator credential channel (no value read)
+        env:
+          QA_CORE_OPERATOR_PRESENT: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
+          LEGACY_CORE_OPERATOR_PRESENT: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$QA_CORE_OPERATOR_PRESENT" == true ]]; then
+            echo 'MCP_QA_CORE_ADMIN_CHANNEL=AVAILABLE'
+          elif [[ "$LEGACY_CORE_OPERATOR_PRESENT" == true ]]; then
+            echo 'MCP_QA_CORE_ADMIN_CHANNEL=LEGACY_ONLY_UNVERIFIED_SCOPE'
+          else
+            echo 'MCP_QA_CORE_ADMIN_CHANNEL=NOT_CONFIGURED'
+          fi
       - name: Execute real MCP list, describe and Kernel invoke (no provisioning)
         env:
           MCP01_PROVISION_OAUTH: "false"
@@ -66,19 +79,6 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-execution
-      - name: Check existing isolated QA Core operator credential channel (no value read)
-        env:
-          QA_CORE_OPERATOR_PRESENT: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
-          LEGACY_CORE_OPERATOR_PRESENT: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
-        run: |
-          set -euo pipefail
-          if [[ "$QA_CORE_OPERATOR_PRESENT" == true ]]; then
-            echo 'MCP_QA_CORE_ADMIN_CHANNEL=AVAILABLE'
-          elif [[ "$LEGACY_CORE_OPERATOR_PRESENT" == true ]]; then
-            echo 'MCP_QA_CORE_ADMIN_CHANNEL=LEGACY_ONLY_UNVERIFIED_SCOPE'
-          else
-            echo 'MCP_QA_CORE_ADMIN_CHANNEL=NOT_CONFIGURED'
-          fi
       - name: Verify existing MCP Railway sealed custody (read-only)
         env:
           MCP01_PROVISION_OAUTH: "false"
