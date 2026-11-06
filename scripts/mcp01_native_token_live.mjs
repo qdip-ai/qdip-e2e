@@ -289,6 +289,15 @@ async function executeMcpDecision(client){
  check(isDeepStrictEqual(manifest.input_schema,{type:'object',properties:{
    first_value:{type:'integer',minimum:0,maximum:1000000},second_value:{type:'integer',minimum:0,maximum:1000000}},
    required:['first_value','second_value'],additionalProperties:false}),'PUBLISHED_WORKER_SCHEMA_EXACT');
+ // A different capability or version must not be discoverable by a valid QA21 caller.
+ for(const [capability_id,capability_version] of [
+   ['foreign.qa.choice','1'],['mcp.qa.choice','2']
+ ]){
+   const denied=await client.callTool({name:'qdip_describe_capability',
+     arguments:{capability_id,capability_version}},{timeout:20000});
+   check(denied.isError===true&&denied.structuredContent?.error?.code==='FORBIDDEN',
+     'FOREIGN_CAPABILITY_OR_VERSION_DENIED');
+ }
  const result=await call('qdip_invoke_decision',{...args,input:{first_value:7,second_value:3},timeout_seconds:10});
  check(typeof result.execution_id==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(result.execution_id),'REAL_KERNEL_EXECUTION_ID');
  check(result.semantic_status==='EXACT'&&result.backend_status==='OPTIMAL'&&result.actionable===true,'KERNEL_EXACT_OPTIMAL');
