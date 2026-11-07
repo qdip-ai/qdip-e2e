@@ -4,6 +4,7 @@ No Railway, PostgreSQL or GitHub secrets are used in these tests.
 """
 import base64
 import hashlib
+import io
 import json
 import os
 import unittest
@@ -57,6 +58,16 @@ class FakeReadback(RailwayReadback):
 
 
 class TestPrivateReadback(unittest.TestCase):
+    def test_project_token_uses_railway_project_access_header(self):
+        token = "r" * 32
+        def reply(request, timeout):
+            self.assertEqual(request.get_header("Project-access-token"), token)
+            self.assertFalse(request.has_header("Authorization"))
+            return io.BytesIO(b'{"data":{"projectToken":{"projectId":"4665798b-2012-466e-be91-2555d76f36c2","environmentId":"d867e243-4a53-413f-84a4-e33c15ecc8ba"}}}')
+
+        with patch("urllib.request.urlopen", side_effect=reply):
+            RailwayReadback(token).check_scope()
+
     def test_success_requires_exact_record_and_cleans_up(self):
         client = FakeReadback()
         self.assertEqual(client.verify(record()), (FOREIGN, "foreign-execution"))
@@ -140,6 +151,16 @@ class TestPrivateReadback(unittest.TestCase):
 
 
 class TestCredentialProvisioning(unittest.TestCase):
+    def test_project_token_uses_railway_project_access_header(self):
+        token = "s" * 32
+        def reply(request, timeout):
+            self.assertEqual(request.get_header("Project-access-token"), token)
+            self.assertFalse(request.has_header("Authorization"))
+            return io.BytesIO(b'{"data":{"projectToken":{"projectId":"4665798b-2012-466e-be91-2555d76f36c2","environmentId":"d867e243-4a53-413f-84a4-e33c15ecc8ba"}}}')
+
+        with patch("urllib.request.urlopen", side_effect=reply):
+            provision.verify_project_token(token)
+
     def setUp(self):
         self.env = {
             "GITHUB_REPOSITORY": "qdip-ai/qdip-e2e",
