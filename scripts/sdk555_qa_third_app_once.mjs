@@ -210,11 +210,11 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
         // no email, token, auth code, state, password or ID may leave CI.
         const visibleText=(await page.locator('body').innerText().catch(()=>''))||'';
         const neutralized=visibleText
-          .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/g,'[EMAIL]')
-          .replace(/https?:\\/\\/\\S+/g,'[URL]')
+          .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,'[EMAIL]')
+          .replace(/https?:\/\/\S+/g,'[URL]')
           .replace(/[A-Za-z0-9_-]{18,}/g,'[VALUE]')
-          .replace(/\\b\\d{4,}\\b/g,'[ID]')
-          .replace(/\\s+/g,' ').slice(0,350);
+          .replace(/\b\d{4,}\b/g,'[ID]')
+          .replace(/\s+/g,' ').slice(0,350);
         console.log('SDK555_SECOND_LOGIN_PATH='+
           (new URL(page.url()).pathname.replace(/[0-9]{5,}/g,'[ID]')));
         console.log('SDK555_SECOND_LOGIN_VISIBLE_TEXT_REDACTED='+
