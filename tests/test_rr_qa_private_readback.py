@@ -3,11 +3,13 @@
 No Railway, PostgreSQL or GitHub secrets are used in these tests.
 """
 import base64
+import hashlib
 import json
 import os
 import unittest
 from unittest.mock import patch
 
+from scripts import provision_rr_railway_qa as provision
 from scripts.rr_qa_railway_private_readback import (
     PrivateReadbackBlocked,
     RailwayReadback,
@@ -135,6 +137,79 @@ class TestPrivateReadback(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             with self.assertRaisesRegex(PrivateReadbackBlocked, "TRUSTED_BRANCH"):
                 readback_from_ci(record())
+
+
+class TestCredentialProvisioning(unittest.TestCase):
+    def setUp(self):
+        self.env = {
+            "GITHUB_REPOSITORY": "qdip-ai/qdip-e2e",
+            "GITHUB_REF": "refs/heads/feat/rr-e2e-01-standalone",
+            "GITHUB_EVENT_NAME": "push", "GITHUB_ACTOR": "TarasGez",
+            "RR_QA_PROVISION_APPROVED": "1",
+            "RR_QA_RAILWAY_TOKEN": "r" * 32,
+            "RR_QA_ORGANIZATION_ID": ORG,
+            "RR_QA_ORG_API_KEY": "o" * 32,
+            "RR_QA_S2S_API_KEY": "s" * 32,
+            "RR_QA_ECONOMIC_API_KEY": "e" * 32,
+            "RR_QA_SCHEDULING_GATEWAY_URL": "https://qdip-core-staging-staging.up.railway.app",
+            "RR_QA_ECONOMIC_GATEWAY_URL": "https://qdip-core-staging-staging.up.railway.app",
+        }
+
+    def test_bind_separate_exact_scope_keys_then_redeploy_existing_services(self):
+        with (patch.dict(os.environ, self.env, clear=True),
+              patch.object(provision, "verify_project_token"),
+              patch.object(provision, "upsert") as upsert,
+              patch.object(provision, "redeploy_existing") as redeploy,
+              patch("builtins.print") as output):
+            provision.main()
+        self.assertEqual(redeploy.call_count, 2)
+        self.assertEqual([x.args[0] for x in redeploy.call_args_list], [
+            provision.RR_SERVICE, provision.WEB_SERVICE,
+        ])
+        mapped = {(x.args[0], x.kwargs.get("service", provision.RR_SERVICE)): x.args[1]
+                  for x in upsert.call_args_list}
+        digest = hashlib.sha256(self.env["RR_QA_ORG_API_KEY"].encode()).hexdigest()
+        read = json.loads(mapped[("RR_QA_OPERATOR_READ_CREDENTIALS_JSON", provision.RR_SERVICE)])
+        write = json.loads(mapped[("RR_WRITE_CREDENTIALS_JSON", provision.RR_SERVICE)])
+        self.assertEqual(read[0]["key_sha256"], digest)
+        self.assertEqual(read[0]["scopes"], ["decisions:read", "audit:read"])
+        self.assertEqual(write[0]["scopes"], ["decisions:execute"])
+        self.assertEqual(read[0]["organization_id"], ORG)
+        self.assertEqual(write[0]["organization_id"], ORG)
+        self.assertEqual(mapped[("RR_ORG_API_KEY", provision.WEB_SERVICE)],
+                         self.env["RR_QA_ORG_API_KEY"])
+        self.assertEqual(mapped[("RR_ORGANIZATION_ID", provision.WEB_SERVICE)], ORG)
+        self.assertEqual(mapped[("RR_S2S_QDIP_API_KEY", provision.RR_SERVICE)],
+                         self.env["RR_QA_S2S_API_KEY"])
+        messages = " ".join(" ".join(map(str, x.args)) for x in output.call_args_list)
+        for secret in ("o" * 32, "s" * 32, "e" * 32):
+            self.assertNotIn(secret, messages)
+
+    def test_reject_shared_browser_and_backend_key(self):
+        self.env["RR_QA_S2S_API_KEY"] = self.env["RR_QA_ORG_API_KEY"]
+        with (patch.dict(os.environ, self.env, clear=True),
+              patch.object(provision, "verify_project_token"),
+              patch.object(provision, "upsert") as upsert):
+            with self.assertRaisesRegex(ValueError, "must be distinct"):
+                provision.main()
+        upsert.assert_not_called()
+
+    def test_reject_production_gateway_url(self):
+        self.env["RR_QA_SCHEDULING_GATEWAY_URL"] = "https://observatory.qdip.ai"
+        with (patch.dict(os.environ, self.env, clear=True),
+              patch.object(provision, "verify_project_token"),
+              patch.object(provision, "upsert") as upsert):
+            with self.assertRaisesRegex(ValueError, "isolated Railway"):
+                provision.main()
+        upsert.assert_not_called()
+
+    def test_reject_nonowner_branch(self):
+        self.env["GITHUB_ACTOR"] = "untrusted"
+        with (patch.dict(os.environ, self.env, clear=True),
+              patch.object(provision, "verify_project_token") as token):
+            with self.assertRaisesRegex(ValueError, "owner-initiated"):
+                provision.main()
+        token.assert_not_called()
 
 
 if __name__ == "__main__":
