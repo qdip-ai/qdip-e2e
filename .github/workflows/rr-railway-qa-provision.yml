@@ -1,0 +1,29 @@
+name: Provision existing RR Railway QA credentials
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  provision:
+    if: github.ref == 'refs/heads/main' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    environment: rr-qa-provision
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Provision only the existing Railway RR QA service
+        env:
+          RR_QA_PROVISION_APPROVED: ${{ vars.RR_QA_PROVISION_APPROVED }}
+          RR_QA_RAILWAY_TOKEN: ${{ secrets.RR_QA_RAILWAY_TOKEN }}
+          RR_QA_ORGANIZATION_ID: ${{ vars.RR_QA_ORGANIZATION_ID }}
+          RR_QA_ORG_API_KEY: ${{ secrets.RR_QA_ORG_API_KEY }}
+          RR_QA_S2S_API_KEY: ${{ secrets.RR_QA_S2S_API_KEY }}
+          RR_QA_ECONOMIC_API_KEY: ${{ secrets.RR_QA_ECONOMIC_API_KEY }}
+          RR_QA_SCHEDULING_GATEWAY_URL: ${{ vars.RR_QA_SCHEDULING_GATEWAY_URL }}
+          RR_QA_ECONOMIC_GATEWAY_URL: ${{ vars.RR_QA_ECONOMIC_GATEWAY_URL }}
+        run: python scripts/provision_rr_railway_qa.py
