@@ -572,7 +572,8 @@ async function run(){validateQaApplicationVariables(process.env);
               timeout:20000,maxRedirects:0,
             });
             if(evaluated.status()!==200){
-              const detail=(await evaluated.json().catch(()=>null))?.detail;
+              const errorBody=await evaluated.json().catch(()=>null);
+              const detail=errorBody?.error?.message;
               const known=new Set([
                 'Capability not authorized',
                 'Private projection authorization denied',
