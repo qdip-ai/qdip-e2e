@@ -130,6 +130,34 @@ if (Bun.env.RR_STAGING_OWNER_LINK_ENABLED === "1") {
     },
   });
   console.log("RR_STAGING_OWNER_BRIDGE_STARTED");
+  // Read-only, sanitized staging inventory: no credentials or subjects in logs.
+  // Confirm the exact Zitadel-linked tenant after the owner-authorized POST.
+  void (async () => {
+    try {
+      const response = await fetch("https://" + EXPECTED_CORE_DOMAIN + "/api/v1/organizations", {
+        headers: { "x-api-key": Bun.env.CORE_API_KEY! },
+        redirect: "error", signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) { console.log("RR_STAGING_QDIP_ORG_READBACK_HTTP", response.status); return; }
+      const raw = await response.text();
+      if (raw.length > 64_000) { console.log("RR_STAGING_QDIP_ORG_READBACK=INVALID_SIZE"); return; }
+      const records: unknown = JSON.parse(raw);
+      if (!Array.isArray(records)) { console.log("RR_STAGING_QDIP_ORG_READBACK=INVALID_SHAPE"); return; }
+      const linked = records.filter((v: unknown) =>
+        v && typeof v === "object" &&
+        "identity_provider" in v && v.identity_provider === "zitadel" &&
+        "zitadel_organization_id" in v && v.zitadel_organization_id === QDIP_ZITADEL_ORG &&
+        "zitadel_issuer" in v && v.zitadel_issuer === EXPECTED_ISSUER &&
+        "status" in v && v.status === "active"
+      );
+      if (linked.length !== 1 || typeof linked[0].id !== "string" ||
+          !/^[a-f0-9]{8}-[a-f0-9-]{27,36}$/i.test(linked[0].id)) {
+        console.log("RR_STAGING_QDIP_ORG_READBACK=" + (linked.length === 0 ? "ABSENT" : "AMBIGUOUS"));
+        return;
+      }
+      console.log("RR_STAGING_QDIP_ORG_READBACK=PASS", linked[0].id);
+    } catch { console.log("RR_STAGING_QDIP_ORG_READBACK=UNAVAILABLE"); }
+  })();
 } else {
 // One-shot staging bootstrap. Prints only non-secret IDs and HTTP statuses.
 const base = `https://${Bun.env.CORE_DOMAIN}`;
