@@ -23,7 +23,9 @@ const discoveryPreflightMode=process.argv.includes('--mcp-discovery-preflight');
 const secondAppLinkMode=process.argv.includes('--mcp-application-b-link');
 const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
-const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
+const delegationMode=process.argv.includes('--mcp-delegation');
+let delegationPhase='not-started';
+const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -178,7 +180,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        marker(mode+'_DISPOSABLE_TOKEN_REVOCATION_HTTP',revoke.status());
        const after=await ctx.request.get(originUrl(metadata.userinfo_endpoint).href,{timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+issuedAccess}});
        marker(mode+'_AFTER_REVOCATION_USERINFO_HTTP',after.status());
-       if(executionMode){
+       if(executionMode||delegationMode){
          check(revoke.status()===200&&after.status()===401,'DISPOSABLE_TOKEN_REVOCATION_ENFORCED');
          const denied=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
            headers:{Authorization:'Bearer '+issuedAccess,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
@@ -281,6 +283,7 @@ async function realMcpClient(access){
    else if(workerUnavailableMode)await assertWorkerUnavailable(client);
    else if(workerTimeoutMode)await assertWorkerTimeout(client);
    else if(multiCapabilityMode)await executeMcpMultiCapability(client);
+   else if(delegationMode)await assertExternalDelegation(client);
    else if(executionMode)await executeMcpDecision(client);
  }finally{await client.close();}
 }
@@ -407,6 +410,30 @@ async function executeMcpMultiCapability(client){
  check(firstResult.execution_id!==secondResult.execution_id,'MCP02_DISTINCT_REAL_EXECUTIONS');
  marker('MCP02_EXECUTION_IDS',JSON.stringify([firstResult.execution_id,secondResult.execution_id]));
  marker('MCP02_TWO_REAL_CAPABILITIES_E2E','PASS');
+}
+
+
+async function assertExternalDelegation(client){
+ const args={capability_id:'mcp.qa.choice',capability_version:'1'};
+ if(delegationPhase==='granted'){
+   await executeMcpDecision(client);
+   marker('MCP03_INDEPENDENT_CLIENT_MANAGED_KERNEL','PASS');
+   return;
+ }
+ check(['revoked','ungranted'].includes(delegationPhase),'MCP03_NEGATIVE_PHASE_EXPECTED');
+ const label=delegationPhase==='ungranted'?'UNGRANTED':'REVOKED';
+ const listed=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
+ check(listed.isError!==true&&isDeepStrictEqual(listed.structuredContent?.capabilities,[]),
+   'MCP03_'+label+'_DISCOVERY_EMPTY');
+ for(const [name,arguments_] of [
+   ['qdip_describe_capability',args],
+   ['qdip_invoke_decision',{...args,input:{first_value:7,second_value:3}}]]){
+   const result=await client.callTool({name,arguments:arguments_},{timeout:20000});
+   check(result.isError===true&&result.structuredContent?.error?.code==='FORBIDDEN'&&
+     !('execution_id' in (result.structuredContent??{})),
+     'MCP03_'+label+'_'+name.toUpperCase()+'_DENIED');
+ }
+ marker('MCP03_'+label+'_REAL_MCP','PASS');
 }
 
 async function executeMcpDecision(client){
@@ -634,8 +661,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight'].includes(arg))&&
+ const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode,delegationMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight','--mcp-delegation'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,
@@ -654,7 +681,7 @@ async function main(){
    if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
-   if(executionMode||secondAppLinkMode||ownerBootstrapMode||applicationLinkMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
+   if(executionMode||secondAppLinkMode||ownerBootstrapMode||applicationLinkMode||delegationMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
    check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
    const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
@@ -747,6 +774,29 @@ async function main(){
      app=after.application;oidc=updated;
    }
    // Config read only; this does not repeat project-owner listing/qualification.
+
+   let agentApplication=null;
+   if(delegationMode){
+     const agentId=process.env.QDIP_SDK_EXTERNAL_APP_ID;
+     const agentClient=process.env.QDIP_SDK_EXTERNAL_CLIENT_ID;
+     check(typeof agentId==='string'&&/^[0-9]{1,32}$/.test(agentId)&&
+       typeof agentClient==='string'&&agentClient.length>0&&agentClient!==client,
+       'MCP03_INDEPENDENT_OAUTH_CLIENT_PRECHECK');
+     const info=await json(await ctx.request.post(
+       ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
+         timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+         data:{applicationId:agentId}}),'MCP03_AGENT_APPLICATION_READ');
+     const agent=info.application;
+     check(agent?.applicationId===agentId&&agent.projectId===project&&
+       agent.name==='sdk-external-qa'&&agent.state==='APPLICATION_STATE_ACTIVE'&&
+       agent.oidcConfiguration?.clientId===agentClient,'MCP03_AGENT_APP_VERIFIED');
+     const agentRedirect=(agent.oidcConfiguration.redirectUris??[])
+       .map(value=>{try{return new URL(value);}catch{return null;}})
+       .find(u=>u&&u.protocol==='http:'&&u.hostname==='127.0.0.1'&&
+         u.port==='8765'&&['/mcp01/callback','/oidc/callback'].includes(u.pathname));
+     check(!!agentRedirect,'MCP03_AGENT_REGISTERED_NATIVE_CALLBACK');
+     agentApplication={project,client:agentClient,redirect:agentRedirect,applicationId:agentId};
+   }
    const uris=oidc.redirectUris;
    check(Array.isArray(uris)&&uris.length>0&&uris.length<=50,'REGISTERED_REDIRECTS_PRESENT');
    const redirect=uris.map(value=>{try{return new URL(value);}catch{return null;}}).find(u=>u&&(u.protocol==='https:'||(u.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(u.hostname)))&&!u.username&&!u.password&&!u.hash);
@@ -755,6 +805,41 @@ async function main(){
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
+
+   if(delegationMode){
+     // A distinct B OAuth client is not authorized solely by shared user/org.
+     // Prove live denial *before* A grants B any capability.
+     delegationPhase='ungranted';
+     check(await nativeFlow(ctx,metadata,agentApplication,owner.sub,'MCP_RESOURCE'),
+       'MCP03_FOREIGN_UNGRANTED_AGENT_DENIED_FLOW');
+     let granted=false;
+     const action=async(method,token)=>{
+       const response=await ctx.request.fetch(QA_GATEWAY+'/api/v1/qa/mcp652/agent-delegation',{
+         method,timeout:15000,maxRedirects:0,
+         headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+         data:{agent_application_id:agentApplication.applicationId}});
+       check(response.status()===204,
+         method==='POST'?'MCP03_EXPLICIT_OWNER_GRANT':'MCP03_OWNER_REVOKE');
+       if(method==='POST')granted=true;
+     };
+     try{
+       check(await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,
+         'PROJECT_BASELINE',token=>action('POST',token)),'MCP03_OWNER_AUTHORIZED_GRANT_FLOW');
+       delegationPhase='granted';
+       check(await nativeFlow(ctx,metadata,agentApplication,owner.sub,'MCP_RESOURCE'),
+         'MCP03_INDEPENDENT_AGENT_DECISION_FLOW');
+     }finally{
+       if(granted){
+         check(await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,
+           'PROJECT_BASELINE',token=>action('DELETE',token)),'MCP03_OWNER_REVOKE_FLOW');
+       }
+     }
+     delegationPhase='revoked';
+     check(await nativeFlow(ctx,metadata,agentApplication,owner.sub,'MCP_RESOURCE'),
+       'MCP03_INDEPENDENT_AGENT_REVOKED_FLOW');
+     marker('MCP03_INDEPENDENT_AGENT_E2E','PASS');
+     return;
+   }
    if(!verifyExisting&&!realDecisionMode&&!ownerBootstrapMode){
      const baseline=await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'PROJECT_BASELINE');
      check(baseline,'MATCHED_NATIVE_BASELINE');
