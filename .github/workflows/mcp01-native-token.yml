@@ -11,7 +11,7 @@ on:
         type: choice
         description: 'Explicit QA negative test; operator must prepare the target first'
         required: true
-        options: [timeout, unavailable, b-link]
+        options: [timeout, unavailable, b-link, multi]
 permissions:
   contents: read
 concurrency:
@@ -208,3 +208,47 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-application-b-link
+
+  qa-multi:
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.event.inputs.qa_scenario == 'multi'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare existing independent MCP client and Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mcp02-native
+          cp scripts/mcp01_native_token_live.mjs /tmp/mcp02-native/
+          cd /tmp/mcp02-native
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1 jose@6.1.3 @modelcontextprotocol/client@2.4.0
+          npx playwright install chromium
+          node --check mcp01_native_token_live.mjs
+      - name: Independently qualify two published SDK capabilities through real Worker and Kernel
+        env:
+          MCP01_PROVISION_OAUTH: "false"
+          MCP01_VERIFY_EXISTING_OAUTH: "false"
+          MCP01_CONFIGURE_ROLE_CONTRACT: "false"
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: "false"
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+          MCP02_SECOND_CAPABILITY_ID: ${{ vars.MCP02_SECOND_CAPABILITY_ID }}
+          MCP02_SECOND_CAPABILITY_VERSION: ${{ vars.MCP02_SECOND_CAPABILITY_VERSION }}
+          MCP02_SECOND_INPUT_JSON: ${{ vars.MCP02_SECOND_INPUT_JSON }}
+          MCP02_SECOND_SCHEMA_JSON: ${{ vars.MCP02_SECOND_SCHEMA_JSON }}
+          MCP02_SECOND_SOLUTION_JSON: ${{ vars.MCP02_SECOND_SOLUTION_JSON }}
+          MCP02_SECOND_OBJECTIVE: ${{ vars.MCP02_SECOND_OBJECTIVE }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp02-native
+          node mcp01_native_token_live.mjs --mcp-two-capabilities
