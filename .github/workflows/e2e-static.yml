@@ -33,6 +33,8 @@ jobs:
         run: |
           python -m compileall -q scripts tests
           python -m json.tool fixtures/rr_reference_api_v1.json >/dev/null
+      - name: Check Railway private readback scope, cleanup and fail-closed behavior
+        run: python -m unittest discover -s tests -p 'test_rr_qa_private_readback.py' -v
       - name: Check shell syntax
         run: bash -n scripts/*.sh
       - uses: actions/setup-node@v4
