@@ -94,22 +94,6 @@ async function main() {
     const siteSession = await safeJson(await context.request.get(SITE + '/api/auth/session'), 'SITE_SESSION')
     requireStage(siteSession.authenticated === true, 'REAL_USER_QDIP_SESSION_DENIED')
     requireStage(siteSession.operator === true, 'REAL_USER_RR_OPERATOR_GRANT_MISSING')
-    if (process.argv.includes('--qdip-owner-probe')) {
-      // The production Observatory derives the subject from the existing signed
-      // Zitadel session and independently checks live ORG_OWNER via Zitadel.
-      // Emit only the verdict, never the user, token or organization list.
-      const response = await context.request.get(
-        RR + '/api/observatory/organizations',
-        {maxRedirects:0,timeout:20000},
-      )
-      requireStage(response.status() === 200, 'QDIP_OWNER_DISCOVERY_HTTP_NOT_200')
-      const data = await safeJson(response, 'QDIP_OWNER_DISCOVERY')
-      requireStage(Array.isArray(data.organizations), 'QDIP_OWNER_DISCOVERY_INVALID')
-      console.log('RR_QDIP_VERIFIED_ORG_OWNER=' +
-        (data.organizations.some(org => org?.id === '368555767923594379' && org?.state === 'active')
-          ? 'PRESENT' : 'ABSENT'))
-      return
-    }
     const rrSession = await safeJson(await context.request.get(RR + '/api/rr-operator/session'), 'RR_SESSION')
     requireStage(rrSession.authenticated === true, 'REAL_USER_RR_SESSION_DENIED')
     console.log('LIVE_ZITADEL_REAL_USER_RR_OPERATOR_LOGIN=PASS')
