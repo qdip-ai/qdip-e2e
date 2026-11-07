@@ -210,7 +210,7 @@ jobs:
   rr-standalone-browser:
     # Existing isolated QA. Railway project token is only available via
     # the protected environment; never execute on pull_request or fork code.
-    if: github.event.repository.private == false && github.repository == 'qdip-ai/qdip-e2e' && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
+    if: github.event.repository.private == false && github.repository == 'qdip-ai/qdip-e2e' && github.actor == 'TarasGez' && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
     environment: rr-qa-provision
     concurrency:
       group: rr-postgres-private-verifier
