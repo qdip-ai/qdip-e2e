@@ -156,6 +156,32 @@ if (Bun.env.RR_STAGING_OWNER_LINK_ENABLED === "1") {
         return;
       }
       console.log("RR_STAGING_QDIP_ORG_READBACK=PASS", linked[0].id);
+      // Metadata-only readback: confirms if a dedicated S2S key already exists.
+      // Raw credential values are never returned or logged by this Core endpoint.
+      const keyResponse = await fetch(
+        "https://" + EXPECTED_CORE_DOMAIN + "/api/v1/organizations/" + linked[0].id + "/keys",
+        { headers: { "x-api-key": Bun.env.CORE_API_KEY! }, redirect: "error", signal: AbortSignal.timeout(8000) },
+      );
+      if (!keyResponse.ok) {
+        console.log("RR_S2S_KEY_INVENTORY_HTTP", keyResponse.status);
+      } else {
+        const rawKeys = await keyResponse.text();
+        if (rawKeys.length > 65_536) { console.log("RR_S2S_KEY_INVENTORY=INVALID_SIZE"); return; }
+        const entries: unknown = JSON.parse(rawKeys);
+        if (!Array.isArray(entries)) { console.log("RR_S2S_KEY_INVENTORY=INVALID"); return; }
+        const matches = entries.filter((e: unknown) =>
+          e && typeof e === "object" && "org_id" in e && e.org_id === linked[0].id &&
+          "plugin_id" in e && e.plugin_id === "readiness-recovery-backend" &&
+          "scopes" in e && JSON.stringify(e.scopes) === '["plugins:execute"]' &&
+          "allowed_capabilities" in e &&
+          JSON.stringify(e.allowed_capabilities) === '["readiness-recovery.scheduling.plan.v1"]' &&
+          "revoked_at" in e && e.revoked_at === null
+        );
+        console.log("RR_S2S_SCOPED_ACTIVE_KEYS_COUNT", matches.length);
+        for (const key of matches) {
+          console.log("RR_S2S_KEY_METADATA", key.id, key.name, key.expires_at ?? "NO_EXPIRY");
+        }
+      }
     } catch { console.log("RR_STAGING_QDIP_ORG_READBACK=UNAVAILABLE"); }
   })();
 } else {
