@@ -517,6 +517,35 @@ async function run(){validateQaApplicationVariables(process.env);
               data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
             });
             check(allowed.status()===204,'QA_PRIVATE_BOTH_GRANTS_HTTP_204');
+            // Hard merge gate: the actual approved external SDK Worker must run.
+            // A passing grant/check endpoint or an unapproved REGISTER is not
+            // evidence of a Worker result. Do not soft-skip missing workers.
+            const resultRequest={
+              input:{event_id:'sdk649-e2e-event',start:'2026-11-07T09:00:00Z'},
+              capability_version:'1',
+              timeout_seconds:10,
+              private_projection:{
+                resource_id:resourceId,projection,purpose,
+                requested_fields:['event_id','start'],
+              },
+            };
+            const evalUrl=STAGING_CORE+'/api/v1/remote-plugins/calendar.events.read/evaluate';
+            const evaluated=await ctx.request.post(evalUrl,{
+              data:resultRequest,headers:destinationHeaders,
+              timeout:20000,maxRedirects:0,
+            });
+            check(evaluated.status()===200,'QA_PRIVATE_WORKER_EVALUATE_HTTP_200');
+            const decision=await evaluated.json().catch(()=>null);
+            check(decision?.output_type==='structured_result'&&
+              decision?.execution_state==='REPORTED'&&
+              decision?.registered_worker?.plugin_id==='sdk-external-qa'&&
+              decision?.result?.event_id==='sdk649-e2e-event'&&
+              decision?.result?.start==='2026-11-07T09:00:00Z'&&
+              decision?.result?.accepted===true&&
+              Object.keys(decision?.result??{}).sort().join(',')==='accepted,event_id,start'&&
+              decision?.verification==='NOT_INDEPENDENTLY_VERIFIED',
+              'QA_PRIVATE_WORKER_MINIMAL_STRUCTURED_RESULT');
+
             const excess=await ctx.request.post(checkUrl,{
               data:{...checkBody,requested_fields:['event_id','start','title']},
               headers:destinationHeaders,timeout:20000,maxRedirects:0,
@@ -533,6 +562,12 @@ async function run(){validateQaApplicationVariables(process.env);
               data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
             });
             check(afterRevoke.status()===403,'QA_PRIVATE_AFTER_REVOKE_DENIED_403');
+            const revokedEval=await ctx.request.post(evalUrl,{
+              data:resultRequest,headers:destinationHeaders,
+              timeout:20000,maxRedirects:0,
+            });
+            check(revokedEval.status()===403,'QA_PRIVATE_WORKER_AFTER_REVOKE_DENIED_403');
+
             console.log('SDK649_QA_PRIVATE_CONSENT_GATE=PASS_LIVE_MONGO_API');
           }finally{
             const cleanup=await fetch(fixtureUrl,{
