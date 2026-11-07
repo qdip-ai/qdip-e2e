@@ -263,3 +263,19 @@ jobs:
         with:
           node-version: '22'
       - run: node --check scripts/mcp01_native_token_live.mjs
+
+      - name: Inspect existing credential channel presence (non-sensitive)
+        env:
+          CORE_ADMIN: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
+          LEGACY_ADMIN: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+          MCP_RAILWAY: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN != '' }}
+          WORKER_RAILWAY: ${{ secrets.RAILWAY_SDK_STAGING_PROJECT_TOKEN != '' }}
+          WORKER_RAILWAY_ALT: ${{ secrets.RAILWAY_SDK_STAGING_TOKEN != '' }}
+          RAILWAY_GENERIC: ${{ secrets.RAILWAY_TOKEN != '' }}
+        run: |
+          echo "MCP02_E2E_CORE_ADMIN=$CORE_ADMIN"
+          echo "MCP02_E2E_LEGACY_ADMIN=$LEGACY_ADMIN"
+          echo "MCP02_E2E_MCP_PROJECT_TOKEN=$MCP_RAILWAY"
+          echo "MCP02_E2E_WORKER_PROJECT_TOKEN=$WORKER_RAILWAY"
+          echo "MCP02_E2E_WORKER_PROJECT_TOKEN_ALT=$WORKER_RAILWAY_ALT"
+          echo "MCP02_E2E_RAILWAY_GENERIC_TOKEN=$RAILWAY_GENERIC"
