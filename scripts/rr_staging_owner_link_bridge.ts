@@ -156,6 +156,87 @@ if (Bun.env.RR_STAGING_OWNER_LINK_ENABLED === "1") {
         return;
       }
       console.log("RR_STAGING_QDIP_ORG_READBACK=PASS", linked[0].id);
+
+      // Credential issuance is an explicit one-shot QA operation only.
+      // Raw key stays in memory. XOR with a 256-byte CSPRNG one-time pad;
+      // only the encrypted envelope may enter Railway logs. The pad is kept
+      // in a Railway secret variable and erased immediately after delivery.
+      if (Bun.env.RR_S2S_PROVISION_ONCE === "1") {
+        const rawPad = Bun.env.RR_S2S_PROVISION_PAD_HEX ?? "";
+        if (!/^[0-9a-f]{512}$/.test(rawPad)) {
+          console.log("RR_S2S_PROVISION=PAD_UNAVAILABLE"); return;
+        }
+        const tenantId = linked[0].id;
+        if (tenantId !== "79320f9e-ab38-49a6-b02c-fe2b896b66aa") {
+          console.log("RR_S2S_PROVISION=TENANT_MISMATCH"); return;
+        }
+        const orgEndpoint = "https://" + EXPECTED_CORE_DOMAIN + "/api/v1/organizations/" + tenantId + "/keys";
+        const adminHeaders = { "x-api-key": Bun.env.CORE_API_KEY!, accept: "application/json" };
+        const inventoryResponse = await fetch(orgEndpoint, {
+          headers: adminHeaders, redirect: "error", signal: AbortSignal.timeout(8000),
+        });
+        if (!inventoryResponse.ok) {
+          console.log("RR_S2S_PROVISION=INVENTORY_HTTP_" + inventoryResponse.status); return;
+        }
+        const inventoryRaw = await inventoryResponse.text();
+        if (inventoryRaw.length > 80_000) {
+          console.log("RR_S2S_PROVISION=INVENTORY_TOO_LARGE"); return;
+        }
+        const inventory: unknown = JSON.parse(inventoryRaw);
+        if (!Array.isArray(inventory)) {
+          console.log("RR_S2S_PROVISION=INVENTORY_INVALID"); return;
+        }
+        const name = "rr-qa-s2s-20261107-once";
+        const existing = inventory.filter((entry: unknown) =>
+          entry && typeof entry === "object" && "name" in entry && entry.name === name &&
+          "status" in entry && entry.status === "active"
+        );
+        if (existing.length !== 0) {
+          console.log("RR_S2S_PROVISION=ALREADY_ISSUED"); return;
+        }
+        const request = {
+          name, environment: "staging",
+          scopes: ["plugins:execute"],
+          allowed_capabilities: ["readiness-recovery.scheduling.plan.v1"],
+          plugin_id: "readiness-recovery-backend",
+          expires_at: "2026-11-21T21:00:00+00:00",
+        };
+        const create = await fetch(orgEndpoint, {
+          method: "POST", headers: { ...adminHeaders, "content-type": "application/json" },
+          body: JSON.stringify(request), redirect: "error", signal: AbortSignal.timeout(10000),
+        });
+        if (create.status !== 201) {
+          await create.body?.cancel();
+          console.log("RR_S2S_PROVISION=CREATE_HTTP_" + create.status); return;
+        }
+        const received = await create.text();
+        if (received.length > 16_384) {
+          console.log("RR_S2S_PROVISION=RESPONSE_TOO_LARGE"); return;
+        }
+        const issued: unknown = JSON.parse(received);
+        if (!issued || typeof issued !== "object" || !("key" in issued) ||
+            typeof issued.key !== "string" || issued.key.length < 32 ||
+            !("org_id" in issued) || issued.org_id !== tenantId ||
+            !("plugin_id" in issued) || issued.plugin_id !== request.plugin_id ||
+            !("scopes" in issued) || JSON.stringify(issued.scopes) !== JSON.stringify(request.scopes) ||
+            !("allowed_capabilities" in issued) ||
+            JSON.stringify(issued.allowed_capabilities) !== JSON.stringify(request.allowed_capabilities) ||
+            !("id" in issued) || typeof issued.id !== "string") {
+          console.log("RR_S2S_PROVISION=POLICY_NOT_ATTESTED"); return;
+        }
+        const raw = Buffer.from(issued.key, "utf8");
+        const pad = Buffer.from(rawPad, "hex");
+        if (raw.length > pad.length) {
+          console.log("RR_S2S_PROVISION=PAD_TOO_SHORT"); return;
+        }
+        const sealed = Buffer.alloc(raw.length);
+        for (let i = 0; i < raw.length; i++) sealed[i] = raw[i] ^ pad[i];
+        raw.fill(0);
+        pad.fill(0);
+        console.log("RR_S2S_PROVISION=ISSUED", issued.id);
+        console.log("RR_S2S_DELIVERY_ENVELOPE_V1=" + sealed.toString("hex"));
+      }
+
     } catch { console.log("RR_STAGING_QDIP_ORG_READBACK=UNAVAILABLE"); }
   })();
 } else {
