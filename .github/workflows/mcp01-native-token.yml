@@ -242,13 +242,15 @@ jobs:
           QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
           QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
           QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        env:
+          MCP02_EXPLICIT_LIVE: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[MCP02-LIVE-QA]')) }}
         run: |
           set -euo pipefail
           cd /tmp/mcp02-native
-          if [[ "${{ github.event_name }}" == push ]]; then
-            node mcp01_native_token_live.mjs --mcp-discovery-preflight
-          else
+          if [[ "$MCP02_EXPLICIT_LIVE" == true ]]; then
             node mcp01_native_token_live.mjs --mcp-two-capabilities
+          else
+            node mcp01_native_token_live.mjs --mcp-discovery-preflight
           fi
 
   qa-multi-syntax:
