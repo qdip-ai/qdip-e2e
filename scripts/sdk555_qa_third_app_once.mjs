@@ -5,6 +5,8 @@
  * Never touches production/main Zitadel org or other applications.
  */
 import {chromium} from '@playwright/test';
+import {createServer} from 'node:http';
+import {randomBytes,createHash} from 'node:crypto';
 
 const SITE='https://qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
@@ -71,6 +73,117 @@ async function request(ctx,bearer,method,body){
   },timeout:20000,maxRedirects:0});
   return {status:r.status(),body:await r.json().catch(()=>null)};
 }
+
+async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
+  const stamp=process.env.GITHUB_RUN_ID;
+  check(/^[0-9]{5,24}$/.test(stamp||''),'QA_SECOND_RUN_ISOLATED_ID');
+  const email='sdk555-qa-user-'+stamp+'@example.com';
+  const password=randomBytes(32).toString('base64url')+'!Aa9';
+  let userId=null;
+  try{
+    const creation=await adminContext.request.post(ISSUER+'/v2/users/new',{
+      data:{organizationId:ORG,username:email,human:{
+        profile:{givenName:'SDK555',familyName:'QA',displayName:'SDK555 test user'},
+        email:{email,isVerified:true},
+        password:{password,changeRequired:false},
+      }},
+      headers:{Authorization:'Bearer '+bearer,'Content-Type':'application/json'},
+      timeout:20000,maxRedirects:0,
+    });
+    console.log('SDK555_QA_SECOND_CREATE_STATUS='+creation.status());
+    check(creation.status()===200,'QA_SECOND_USER_CREATED_200');
+    const created=await creation.json().catch(()=>null);
+    userId=created?.id;
+    check(typeof userId==='string'&&/^[0-9]{1,32}$/.test(userId),
+      'QA_SECOND_REAL_USER_ID');
+    const who=await adminContext.request.get(
+      ISSUER+'/v2/users/'+encodeURIComponent(userId),{
+        headers:{Authorization:'Bearer '+bearer},timeout:15000,maxRedirects:0});
+    const record=await who.json().catch(()=>null);
+    check(who.status()===200&&record?.user?.userId===userId&&
+      record?.user?.details?.resourceOwner===ORG,
+      'QA_SECOND_CANONICAL_SAME_ORG');
+    const callbackUri='http://127.0.0.1:8765/oidc/callback';
+    const state=randomBytes(24).toString('base64url');
+    const verifier=randomBytes(32).toString('base64url');
+    const challenge=createHash('sha256').update(verifier).digest('base64url');
+    let receiver;
+    const code=new Promise(resolve=>receiver=resolve);
+    const server=createServer((req,res)=>{
+      let url;
+      try{url=new URL(req.url,callbackUri);}catch{res.writeHead(400).end();return;}
+      const authCode=url.searchParams.get('code');
+      if(req.method!=='GET'||url.pathname!=='/oidc/callback'||
+         url.searchParams.get('state')!==state||!authCode||
+         authCode.length<8||authCode.length>2048){
+        res.writeHead(400).end();return;
+      }
+      res.writeHead(200,{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
+      res.end('QA test callback');
+      receiver(authCode);
+    });
+    await new Promise((resolve,reject)=>{
+      server.once('error',reject);server.listen(8765,'127.0.0.1',resolve);
+    });
+    const ctx=await browser.newContext({ignoreHTTPSErrors:false,
+      acceptDownloads:false,serviceWorkers:'block',viewport:{width:1280,height:800}});
+    try{
+      const page=await ctx.newPage();
+      const authorize=new URL(ISSUER+'/oauth/v2/authorize');
+      for(const [k,v] of Object.entries({
+        client_id:process.env.QDIP_SDK_MANAGED_CLIENT_ID,
+        redirect_uri:callbackUri,response_type:'code',
+        code_challenge:challenge,code_challenge_method:'S256',
+        state,nonce:randomBytes(24).toString('base64url'),
+        scope:'openid profile email urn:zitadel:iam:org:project:id:'+
+          process.env.QDIP_SDK_QA_PROJECT_ID+':aud',
+      }))authorize.searchParams.set(k,v);
+      await page.goto(authorize.toString(),{waitUntil:'domcontentloaded',timeout:30000});
+      const name=await find(page,['input[autocomplete="username"]','input[name="loginName"]',
+        'input[name="username"]','input[name="loginname"]','input[name="email"]',
+        'input[type="email"]','input[type="text"]']);
+      await name.fill(email);
+      let pass=page.locator('input[type="password"]').first();
+      if(!(await pass.isVisible().catch(()=>false))){
+        await name.press('Enter');
+        pass=await find(page,['input[autocomplete="current-password"]','input[type="password"]']);
+      }
+      await pass.fill(password);await pass.press('Enter');
+      const authCode=await Promise.race([code,new Promise((_,reject)=>
+        setTimeout(()=>reject(Error('QA_SECOND_OIDC_CALLBACK_TIMEOUT')),40000))]);
+      const tokenResponse=await ctx.request.post(ISSUER+'/oauth/v2/token',{
+        form:{grant_type:'authorization_code',
+          client_id:process.env.QDIP_SDK_MANAGED_CLIENT_ID,
+          redirect_uri:callbackUri,code:authCode,code_verifier:verifier},
+        timeout:15000,maxRedirects:0});
+      check(tokenResponse.status()===200,'QA_SECOND_PKCE_TOKEN_HTTP_200');
+      const body=await tokenResponse.json().catch(()=>null);
+      const token=body?.access_token;
+      check(typeof token==='string'&&token.length>=16,
+        'QA_SECOND_REAL_SCOPED_ACCESS_TOKEN');
+      const user=await ctx.request.get(ISSUER+'/oidc/v1/userinfo',{
+        headers:{Authorization:'Bearer '+token},timeout:15000,maxRedirects:0});
+      const data=await user.json().catch(()=>null);
+      check(user.status()===200&&data?.sub===userId,'QA_SECOND_EXACT_SUBJECT');
+      console.log('SDK555_QA_SECOND_USER_REAL_PKCE_SAME_ORG=PASS');
+    }finally{
+      await ctx.close();
+      await new Promise(resolve=>server.close(resolve));
+    }
+  }finally{
+    if(userId){
+      const deletion=await adminContext.request.delete(
+        ISSUER+'/v2/users/'+encodeURIComponent(userId),{
+          headers:{Authorization:'Bearer '+bearer},timeout:20000,maxRedirects:0});
+      check(deletion.status()===200,'QA_SECOND_DELETED_AFTER_TEST_200');
+      const checkGone=await adminContext.request.get(
+        ISSUER+'/v2/users/'+encodeURIComponent(userId),{
+          headers:{Authorization:'Bearer '+bearer},timeout:15000,maxRedirects:0});
+      check(checkGone.status()===404,'QA_SECOND_CLEANUP_INDEPENDENT_READBACK_404');
+    }
+  }
+}
+
 async function main(){
   check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===OWNER&&
     (process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8&&
@@ -107,6 +220,7 @@ async function main(){
       console.log('SDK555_QA_THIRD_APP_ID='+created);
       console.log('SDK555_QA_THIRD_CLIENT_ID='+same[0].oidcConfiguration.clientId);
       console.log('SDK555_THIRD_APP_REUSED=PASS');
+      await proveEphemeralSecondQaUser(browser,ctx,bearer);
       return;
     }
     const managed=await request(ctx,bearer,'GetApplication',{
@@ -143,6 +257,7 @@ async function main(){
     console.log('SDK555_QA_THIRD_APP_ID='+created);
     console.log('SDK555_QA_THIRD_CLIENT_ID='+client);
     console.log('SDK555_THIRD_TEST_APP_CREATED_WITH_NO_GOOGLE=PASS');
+    await proveEphemeralSecondQaUser(browser,ctx,bearer);
   }finally{await ctx.close();await browser.close();}
 }
 main().catch(e=>{
