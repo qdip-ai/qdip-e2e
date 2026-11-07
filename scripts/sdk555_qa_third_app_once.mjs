@@ -103,6 +103,23 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
     check(who.status()===200&&record?.user?.userId===userId&&
       record?.user?.details?.resourceOwner===ORG,
       'QA_SECOND_CANONICAL_SAME_ORG');
+    check(record?.user?.human?.email?.isVerified===true,
+      'QA_SECOND_EMAIL_VERIFIED_BY_IDENTITY_PROVIDER');
+    check(record?.user?.human?.passwordChangeRequired!==true,
+      'QA_SECOND_PASSWORD_CHANGE_NOT_REQUIRED');
+    const factors=await adminContext.request.get(
+      ISSUER+'/v2/users/'+encodeURIComponent(userId)+'/authentication_methods',{
+        headers:{Authorization:'Bearer '+bearer},timeout:15000,maxRedirects:0});
+    console.log('SDK555_QA_SECOND_AUTH_METHODS_HTTP='+factors.status());
+    if(factors.status()===200){
+      const methods=await factors.json().catch(()=>null);
+      const types=methods?.authMethodTypes??[];
+      for(const method of ['PASSWORD','TOTP','OTP_EMAIL','OTP_SMS']){
+        console.log('SDK555_QA_SECOND_FACTOR_'+method+'='+
+          (Array.isArray(types)&&types.some(x=>typeof x==='string'&&x.includes(method))
+           ?'PRESENT':'ABSENT'));
+      }
+    }
     const callbackUri='http://127.0.0.1:8765/oidc/callback';
     const state=randomBytes(24).toString('base64url');
     const verifier=randomBytes(32).toString('base64url');
@@ -167,10 +184,28 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
           codeChallenge:/verification code|one-time code|otp|authenticator|two-factor|mfa/.test(lower),
           errorAlert:await page.locator('[role="alert"]').count()>0,
           loginDenied:/invalid|not found|failed|denied|locked|inactive|error/.test(lower),
+          verifyUser:/verify user|verify your account|confirm user|verify identity/.test(lower),
+          codeProvidedInEmail:/code provided in the verification email/.test(lower),
+          enterCode:/enter the code|enter code|type the code/.test(lower),
+          sentToEmail:/sent to your email|sent to email|email address/.test(lower),
+          authenticator:/authenticator app|authenticator code|totp/.test(lower),
+          setupAuthenticator:/setup authenticator|set up authenticator/.test(lower),
+          otpOnEmail:/email one-time|one-time password via email|email otp/.test(lower),
+          recoveryCode:/recovery code/.test(lower),
         };
         for(const [key,value] of Object.entries(categories))
           console.log('SDK555_SECOND_LOGIN_DIAGNOSTIC_'+key.toUpperCase()+
             '='+String(value).toUpperCase());
+        const headings=(await page.locator('h1,h2,[role="heading"]').allTextContents().catch(()=>[]))
+          .map(x=>x.trim().toLowerCase());
+        for(const [name,regex] of Object.entries({
+          VERIFY_USER:/verify user/,
+          VERIFY_EMAIL:/verify.*email|email.*verification/,
+          MFA:/multi.factor|authenticator|two.factor/,
+          LOGIN:/sign in|log in/,
+          AUTHENTICATION:/authentication/,
+        }))console.log('SDK555_SECOND_LOGIN_HEADING_'+name+'='+
+          (headings.some(x=>regex.test(x))?'PRESENT':'ABSENT'));
         throw error;
       }
       const tokenResponse=await ctx.request.post(ISSUER+'/oauth/v2/token',{
