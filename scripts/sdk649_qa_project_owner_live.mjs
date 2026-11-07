@@ -587,8 +587,10 @@ async function run(){validateQaApplicationVariables(process.env);
                 'worker authorization storage unavailable',
               ]);
               console.log('SDK649_QA_PRIVATE_WORKER_DENIAL_HTTP='+evaluated.status());
+              const safeDetail=typeof detail==='string'&&
+                /^[A-Za-z][A-Za-z ]{0,110}$/.test(detail)?detail:'REDACTED';
               console.log('SDK649_QA_PRIVATE_WORKER_DENIAL_CLASS='+
-                (known.has(detail)?detail:'UNRECOGNIZED_REDACTED'));
+                (known.has(detail)?detail:safeDetail));
             }
             check(evaluated.status()===200,'QA_PRIVATE_WORKER_EVALUATE_HTTP_200');
             const decision=await evaluated.json().catch(()=>null);
