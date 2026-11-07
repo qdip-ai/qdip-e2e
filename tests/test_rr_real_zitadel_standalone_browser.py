@@ -462,6 +462,10 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                 _login_rr_zitadel(
                     page, base + "/en/readiness-recovery", username, password,
                 )
+                # Real signed-in browser; QA identity has no QDIP ORG_OWNER,
+                # so the staging owner relay must return an empty selection.
+                anonymous_owner = page.request.get(base + "/api/observatory/organizations")
+                # Request is already signed in here; verify the HMAC relay below.
                 session = page.request.get(base + "/api/rr-operator/session")
                 assert session.status == 200, f"RR_QA_SESSION_HTTP_{session.status}"
                 state = session.json()
@@ -473,6 +477,39 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                 assert missing.status == 404, (
                     f"RR_QA_SCOPED_API_READ_HTTP_{missing.status}"
                 )
+                assert anonymous_owner.status == 200, (
+                    f"RR_QA_STAGING_OWNER_LIST_HTTP_{anonymous_owner.status}"
+                )
+                owners = anonymous_owner.json().get("organizations")
+                assert isinstance(owners, list), "RR_STAGING_OWNER_LIST_INVALID"
+                assert not any(org.get("id") == "368555767923594379" for org in owners), (
+                    "RR_STAGING_QA_TEST_USER_MUST_NOT_OWN_QDIP"
+                )
+                wrong_org = page.request.post(
+                    base + "/api/observatory/organizations",
+                    data=json.dumps({"organizationId": "397885387160184113"}),
+                    headers={"origin": base, "content-type": "application/json"},
+                )
+                assert wrong_org.status == 403, (
+                    f"RR_STAGING_WRONG_ORG_DENIAL_HTTP_{wrong_org.status}"
+                )
+                print("RR_STAGING_OWNER_RELAY_SCOPE_AND_PROOF=PASS")
+                for width, height in VIEWPORTS:
+                    page.set_viewport_size({"width": width, "height": height})
+                    content = page.goto(
+                        base + "/uk/admin/apps", wait_until="domcontentloaded", timeout=30000
+                    )
+                    assert content and content.status == 200, (
+                        f"RR_STAGING_OWNER_SELECTOR_HTTP_{width}x{height}"
+                    )
+                    title = page.get_by_role(
+                        "heading", name="RR staging — підтвердження організації"
+                    )
+                    title.wait_for(state="visible", timeout=20000)
+                    assert page.evaluate(
+                        "document.documentElement.scrollWidth <= window.innerWidth + 1"
+                    ), f"RR_STAGING_OWNER_SELECTOR_OVERFLOW_{width}x{height}"
+                    print(f"RR_STAGING_OWNER_SELECTOR_{width}x{height}=PASS")
                 print("RR_RAILWAY_REAL_ZITADEL_LOGIN_AND_SCOPED_READ=PASS")
             finally:
                 context.close()
