@@ -5,6 +5,11 @@ on:
     paths:
       - .github/workflows/mcp01-native-token.yml
       - scripts/mcp01_native_token_live.mjs
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/mcp01-native-token.yml
+      - scripts/mcp01_native_token_live.mjs
   workflow_dispatch:
     inputs:
       worker_fault:
@@ -172,7 +177,7 @@ jobs:
             node mcp01_native_token_live.mjs --mcp-worker-unavailable
           fi
   qa-b-link:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'push' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && contains(github.event.head_commit.message, '[MCP-QA:B-LINK]')
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'pull_request' && github.head_ref == 'test/mcp01-native-token-contract'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
