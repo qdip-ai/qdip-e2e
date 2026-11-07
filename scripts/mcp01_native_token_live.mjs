@@ -394,11 +394,21 @@ async function executeMcpMultiCapability(client){
    !('execution_id' in (invalid.structuredContent??{})),'MCP02_INVALID_SCHEMA_DENIED');
  const firstResult=await requested('qdip_invoke_decision',{...first,input:{first_value:7,second_value:3},timeout_seconds:10});
  const secondResult=await requested('qdip_invoke_decision',{...identity,input,timeout_seconds:10});
+ const normalizeDecimal=(value)=>{
+   if(typeof value!=='string'||!/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value))return null;
+   const [integer,fraction='']=value.split('.');
+   const remainder=fraction.replace(/0+$/,'');
+   return (integer==='-0'?'0':integer)+(remainder?'.'+remainder:'');
+ };
+ const sameDecimal=(actual,expected)=>normalizeDecimal(actual)!==null&&normalizeDecimal(actual)===normalizeDecimal(expected);
+ const sameSolution=(actual,expected)=>actual&&typeof actual==='object'&&!Array.isArray(actual)&&
+   isDeepStrictEqual(Object.keys(actual).sort(),Object.keys(expected).sort())&&
+   Object.keys(expected).every(key=>sameDecimal(actual[key],expected[key]));
  const validEvidence=(result,solution,objective)=>{
    const manifest=result.manifest,replay=result.replay_contract;
    return typeof result.execution_id==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(result.execution_id)&&
      result.semantic_status==='EXACT'&&result.backend_status==='OPTIMAL'&&result.actionable===true&&
-     isDeepStrictEqual(result.solution,solution)&&result.objective_value===objective&&
+     sameSolution(result.solution,solution)&&sameDecimal(result.objective_value,objective)&&
      manifest?.execution_id===result.execution_id&&manifest?.backend_id==='ortools-cp-sat'&&
      manifest?.semantic_version==='1.0.0'&&replay?.semantic_version==='1.0.0'&&
      ['decision_id','decision_spec_hash','ir_hash','compiler_version'].every(k=>typeof manifest[k]==='string'&&manifest[k]===replay[k])&&
