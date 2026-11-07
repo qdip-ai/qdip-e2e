@@ -17,9 +17,10 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
+const secondAppLinkMode=process.argv.includes('--mcp-application-b-link');
 const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
-const realDecisionMode=executionMode||workerUnavailableMode||workerTimeoutMode;
+const realDecisionMode=executionMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -153,7 +154,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      marker(mode+'_JWT_MCP_SCOPE',typeof verified.scope==='string'&&verified.scope.split(' ').includes('mcp:use'));
    }else marker(mode+'_JWT_SIGNATURE_AND_CLIENT_BINDING','NOT_VERIFIED_OPAQUE');
    if(onAccess)await onAccess(access);
-   if(mode==='MCP_RESOURCE'){
+   if(mode==='MCP_RESOURCE'&&!secondAppLinkMode){
      const mcp=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
        headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
          'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'server/discover'},
@@ -497,6 +498,7 @@ async function inspectOpaque(ctx,metadata,credential,token,app,subject){
 async function linkQaApplication(ctx,token,application){
  const endpoint=QA_GATEWAY+'/api/v1/qa/mcp652/application-link';
  const body={application_id:application};
+ if(!secondAppLinkMode){
  const anonymous=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
    headers:{'Content-Type':'application/json'},data:body});
  check(anonymous.status()===403,'QA_APP_LINK_ANONYMOUS_DENIED');
@@ -504,6 +506,7 @@ async function linkQaApplication(ctx,token,application){
    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
    data:{application_id:'123456789012345678'}});
  check(foreign.status()===403,'QA_APP_LINK_FOREIGN_APPLICATION_DENIED');
+ }
  const response=await ctx.request.post(endpoint,{timeout:15000,maxRedirects:0,
    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},data:body});
  marker('QA_APP_LINK_HTTP',response.status());
@@ -535,12 +538,14 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout'].includes(arg))&&
+ const modes=[executionMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
- const project=process.env.QDIP_SDK_QA_PROJECT_ID,application=process.env.QDIP_SDK_MANAGED_APP_ID,client=process.env.QDIP_SDK_MANAGED_CLIENT_ID;
- check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_MANAGED_REFERENCES_PRESENT');
+ const project=process.env.QDIP_SDK_QA_PROJECT_ID,
+   application=secondAppLinkMode?process.env.QDIP_SDK_EXTERNAL_APP_ID:process.env.QDIP_SDK_MANAGED_APP_ID,
+   client=secondAppLinkMode?process.env.QDIP_SDK_EXTERNAL_CLIENT_ID:process.env.QDIP_SDK_MANAGED_CLIENT_ID;
+ check([project,application].every(x=>typeof x==='string'&&/^[0-9]{1,32}$/.test(x))&&typeof client==='string'&&client.length>0&&client.length<=256,'EXISTING_QA_APPLICATION_REFERENCES_PRESENT');
  const browser=await chromium.launch({headless:true});const ctx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
  let consoleToken=null,introspection=null;
  const provision=process.env.MCP01_PROVISION_OAUTH==='true';
@@ -553,7 +558,7 @@ async function main(){
    if(verifyExisting)await verifyExistingDelivery(ctx);
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
-   if(executionMode||ownerBootstrapMode||applicationLinkMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
+   if(executionMode||secondAppLinkMode||ownerBootstrapMode||applicationLinkMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
    const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
    check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
    const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
@@ -569,7 +574,7 @@ async function main(){
    check(typeof owner.sub==='string'&&/^[0-9]{1,32}$/.test(owner.sub),'EXPECTED_OWNER_SUBJECT');
    const data=await json(await ctx.request.post(ISSUER+'/zitadel.application.v2.ApplicationService/GetApplication',{
      timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},data:{applicationId:application}}),'MANAGED_APP_CONFIG');
-   let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name==='sdk-managed-qa'&&
+   let app=data.application;check(app?.applicationId===application&&app?.projectId===project&&app?.name===(secondAppLinkMode?'sdk-external-qa':'sdk-managed-qa')&&
      app?.state==='APPLICATION_STATE_ACTIVE'&&app?.oidcConfiguration?.clientId===client,'EXACT_MANAGED_APP_CONFIG');
    let oidc=app.oidcConfiguration;
    if(realDecisionMode){
@@ -662,15 +667,16 @@ async function main(){
      async token=>{
        if(introspection)await inspectOpaque(ctx,metadata,introspection,token,{project,client},owner.sub);
        if(ownerBootstrapMode)await bootstrapQaOwner(ctx,token);
-       if(applicationLinkMode)await linkQaApplication(ctx,token,application);
+       if(applicationLinkMode||secondAppLinkMode)await linkQaApplication(ctx,token,application);
      });
    marker('MCP_RESOURCE_PKCE_RESULT',requested?'TOKEN_OBTAINED':'DENIED_OR_INTERACTION_BLOCKED');
    check(requested===true,'MCP_RESOURCE_FLOW_COMPLETED');
    if(!introspection)marker('REAL_INTROSPECTION','PERFORMED_IN_MCP_RUNTIME');
    marker('REAL_MCP_OAUTH_ACCEPTANCE','PASS');
-   if(!executionMode&&!ownerBootstrapMode&&!applicationLinkMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
+   if(!executionMode&&!ownerBootstrapMode&&!applicationLinkMode&&!secondAppLinkMode)marker('CANONICAL_LINK_AND_WORKER_EXECUTION','NOT_RUN');
    if(ownerBootstrapMode)marker('CANONICAL_OWNER_LINK','PASS');
    if(applicationLinkMode)marker('CANONICAL_APPLICATION_LINK','PASS');
+   if(secondAppLinkMode)marker('B_APP_CANONICAL_LINK','PASS');
    marker('NATIVE_TOKEN_CONTRACT_PROBE','COMPLETED');
  }finally{consoleToken=null;introspection=null;await ctx.close();await browser.close();}
 }
