@@ -139,6 +139,30 @@ jobs:
             exit 2
           fi
           echo 'RR_RAILWAY_BFF_AUTH_GATE_HTTP=401'
+      - name: Verify existing Zitadel PKCE redirects back to Railway QA, not production
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://rr-standalone-web-qa-qa.up.railway.app'
+          curl --silent --show-error --max-time 20 --dump-header /tmp/rr-qa-auth-headers \
+            --output /dev/null "$origin/api/auth/login?return_to=$origin/en/readiness-recovery"
+          python - <<'PY'
+          from urllib.parse import urlparse, parse_qs
+          headers = open('/tmp/rr-qa-auth-headers', encoding='utf-8').read().splitlines()
+          status = headers[0].split()[1]
+          location = next((line.partition(': ')[2].strip() for line in headers if line.lower().startswith('location: ')), '')
+          assert status == '302', f'RR_RAILWAY_OIDC_LOGIN_HTTP_{status}'
+          url = urlparse(location)
+          assert url.scheme == 'https' and url.hostname == 'mentality-rmwj0i.eu1.zitadel.cloud', (
+              'RR_RAILWAY_OIDC_ISSUER_MISMATCH'
+          )
+          qs = parse_qs(url.query)
+          assert qs.get('redirect_uri') == [
+              'https://rr-standalone-web-qa-qa.up.railway.app/api/auth/callback/zitadel'
+          ], 'RR_RAILWAY_OIDC_CALLBACK_MISMATCH'
+          assert qs.get('code_challenge_method') == ['S256'], 'RR_RAILWAY_PKCE_MISSING'
+          print('RR_RAILWAY_OIDC_REDIRECT_AND_PKCE=PASS')
+          PY
 
   rr-standalone-browser:
     # Reuse this established RR QA workflow. No PR events, no production mutations.
