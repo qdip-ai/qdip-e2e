@@ -25,6 +25,7 @@ VARIABLES = (
 )
 EXECUTION_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 ORG_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,36}$", re.I)
+FOREIGN_ORG_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 DEPLOYMENT_RE = re.compile(r"^[0-9a-f-]{36}$", re.I)
 
 
@@ -148,8 +149,10 @@ class RailwayReadback:
                     org = decoded["organization_id"]
                     execution = decoded["execution_id"]
                     if (
-                        org == own_org or not ORG_RE.fullmatch(org)
-                        and not org.startswith("rrqa-") or not EXECUTION_ID_RE.fullmatch(execution)
+                        not isinstance(org, str) or org == own_org
+                        or not FOREIGN_ORG_RE.fullmatch(org)
+                        or not isinstance(execution, str)
+                        or not EXECUTION_ID_RE.fullmatch(execution)
                     ):
                         raise ValueError("invalid foreign fixture")
                 except (ValueError, KeyError, TypeError):
@@ -201,7 +204,9 @@ class RailwayReadback:
 def readback_from_ci(record: dict) -> tuple[str, str]:
     if (
         os.environ.get("GITHUB_REPOSITORY") != "qdip-ai/qdip-e2e"
-        or os.environ.get("GITHUB_REF") != "refs/heads/feat/rr-e2e-01-standalone"
+        or os.environ.get("GITHUB_REF") not in {
+            "refs/heads/feat/rr-e2e-01-standalone", "refs/heads/main"
+        }
         or not os.environ.get("GITHUB_RUN_ID")
     ):
         raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_TRUSTED_BRANCH_REQUIRED")
