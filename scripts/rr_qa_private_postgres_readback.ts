@@ -3,7 +3,7 @@ import { SQL } from "bun";
 const connection = Bun.env.RR_TEST_POSTGRES_DSN;
 if (!connection || !new URL(connection).pathname.endsWith("/rr_test")) throw new Error("RR_QA_BLOCKED: dedicated rr_test required");
 const db = new SQL(connection);
-const expected=["schema","initial","duplicate-head","cas-concurrency","tenant-isolation","unique-change-rollback","snapshot","export"];
+const expected=["schema","initial","duplicate-head","cas-concurrency","tenant-isolation","unique-change-rollback","snapshot","export","record-readback-equality"];
 const passed=[];
 function ok(condition,name){if (!condition) throw new Error("RR_QA_FAIL:"+name); passed.push(name); console.log("RR_QA_PASS:"+name);}
 function record(org, exec, decision,changeId=null){
@@ -78,6 +78,9 @@ try {
  const first=await db`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec} ORDER BY execution_id LIMIT 1`;
  const next=await db`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec} AND execution_id > ${first[0].execution_id} ORDER BY execution_id LIMIT 1`;
  ok(first.length===1&&next.length===1&&first[0].execution_id!==next[0].execution_id,"export");
+ const readbackOk=await db`SELECT (record = ${JSON.stringify(record(org,"e1",dec))}::jsonb) AS identical FROM rr_execution_records WHERE organization_id=${org} AND execution_id=${"e1"}`;
+ const negative=await db`SELECT (record = ${JSON.stringify({...record(org,"e1",dec), actor_id:"wrong-actor"})}::jsonb) AS identical FROM rr_execution_records WHERE organization_id=${org} AND execution_id=${"e1"}`;
+ ok(readbackOk.length===1&&readbackOk[0].identical===true&&negative.length===1&&negative[0].identical===false,"record-readback-equality");
  console.log("RR_QA_RESULT:PASS "+passed.length+"/"+expected.length);
 } catch(e){console.error("RR_QA_RESULT:FAIL",String(e?.message || e));process.exitCode=1;}
 finally{await db.close();}
