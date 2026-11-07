@@ -330,6 +330,7 @@ async function assertWorkerTimeout(client){
  * are pinned to the reviewed SDK-02 fixture; missing publication fails closed.
  */
 async function executeMcpMultiCapability(client){
+ const first={capability_id:'mcp.qa.choice',capability_version:'1'};
  const identity={capability_id:'mcp.qa.bonus',capability_version:'2'};
  const input={first_value:7,second_value:3,second_bonus:6};
  const expectedSchema={type:'object',properties:{
