@@ -125,7 +125,7 @@ async function main(){
         redirectUris:[CALLBACK],
         responseTypes:['OIDC_RESPONSE_TYPE_CODE'],
         grantTypes:['OIDC_GRANT_TYPE_AUTHORIZATION_CODE'],
-        appType:config.appType,authMethodType:'OIDC_AUTH_METHOD_TYPE_NONE',
+        appType:'OIDC_APP_TYPE_NATIVE',authMethodType:'OIDC_AUTH_METHOD_TYPE_NONE',
         devMode:true,
       },
     });
