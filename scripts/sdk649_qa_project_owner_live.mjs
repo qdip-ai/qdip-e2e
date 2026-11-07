@@ -459,6 +459,88 @@ async function run(){validateQaApplicationVariables(process.env);
           });
           check(swapped.status===403,'QA_MONGO_SWAPPED_OWNER_TOKENS_DENIED_403');
           console.log('SDK649_QA_MONGO_READBACK=PASS_DIRECT_STAGING_DB');
+          // The real grant API is exercised after creating only an isolated,
+          // nonpersonal metadata fixture through the signed staging QA path.
+          // Neither owner approval nor user consent is injected into Mongo.
+          const qaIdentity='Bearer '+await githubQaWorkloadJwt();
+          const fixtureUrl=STAGING_CORE+'/api/v1/sdk/qa/private-resource/fixture';
+          const fixtureHeaders={
+            Authorization:qaIdentity,
+            'x-zitadel-managed-token':tokens[0],
+          };
+          const fixture=await fetch(fixtureUrl,{
+            method:'POST',headers:fixtureHeaders,redirect:'error',
+            signal:AbortSignal.timeout(20000),
+          });
+          check(fixture.status===201,'QA_PRIVATE_FIXTURE_HTTP_201');
+          const fixturePayload=await fixture.json().catch(()=>null);
+          const resourceId=fixturePayload?.resource_id;
+          check(typeof resourceId==='string'&&
+            /^sdk649-qa-[0-9]+-[0-9]+$/.test(resourceId),
+            'QA_PRIVATE_FIXTURE_RUN_BOUND');
+          try{
+            const grantPath=STAGING_CORE+'/api/v1/private-resource-access/grants/';
+            const checkUrl=STAGING_CORE+'/api/v1/private-resource-access/check';
+            const projection='calendar.events.read';
+            const purpose='sdk649_qa_decision_support';
+            const checkBody={
+              resource_id:resourceId,projection,purpose,
+              requested_fields:['event_id','start'],
+            };
+            const grantBody={
+              ...checkBody,destination_plugin_id:'sdk-external-qa',
+              ttl_seconds:300,
+            };
+            const sourceHeaders={
+              'x-api-key':qaKeys[2],Authorization:'Bearer '+tokens[0],
+            };
+            const destinationHeaders={
+              'x-api-key':qaKeys[3],Authorization:'Bearer '+tokens[1],
+            };
+            const before=await ctx.request.post(checkUrl,{
+              data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(before.status()===403,'QA_PRIVATE_NO_GRANTS_DENIED_403');
+            const approved=await ctx.request.post(grantPath+'source',{
+              data:grantBody,headers:sourceHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(approved.status()===204,'QA_PRIVATE_SOURCE_OWNER_APPROVAL_204');
+            const beforeConsent=await ctx.request.post(checkUrl,{
+              data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(beforeConsent.status()===403,'QA_PRIVATE_WITHOUT_USER_CONSENT_DENIED_403');
+            const consent=await ctx.request.post(grantPath+'consent',{
+              data:grantBody,headers:sourceHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(consent.status()===204,'QA_PRIVATE_USER_CONSENT_204');
+            const allowed=await ctx.request.post(checkUrl,{
+              data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(allowed.status()===204,'QA_PRIVATE_BOTH_GRANTS_HTTP_204');
+            const excess=await ctx.request.post(checkUrl,{
+              data:{...checkBody,requested_fields:['event_id','start','title']},
+              headers:destinationHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(excess.status()===403,'QA_PRIVATE_UNDECLARED_FIELD_DENIED_403');
+            const revoke=await ctx.request.delete(grantPath+'consent',{
+              data:{
+                resource_id:resourceId,destination_plugin_id:'sdk-external-qa',
+                projection,purpose,
+              },headers:sourceHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(revoke.status()===204,'QA_PRIVATE_CONSENT_REVOKED_204');
+            const afterRevoke=await ctx.request.post(checkUrl,{
+              data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
+            });
+            check(afterRevoke.status()===403,'QA_PRIVATE_AFTER_REVOKE_DENIED_403');
+            console.log('SDK649_QA_PRIVATE_CONSENT_GATE=PASS_LIVE_MONGO_API');
+          }finally{
+            const cleanup=await fetch(fixtureUrl,{
+              method:'DELETE',headers:fixtureHeaders,redirect:'error',
+              signal:AbortSignal.timeout(20000),
+            });
+            check(cleanup.status===204,'QA_PRIVATE_FIXTURE_CLEANUP_204');
+          }
           console.log('SDK649_CANONICAL_BINDING=PASS_TWO_204');
         }finally{
           try{if(issued)await revokeCoreQaKeys();}
