@@ -1,0 +1,64 @@
+name: SDK555 same-org 2-user 3-app prerequisite LIVE proof
+on:
+  push:
+    branches: [test/sdk649-qa-application-vars-20261104]
+    paths:
+      - scripts/sdk555_same_org_matrix_preflight.mjs
+      - .github/workflows/sdk555-same-org-matrix.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk555-same-org-qa-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  same-org-user-and-app-inventory:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/test/sdk649-qa-application-vars-20261104'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing QA identities and QA project are configured (no values disclosed)
+        env:
+          QA21_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD != '' }}
+          QA1_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD != '' }}
+          QA2_PRESENT: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD != '' }}
+          QA_PROJECT_PRESENT: ${{ vars.QDIP_SDK_QA_PROJECT_ID != '' }}
+          QA_CLIENT_PRESENT: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID != '' }}
+        run: |
+          set -euo pipefail
+          test "$QA21_PRESENT" = true
+          test "$QA1_PRESENT" = true
+          test "$QA2_PRESENT" = true
+          test "$QA_PROJECT_PRESENT" = true
+          test "$QA_CLIENT_PRESENT" = true
+          node --check scripts/sdk555_same_org_matrix_preflight.mjs
+      - name: Install disposable Playwright Chromium
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sdk555-same-org
+          cp scripts/sdk555_same_org_matrix_preflight.mjs /tmp/sdk555-same-org/
+          cd /tmp/sdk555-same-org
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Read-only proof of TWO REAL same-Zitadel-org users and THIRD OIDC app
+        env:
+          CI: 'true'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST1_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST2_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST2_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST2_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/sdk555-same-org
+          node sdk555_same_org_matrix_preflight.mjs
