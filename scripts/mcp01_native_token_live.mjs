@@ -18,11 +18,12 @@ const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
 const multiCapabilityMode=process.argv.includes('--mcp-two-capabilities');
+const discoveryPreflightMode=process.argv.includes('--mcp-discovery-preflight');
 // Explicit QA-only B owner-link acceptance; the protected operator retains the B key.
 const secondAppLinkMode=process.argv.includes('--mcp-application-b-link');
 const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
-const realDecisionMode=executionMode||multiCapabilityMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
+const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -270,7 +271,14 @@ async function realMcpClient(access){
    const tools=await client.listTools();
    check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
    marker('REAL_MCP_TOOLS_LIST','PASS');
-   if(workerUnavailableMode)await assertWorkerUnavailable(client);
+   if(discoveryPreflightMode){
+     const list=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
+     check(list.isError!==true&&Array.isArray(list.structuredContent?.capabilities),'MCP02_REAL_DISCOVERY_READ_ONLY');
+     const items=list.structuredContent.capabilities;
+     marker('MCP02_REAL_AUTHORIZED_COUNT',items.length);
+     marker('MCP02_REAL_AUTHORIZED_IDENTITIES',JSON.stringify(items.slice(0,16).map(x=>({id:x.capability_id,version:x.capability_version}))));
+   }
+   else if(workerUnavailableMode)await assertWorkerUnavailable(client);
    else if(workerTimeoutMode)await assertWorkerTimeout(client);
    else if(multiCapabilityMode)await executeMcpMultiCapability(client);
    else if(executionMode)await executeMcpDecision(client);
