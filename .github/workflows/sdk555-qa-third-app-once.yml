@@ -47,6 +47,7 @@ jobs:
           QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
           QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
           QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
         run: |
           set -euo pipefail
           cd /tmp/sdk555-third-app
