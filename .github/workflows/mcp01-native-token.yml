@@ -131,7 +131,7 @@ jobs:
           cd /tmp/mcp01-native
           node mcp01_native_token_live.mjs --mcp-execution
   qa-worker-fault:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && (github.event.inputs.qa_scenario == 'timeout' || github.event.inputs.qa_scenario == 'unavailable')
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/test/mcp01-native-token-contract' || github.ref == 'refs/heads/main') && (github.event.inputs.qa_scenario == 'timeout' || github.event.inputs.qa_scenario == 'unavailable')
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -172,7 +172,7 @@ jobs:
             node mcp01_native_token_live.mjs --mcp-worker-unavailable
           fi
   qa-b-link:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/mcp01-native-token-contract' && github.event.inputs.qa_scenario == 'b-link'
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/test/mcp01-native-token-contract' || github.ref == 'refs/heads/main') && github.event.inputs.qa_scenario == 'b-link'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
