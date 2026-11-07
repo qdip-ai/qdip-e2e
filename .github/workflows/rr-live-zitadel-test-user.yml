@@ -198,6 +198,14 @@ jobs:
           python -m pip install pytest==8.4.2 playwright==1.56.0 asyncpg==0.30.0
           python -m playwright install --with-deps chromium
           python -m pytest -q -s tests/test_rr_real_zitadel_standalone_browser.py::test_railway_real_zitadel_login_and_scoped_rr_read -ra
+      - name: Preserve isolated owner-selector viewports (no user profile or tokens)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rr-staging-owner-viewport-evidence
+          path: test-results/rr-staging-owner/owner-*.png
+          if-no-files-found: warn
+          retention-days: 7
 
   rr-standalone-browser:
     # Reuse this established RR QA workflow. No PR events, no production mutations.
