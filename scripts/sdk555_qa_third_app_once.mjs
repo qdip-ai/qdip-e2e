@@ -149,8 +149,30 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
         pass=await find(page,['input[autocomplete="current-password"]','input[type="password"]']);
       }
       await pass.fill(password);await pass.press('Enter');
-      const authCode=await Promise.race([code,new Promise((_,reject)=>
-        setTimeout(()=>reject(Error('QA_SECOND_OIDC_CALLBACK_TIMEOUT')),40000))]);
+      let authCode;
+      try{
+        authCode=await Promise.race([code,new Promise((_,reject)=>
+          setTimeout(()=>reject(Error('QA_SECOND_OIDC_CALLBACK_TIMEOUT')),40000))]);
+      }catch(error){
+        // Diagnostic labels only. No URL query, email, form values or token.
+        const terminal=new URL(page.url());
+        const pageBody=(await page.locator('body').innerText().catch(()=>''))||'';
+        const lower=pageBody.toLowerCase();
+        const categories={
+          issuerOrigin:terminal.origin===ISSUER,
+          passwordFieldVisible:await page.locator('input[type="password"]').first()
+            .isVisible().catch(()=>false),
+          emailVerification:/verify your email|verify email|email verification|email code/.test(lower),
+          passwordChange:/change password|set password|password change|new password/.test(lower),
+          codeChallenge:/verification code|one-time code|otp|authenticator|two-factor|mfa/.test(lower),
+          errorAlert:await page.locator('[role="alert"]').count()>0,
+          loginDenied:/invalid|not found|failed|denied|locked|inactive|error/.test(lower),
+        };
+        for(const [key,value] of Object.entries(categories))
+          console.log('SDK555_SECOND_LOGIN_DIAGNOSTIC_'+key.toUpperCase()+
+            '='+String(value).toUpperCase());
+        throw error;
+      }
       const tokenResponse=await ctx.request.post(ISSUER+'/oauth/v2/token',{
         form:{grant_type:'authorization_code',
           client_id:process.env.QDIP_SDK_MANAGED_CLIENT_ID,
