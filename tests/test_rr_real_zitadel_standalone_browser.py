@@ -71,6 +71,35 @@ def _visible_input(page, selectors: tuple[str, ...], timeout: float):
     pytest.fail("RR_ZITADEL_LOGIN_FORM_UNAVAILABLE", pytrace=False)
 
 
+def _login_rr_zitadel(page, page_url: str, username: str, password: str) -> None:
+    page.goto(page_url, wait_until="domcontentloaded")
+    login = page.get_by_role("button", name="Sign in with Zitadel")
+    login.wait_for(state="visible", timeout=20000)
+    login.click()
+    page.wait_for_url(lambda url: "zitadel" in str(url).lower(), timeout=30000)
+    user = _visible_input(page, (
+        'input[autocomplete="username"]', 'input[name="loginName"]',
+        'input[name="loginname"]', 'input[name="username"]',
+        'input[name="email"]', 'input[type="email"]',
+    ), 12)
+    user.fill(username)
+    passwd = None
+    for selector in ('input[autocomplete="current-password"]', 'input[type="password"]'):
+        field = page.locator(selector).first
+        if field.is_visible():
+            passwd = field
+            break
+    if passwd is None:
+        user.press("Enter")
+        passwd = _visible_input(page, (
+            'input[autocomplete="current-password"]', 'input[type="password"]',
+        ), 12)
+    passwd.fill(password)
+    passwd.press("Enter")
+    # Never make a second password attempt; MFA/consent is a hard blocker.
+    page.wait_for_url(lambda url: str(url).startswith(page_url), timeout=45000)
+
+
 def test_real_zitadel_standalone_rr_bff(tmp_path):
     base = _required("RR_BROWSER_URL").rstrip("/")
     username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
@@ -109,32 +138,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             anonymous = page.request.get(api)
             assert anonymous.status == 401, f"RR_ANONYMOUS_HTTP_{anonymous.status}"
 
-            page.goto(page_url, wait_until="domcontentloaded")
-            login = page.get_by_role("button", name="Sign in with Zitadel")
-            login.wait_for(state="visible", timeout=20000)
-            login.click()
-            page.wait_for_url(lambda url: "zitadel" in str(url).lower(), timeout=30000)
-            user = _visible_input(page, (
-                'input[autocomplete="username"]', 'input[name="loginName"]',
-                'input[name="loginname"]', 'input[name="username"]',
-                'input[name="email"]', 'input[type="email"]',
-            ), 12)
-            user.fill(username)
-            passwd = None
-            for selector in ('input[autocomplete="current-password"]', 'input[type="password"]'):
-                field = page.locator(selector).first
-                if field.is_visible():
-                    passwd = field
-                    break
-            if passwd is None:
-                user.press("Enter")
-                passwd = _visible_input(page, (
-                    'input[autocomplete="current-password"]', 'input[type="password"]',
-                ), 12)
-            passwd.fill(password)
-            passwd.press("Enter")
-            # Never make a second password attempt; MFA/consent is a hard blocker.
-            page.wait_for_url(lambda url: str(url).startswith(page_url), timeout=45000)
+            _login_rr_zitadel(page, page_url, username, password)
 
             for width, height in VIEWPORTS:
                 page.set_viewport_size({"width": width, "height": height})
@@ -411,4 +415,47 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             if context is not None:
                 context.tracing.stop(path=str(tmp_path / "rr-browser-trace.zip"))
                 context.close()
+            browser.close()
+
+
+def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
+    """Independent real test user -> Railway QA Zitadel -> BFF -> RR read API.
+
+    This does not substitute for the separate PostgreSQL-backed write E2E.
+    """
+    base = _required("RR_BROWSER_URL").rstrip("/")
+    parsed = urlparse(base)
+    assert parsed.scheme == "https" and parsed.hostname and (
+        parsed.hostname.endswith(".up.railway.app")
+    ), "RR_OIDC_BROWSER_REQUIRES_ISOLATED_RAILWAY_QA"
+    assert not parsed.query and not parsed.fragment and parsed.path in ("", "/")
+    username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
+    password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            context = browser.new_context(ignore_https_errors=False)
+            try:
+                page = context.new_page()
+                endpoint = base + "/api/rr-operator/kernel/executions/rr-qa-anonymous-check"
+                anonymous = page.request.get(endpoint)
+                assert anonymous.status == 401, f"RR_QA_ANONYMOUS_HTTP_{anonymous.status}"
+                _login_rr_zitadel(
+                    page, base + "/en/readiness-recovery", username, password,
+                )
+                session = page.request.get(base + "/api/rr-operator/session")
+                assert session.status == 200, f"RR_QA_SESSION_HTTP_{session.status}"
+                state = session.json()
+                assert state.get("configured") is True, "RR_QA_OIDC_UNCONFIGURED"
+                assert state.get("authenticated") is True, "RR_QA_OPERATOR_ROLE_MISSING"
+                missing = page.request.get(
+                    base + "/api/rr-operator/kernel/executions/rr-qa-missing-" + uuid4().hex
+                )
+                assert missing.status == 404, (
+                    f"RR_QA_SCOPED_API_READ_HTTP_{missing.status}"
+                )
+                print("RR_RAILWAY_REAL_ZITADEL_LOGIN_AND_SCOPED_READ=PASS")
+            finally:
+                context.close()
+        finally:
             browser.close()
