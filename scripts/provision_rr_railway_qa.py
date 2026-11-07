@@ -51,6 +51,15 @@ def upsert(name, value, token, service=RR_SERVICE):
     if result.get("variableUpsert") is not True:
         raise RuntimeError("Railway did not confirm variable upsert for " + name)
 
+def redeploy_existing(service, token):
+    if service not in (RR_SERVICE, WEB_SERVICE):
+        raise RuntimeError("Unexpected Railway redeploy destination")
+    result = gql("""mutation($serviceId: String!, $environmentId: String!) {
+      serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)
+    }""", {"serviceId": service, "environmentId": ENVIRONMENT}, token)
+    if not result.get("serviceInstanceRedeploy"):
+        raise RuntimeError("Railway did not accept the existing QA redeploy")
+
 def main():
     if os.environ.get("GITHUB_REPOSITORY") != "qdip-ai/qdip-e2e":
         raise ValueError("Unexpected GitHub repository")
@@ -118,6 +127,11 @@ def main():
     }.items():
         upsert(name, value, token, service=WEB_SERVICE)
         print("RR_QA_WEB_BOUND=" + name)
+    # skipDeploys keeps partial credential sets from becoming live; start one
+    # redeploy per existing QA service after all bindings are accepted.
+    for service, label in ((RR_SERVICE, "rr-api"), (WEB_SERVICE, "web-bff")):
+        redeploy_existing(service, token)
+        print("RR_QA_REDEPLOY_REQUESTED=" + label)
     # No unreviewed write/economic feature activation here; these are separate
     # existing QA flags and remain subject to their original acceptance gates.
     print("RR_QA_WRITE_ACTIVATION=NOT_PERFORMED")
