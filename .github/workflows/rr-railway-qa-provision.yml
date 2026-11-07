@@ -1,13 +1,21 @@
 name: Provision existing RR Railway QA credentials
 on:
+  # The pre-merge workflow exists only on the dedicated RR branch. Restrict
+  # credential-bearing pushes to changes of THIS workflow by the repo owner.
+  push:
+    branches: [feat/rr-e2e-01-standalone]
+    paths: [.github/workflows/rr-railway-qa-provision.yml]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   provision:
-    if: github.ref == 'refs/heads/main' && github.event.repository.private == false
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event.repository.private == false && github.actor == 'TarasGez' && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-24.04
     environment: rr-qa-provision
+    concurrency:
+      group: rr-qa-scoped-provisioning
+      cancel-in-progress: false
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
