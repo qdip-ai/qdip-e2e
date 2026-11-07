@@ -164,6 +164,41 @@ jobs:
           path: test-results/rr-railway-bff-smoke/anonymous-*.png
           if-no-files-found: warn
           retention-days: 7
+  rr-railway-real-zitadel-auth:
+    # Existing test-user GitHub secrets; no shared admin credentials, DB, or writes.
+    needs: rr-railway-web-bff-smoke
+    if: github.event.repository.private == false && github.ref == 'refs/heads/feat/rr-e2e-01-standalone'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RR_BROWSER_URL: 'https://rr-standalone-web-qa-qa.up.railway.app'
+      QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+      QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm existing test account credentials are bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "RR_RAILWAY_ZITADEL_BLOCKED_MISSING=${name}"
+              exit 2
+            fi
+          done
+      - name: Real Zitadel user to Railway BFF and authorized RR read
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install pytest==8.4.2 playwright==1.56.0 asyncpg==0.30.0
+          python -m playwright install --with-deps chromium
+          python -m pytest -q -s tests/test_rr_real_zitadel_standalone_browser.py::test_railway_real_zitadel_login_and_scoped_rr_read -ra
+
   rr-standalone-browser:
     # Reuse this established RR QA workflow. No PR events, no production mutations.
     if: github.event.repository.private == false && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
