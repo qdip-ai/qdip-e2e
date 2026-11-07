@@ -68,7 +68,22 @@ def _visible_input(page, selectors: tuple[str, ...], timeout: float):
             if field.is_visible():
                 return field
         page.wait_for_timeout(200)
-    pytest.fail("RR_ZITADEL_LOGIN_FORM_UNAVAILABLE", pytrace=False)
+    # Describe only public page structure before entering any credentials.
+    # Never log the URL query (OIDC state/code), page text or user identifiers.
+    current = urlparse(page.url)
+    body = page.locator("body")
+    visible_text = body.inner_text(timeout=3000).lower() if body.is_visible() else ""
+    markers = (
+        "redirect_uri", "redirect uri", "invalid_redirect", "invalid request",
+        "unauthorized client", "error", "login", "sign in",
+    )
+    observed = [label.replace(" ", "_") for label in markers if label in visible_text]
+    pytest.fail(
+        f"RR_ZITADEL_LOGIN_FORM_UNAVAILABLE host={current.hostname} "
+        f"path={current.path} inputs={page.locator('input').count()} "
+        f"markers={','.join(observed) or 'none'}",
+        pytrace=False,
+    )
 
 
 def _login_rr_zitadel(page, page_url: str, username: str, password: str) -> None:
