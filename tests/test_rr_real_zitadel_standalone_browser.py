@@ -2,12 +2,11 @@
 
 Execute only against a deployed standalone pair verified out of band:
 RR_BROWSER_URL, QDIP_E2E_ZITADEL_TEST_LOGIN, QDIP_E2E_ZITADEL_TEST_PASSWORD,
-RR_E2E_VALID_EXECUTION_ID. No session injection or credential logging.
+RR_QA_RAILWAY_TOKEN. No session injection, public DSN or credential logging.
 One real-account login per run to avoid account lockout across viewports.
 """
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 import os
@@ -17,9 +16,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
 
-import asyncpg
 import pytest
 from playwright.sync_api import sync_playwright
+
+from scripts.rr_qa_railway_private_readback import readback_from_ci
 
 
 VIEWPORTS = ((1440, 900), (390, 844), (844, 390))
@@ -30,34 +30,6 @@ def _required(name: str) -> str:
     if not value:
         pytest.fail(f"RR_BROWSER_E2E_MISSING_{name}", pytrace=False)
     return value
-
-
-async def _journal_readback(dsn: str, organization_id: str, execution_id: str) -> dict | None:
-    """Independently read the RR-owned QA journal, not the HTTP/BFF response."""
-    connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
-    try:
-        payload = await connection.fetchval(
-            """SELECT record::text FROM rr_execution_records
-               WHERE organization_id = $1 AND execution_id = $2""",
-            organization_id, execution_id,
-        )
-        return None if payload is None else json.loads(payload)
-    finally:
-        await connection.close()
-
-
-async def _foreign_record(dsn: str, organization_id: str) -> tuple[str, str] | None:
-    """Find a persisted existing foreign-tenant fixture, never an invented ID."""
-    connection = await asyncpg.connect(dsn, timeout=10, command_timeout=10)
-    try:
-        row = await connection.fetchrow(
-            """SELECT organization_id, execution_id FROM rr_execution_records
-               WHERE organization_id <> $1 ORDER BY execution_id LIMIT 1""",
-            organization_id,
-        )
-        return None if row is None else (row["organization_id"], row["execution_id"])
-    finally:
-        await connection.close()
 
 
 def _visible_input(page, selectors: tuple[str, ...], timeout: float):
@@ -123,11 +95,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
     base = _required("RR_BROWSER_URL").rstrip("/")
     username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
     password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
-    dsn = _required("RR_E2E_TEST_POSTGRES_DSN")
     organization_id = _required("RR_E2E_ORGANIZATION_ID")
-    assert urlparse(dsn).path.rsplit("/", 1)[-1].endswith("_test"), (
-        "RR_E2E_POSTGRES_MUST_BE_DEDICATED_TEST_DATABASE"
-    )
     assert _required("RR_E2E_STAGING_WRITE") == "1", (
         "RR_E2E_REQUIRES_EXPLICIT_STAGING_MUTATION_PERMISSION"
     )
@@ -240,11 +208,9 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             read = page.request.get(prefix + "/executions/" + first_id)
             assert read.status == 200 and read.json() == record
             assert record["organization_id"] == organization_id, "RR_ORGANIZATION_BINDING_MISMATCH"
-            stored = asyncio.run(_journal_readback(dsn, organization_id, first_id))
-            assert stored == record, "RR_POSTGRES_HTTP_READBACK_MISMATCH"
-            foreign_fixture = asyncio.run(_foreign_record(dsn, organization_id))
-            assert foreign_fixture is not None, "RR_FOREIGN_ORG_JOURNAL_FIXTURE_MISSING"
-            foreign_org, foreign_execution_id = foreign_fixture
+            # Independent verifier executes INSIDE existing Railway PostgreSQL QA,
+            # returns only a pass/fail and a REAL foreign journal identifier.
+            foreign_org, foreign_execution_id = readback_from_ci(record)
             assert foreign_execution_id != first_id, "RR_FOREIGN_FIXTURE_INVALID"
             foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
             assert foreign.status in (403, 404), (
@@ -302,6 +268,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                 f"RR_LIVE_REPLAN_HTTP_{revised.status}"
             )
             assert revised.json()["result"]["workflow"]["execution_id"] == next_id
+            readback_from_ci(revised.json())  # Also prove durable replan record.
             stale = call_post("/executions/" + first_id + "/replan", {
                 **second,
                 "execution_id": "rr-browser-stale-" + suffix,
