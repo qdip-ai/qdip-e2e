@@ -3,7 +3,6 @@
  * No environment values are printed or sent to any external endpoint.
  */
 import assert from 'node:assert/strict';
-import { publicEncrypt, constants as cryptoConstants } from 'node:crypto';
 
 const REQUIRED = [
   'QDIP_SDK_QA_PROJECT_ID',
@@ -37,33 +36,6 @@ export function validateQaApplicationVariables(env) {
   }
 }
 
-
-const SDK_QA_OPERATOR_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuwTFB56fmk0s2AI8RigI
-QA6e9uZ/sZIiWUV1lltOQzGGxwYnmgJqoCd12l2aeR5Lt1WBojrhWyc4mT9PaCjb
-Jx/34z/IKBgH5/sf1GSTo2FW9Wy1JQYIcYkhIMcZ0yZ/dyuYIfgMWZurOD3sjkYN
-keu1DeVjiGBAHnM9i0jnREnBw3JmE0UM6ub+sejEW1Qwmc9lSq1QZV1cvy8UM7Fo
-2VSEpvhSGxR0G60rUgwyt0ZK6HhzX8jvGFi8+Czy5+OaRj0YCk8RH8VLQERpPJUC
-CN/M0x4HqJGzwQZD6BAgyhWHkHmbJidPtuwLYScxTsN32kidzX1pevqLQCGgU+0r
-mwIDAQAB
------END PUBLIC KEY-----`;
-
-// One-time operator diagnostic for SDK staging only. The QA client's OAuth
-// public IDs are never emitted in plaintext or persisted in a repository.
-// Ciphertexts can be opened only by the operator's ephemeral private key.
-function sealedQaClientId(value) {
-  const bytes = Buffer.from(value, 'utf8');
-  const pieces = [];
-  for (let i = 0; i < bytes.length; i += 100) {
-    pieces.push(publicEncrypt({
-      key: SDK_QA_OPERATOR_PUBLIC_KEY,
-      padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING,
-      oaepHash: 'sha256',
-    }, bytes.subarray(i, i + 100)).toString('base64url'));
-  }
-  return pieces.join('.');
-}
-
 function selfTest() {
   const fixture = {
     QDIP_SDK_QA_PROJECT_ID: '111111111111111111',
@@ -95,12 +67,6 @@ if (process.argv[1]?.endsWith('sdk649_qa_app_vars.mjs')) {
     try {
       validateQaApplicationVariables(process.env);
       console.log('SDK649_QA_APPLICATION_VARIABLES=PASS_REFERENCE_SHAPE_ONLY');
-      console.log('SDK649_QA_PROJECT_CIPHERTEXT=' +
-        sealedQaClientId(process.env.QDIP_SDK_QA_PROJECT_ID));
-      console.log('SDK649_QA_MANAGED_CLIENT_CIPHERTEXT=' +
-        sealedQaClientId(process.env.QDIP_SDK_MANAGED_CLIENT_ID));
-      console.log('SDK649_QA_EXTERNAL_CLIENT_CIPHERTEXT=' +
-        sealedQaClientId(process.env.QDIP_SDK_EXTERNAL_CLIENT_ID));
       console.log('SDK649_QA_PROJECT_OWNER=NOT_VERIFIED');
       console.log('SDK649_QA_CANONICAL_APP_BINDINGS=NOT_VERIFIED');
       console.log('SDK649_QA_HTTP_WSS_E2E=NOT_RUN');
