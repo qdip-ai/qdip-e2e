@@ -55,7 +55,7 @@ def main():
             url.startswith("http://") and ".railway.internal/" in url
         ):
             raise ValueError("Gateway URL must be HTTPS or Railway private HTTP")
-    scopes = ["rr:scheduling:write", "rr:economic:write"]
+    scopes = ["decisions:execute"]
     credential = json.dumps([{
         "key_sha256": hashlib.sha256(inbound.encode()).hexdigest(),
         "organization_id": organization, "scopes": scopes,
