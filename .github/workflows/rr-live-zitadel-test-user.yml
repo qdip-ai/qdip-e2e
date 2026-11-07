@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   existing-user-login:
-    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    if: github.event.repository.private == false && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/rr-e2e-01-standalone')
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -60,7 +60,11 @@ jobs:
           cd web
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
-          node rr_live_zitadel_test_user.mjs
+          if [[ "$GITHUB_REF" == 'refs/heads/feat/rr-e2e-01-standalone' ]]; then
+            node rr_live_zitadel_test_user.mjs --qdip-owner-probe
+          else
+            node rr_live_zitadel_test_user.mjs
+          fi
       - name: Explicitly retain the separate negative-real-identity gate
         if: success()
         run: |
