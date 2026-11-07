@@ -46,6 +46,14 @@ if (readbackExecution) {
   if (rows.length !== 1 || rows[0].identical !== true) {
    throw new Error("RR_E2E_READBACK_PERSISTED_RECORD_MISMATCH");
   }
+  const foreign = await db`SELECT organization_id, execution_id FROM rr_execution_records
+                           WHERE organization_id <> ${organization}
+                           ORDER BY execution_id LIMIT 1`;
+  if (foreign.length !== 1) throw new Error("RR_E2E_REAL_FOREIGN_RECORD_MISSING");
+  // The identifier stays in Railway-only deployment logs; CI consumes it
+  // without printing it or querying PostgreSQL over the public internet.
+  console.log("RR_E2E_FOREIGN_RECORD_B64=" +
+              Buffer.from(JSON.stringify(foreign[0])).toString("base64"));
   console.log("RR_E2E_INDEPENDENT_POSTGRES_READBACK=PASS");
  } catch (err) {
   console.error("RR_E2E_INDEPENDENT_POSTGRES_READBACK=FAIL", String(err instanceof Error ? err.message : err));
