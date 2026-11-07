@@ -1,7 +1,7 @@
 name: MCP01 real Native QA ownership bootstrap
 on:
   push:
-    branches: [test/mcp01-native-token-contract]
+    branches: [test/mcp01-native-token-contract, feat/mcp-02-two-capability-e2e]
     paths:
       - .github/workflows/mcp01-native-token.yml
       - scripts/mcp01_native_token_live.mjs
@@ -252,3 +252,16 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp02-native
           node mcp01_native_token_live.mjs --mcp-two-capabilities
+
+  qa-multi-syntax:
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mcp-02-two-capability-e2e'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check scripts/mcp01_native_token_live.mjs
