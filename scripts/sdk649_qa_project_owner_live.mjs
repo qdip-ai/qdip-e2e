@@ -33,7 +33,7 @@ function exactActiveIntrospectionApps(rows){return rows.filter(a=>
   a?.name==='qdip-sdk-qa-introspection'&&
   a?.apiConfiguration&&typeof a.apiConfiguration==='object');}
 function validScopedQaKeys(keys){
-  return Array.isArray(keys)&&keys.length===2&&keys[0]!==keys[1]&&
+  return Array.isArray(keys)&&keys.length===4&&new Set(keys).size===4&&
     keys.every(k=>typeof k==='string'&&k.length>=16&&
       !/[\s\x00-\x1f\x7f]/u.test(k));
 }
@@ -171,7 +171,8 @@ async function coreQaKeys(verifiedOwnerAccessToken){
   }).catch(()=>{throw Error('QA_CORE_OIDC_EXCHANGE_UNAVAILABLE');});
   if(result.status!==201)throw Error('QA_CORE_OIDC_EXCHANGE_DENIED');
   const body=await result.json().catch(()=>null);
-  const keys=[body?.managed_key,body?.external_key];
+  const keys=[body?.managed_key,body?.external_key,
+    body?.source_key,body?.destination_key];
   check(validScopedQaKeys(keys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
   const expiry=Date.parse(body?.expires_at);
   check(Number.isFinite(expiry)&&expiry>Date.now()&&
@@ -231,7 +232,8 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
     assert.equal((await fetch(CALLBACK_URI+'?state=test-state-123&code=replay-code-1234')).status,400);
   }finally{await local.close();}
   console.log('SDK649_PKCE_LOOPBACK_NEGATIVE_REGRESSIONS=PASS');
-  assert(validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002']));
+  assert(validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002',
+    'scoped-key-qa-003','scoped-key-qa-004']));
   assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-001']));
   assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
   assert(!validScopedQaKeys(['','scoped-key-qa-002']));
