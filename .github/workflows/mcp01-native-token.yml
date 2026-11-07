@@ -267,7 +267,7 @@ jobs:
 
 
   qa-delegation:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.event.inputs.qa_scenario == 'delegation'
+    if: github.repository == 'qdip-ai/qdip-e2e' && ((github.event_name == 'workflow_dispatch' && github.event.inputs.qa_scenario == 'delegation') || (github.event_name == 'push' && github.ref == 'refs/heads/feat/mcp-03-independent-agent-e2e' && contains(github.event.head_commit.message, '[MCP03-LIVE-QA]')))
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
