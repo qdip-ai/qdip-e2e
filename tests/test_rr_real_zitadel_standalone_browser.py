@@ -73,8 +73,12 @@ def _visible_input(page, selectors: tuple[str, ...], timeout: float):
 
 def _login_rr_zitadel(page, page_url: str, username: str, password: str) -> None:
     page.goto(page_url, wait_until="domcontentloaded")
-    login = page.get_by_role("button", name="Sign in with Zitadel")
+    login = page.get_by_role("link", name="Sign in", exact=True).first
     login.wait_for(state="visible", timeout=20000)
+    href = login.get_attribute("href")
+    assert href and urlparse(href).netloc == urlparse(page_url).netloc, (
+        "RR_RAILWAY_LOGIN_LINK_ESCAPES_QA_ORIGIN"
+    )
     login.click()
     page.wait_for_url(lambda url: "zitadel" in str(url).lower(), timeout=30000)
     user = _visible_input(page, (
