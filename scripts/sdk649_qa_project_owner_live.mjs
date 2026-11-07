@@ -7,6 +7,8 @@ const SITE='https://qdip.ai', ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud
 const ORG='397885387160184113', USER='qa-21@qdip.ai';
 const CALLBACK_URI='http://127.0.0.1:8765/oidc/callback';
 const STAGING_CORE='https://qdip-core-staging-staging.up.railway.app';
+const THIRD_APP_ID='398580544880887772'; // verified QA-only Zitadel app
+const THIRD_CLIENT_ID='398580544897664988';
 function check(ok,id){console.log('SDK649_'+id+'='+(ok?'PASS':'FAIL'));if(!ok)throw Error(id);}
 function appOk(x,p,id,client,name){const a=x?.application;
   return a?.applicationId===id&&a?.projectId===p&&a?.name===name&&
@@ -33,7 +35,7 @@ function exactActiveIntrospectionApps(rows){return rows.filter(a=>
   a?.name==='qdip-sdk-qa-introspection'&&
   a?.apiConfiguration&&typeof a.apiConfiguration==='object');}
 function validScopedQaKeys(keys){
-  return Array.isArray(keys)&&keys.length===4&&new Set(keys).size===4&&
+  return Array.isArray(keys)&&keys.length===5&&new Set(keys).size===5&&
     keys.every(k=>typeof k==='string'&&k.length>=16&&
       !/[\s\x00-\x1f\x7f]/u.test(k));
 }
@@ -172,7 +174,7 @@ async function coreQaKeys(verifiedOwnerAccessToken){
   if(result.status!==201)throw Error('QA_CORE_OIDC_EXCHANGE_DENIED');
   const body=await result.json().catch(()=>null);
   const keys=[body?.managed_key,body?.external_key,
-    body?.source_key,body?.destination_key];
+    body?.source_key,body?.destination_key,body?.third_key];
   check(validScopedQaKeys(keys),'DISTINCT_SCOPED_KEY_REFERENCE_SHAPE');
   const expiry=Date.parse(body?.expires_at);
   check(Number.isFinite(expiry)&&expiry>Date.now()&&
@@ -233,7 +235,7 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
   }finally{await local.close();}
   console.log('SDK649_PKCE_LOOPBACK_NEGATIVE_REGRESSIONS=PASS');
   assert(validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002',
-    'scoped-key-qa-003','scoped-key-qa-004']));
+    'scoped-key-qa-003','scoped-key-qa-004','scoped-key-qa-005']));
   assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-001']));
   assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
   assert(!validScopedQaKeys(['','scoped-key-qa-002']));
@@ -377,6 +379,13 @@ async function run(){validateQaApplicationVariables(process.env);
       'QA_PROJECT_CATALOG_COMPLETE');
     const apis=rows.filter(a=>a?.state==='APPLICATION_STATE_ACTIVE'&&
       a?.apiConfiguration&&typeof a.apiConfiguration==='object');
+    const thirdApp=await readRpc(ctx.request,
+      '/zitadel.application.v2.ApplicationService/GetApplication',token,
+      {applicationId:THIRD_APP_ID},'THIRD_APP');
+    check(appOk(thirdApp,p,THIRD_APP_ID,THIRD_CLIENT_ID,
+      'sdk555-e2e-unrelated-qa'),'THIRD_APP_EXACT_ACTIVE_IDENTITY');
+    check(thirdApp.application.oidcConfiguration?.redirectUris?.includes(CALLBACK_URI),
+      'THIRD_APP_REAL_PKCE_CALLBACK');
     await proveCoreRejectsMissingOrForgedSdkKey(ctx.request,
       process.env.QDIP_SDK_MANAGED_APP_ID,'MANAGED');
     await proveCoreRejectsMissingOrForgedSdkKey(ctx.request,
@@ -401,10 +410,13 @@ async function run(){validateQaApplicationVariables(process.env);
     check(apiMethod==='API_AUTH_METHOD_TYPE_BASIC','QA_INTROSPECTION_API_BASIC');
     if(readyPkce.length===2){
       let tokens=[];
+      let thirdToken=null;
       try{
         for(const app of readyPkce)
           tokens.push(await verifyPkce(ctx,app.client,app.label,p,sub));
         console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=PASS');
+        thirdToken=await verifyPkce(ctx,THIRD_CLIENT_ID,'THIRD',p,sub);
+        console.log('SDK555_THIRD_APP_REAL_QA21_PKCE=PASS');
         let qaKeys=[];
         let issued=false;
         try{
@@ -419,6 +431,12 @@ async function run(){validateQaApplicationVariables(process.env);
               });
             check(r.status()===204,app.label+'_CORE_LINK_HTTP_204');
           }
+          const thirdLink=await ctx.request.post(
+            STAGING_CORE+'/api/v1/private-resource-access/applications/link',{
+              data:{application_id:THIRD_APP_ID},timeout:20000,maxRedirects:0,
+              headers:{'x-api-key':qaKeys[4],Authorization:'Bearer '+thirdToken},
+            });
+          check(thirdLink.status()===204,'THIRD_APP_CORE_LINK_HTTP_204');
           for(let i=0;i<2;i++){
             const j=1-i;
             const r=await ctx.request.post(
@@ -430,7 +448,15 @@ async function run(){validateQaApplicationVariables(process.env);
             check(r.status()===403,
               readyPkce[i].label+'_CROSS_APP_TOKEN_DENIED_403');
           }
-          console.log('SDK649_QA_CORE_CANONICAL_LINK=PASS_TWO_204');
+          for(const mismatch of tokens){
+            const wrong=await ctx.request.post(
+              STAGING_CORE+'/api/v1/private-resource-access/applications/link',{
+                data:{application_id:THIRD_APP_ID},timeout:20000,maxRedirects:0,
+                headers:{'x-api-key':qaKeys[4],Authorization:'Bearer '+mismatch},
+              });
+            check(wrong.status()===403,'THIRD_APP_WRONG_CLIENT_DENIED_403');
+          }
+          console.log('SDK555_QA_CORE_CANONICAL_LINK=PASS_THREE_204');
           // Authoritative read-only Mongo query, separate from link_application.
           // The signed job and BOTH real PKCE tokens must match the stored
           // application/issuer/project/owner/client tuple. No row contents leak.
@@ -439,11 +465,13 @@ async function run(){validateQaApplicationVariables(process.env);
             'content-type':'application/json',
             'x-zitadel-managed-token':tokens[0],
             'x-zitadel-external-token':tokens[1],
+            'x-zitadel-third-token':thirdToken,
           };
           const readbackUrl=STAGING_CORE+'/api/v1/sdk/qa/mongo-owners/readback';
           const readbackBody=JSON.stringify({
             managed_application_id:readyPkce[0].appId,
             external_application_id:readyPkce[1].appId,
+            third_application_id:THIRD_APP_ID,
           });
           const receipt=await fetch(readbackUrl,{
             method:'POST',headers:readbackHeaders,body:readbackBody,
@@ -517,6 +545,12 @@ async function run(){validateQaApplicationVariables(process.env);
               data:checkBody,headers:destinationHeaders,timeout:20000,maxRedirects:0,
             });
             check(allowed.status()===204,'QA_PRIVATE_BOTH_GRANTS_HTTP_204');
+            const deniedThird=await ctx.request.post(checkUrl,{
+              data:checkBody,
+              headers:{'x-api-key':qaKeys[4],Authorization:'Bearer '+thirdToken},
+              timeout:20000,maxRedirects:0,
+            });
+            check(deniedThird.status()===403,'QA_PRIVATE_APP_C_GRANT_BLEED_DENIED_403');
             // Hard merge gate: the actual approved external SDK Worker must run.
             // A passing grant/check endpoint or an unapproved REGISTER is not
             // evidence of a Worker result. Do not soft-skip missing workers.
@@ -576,12 +610,12 @@ async function run(){validateQaApplicationVariables(process.env);
             });
             check(cleanup.status===204,'QA_PRIVATE_FIXTURE_CLEANUP_204');
           }
-          console.log('SDK649_CANONICAL_BINDING=PASS_TWO_204');
+          console.log('SDK555_CANONICAL_BINDING=PASS_THREE_204');
         }finally{
           try{if(issued)await revokeCoreQaKeys();}
           finally{qaKeys.fill(null);qaKeys=[];}
         }
-      }finally{tokens.fill(null);tokens=[];}
+      }finally{tokens.fill(null);tokens=[];thirdToken=null;}
     }else console.log('SDK649_QA_BOTH_PKCE_USER_TOKENS=BLOCKED_UNREGISTERED_CALLBACK');
     console.log('SDK649_INTROSPECTION_CLIENT_SECRET_MATCH=NOT_VERIFIED');
     console.log('SDK649_INTROSPECTION_BASIC_AUTH=NOT_VERIFIED');
