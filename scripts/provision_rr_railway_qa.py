@@ -99,6 +99,8 @@ def main():
             raise ValueError("RR QA gateway must be an isolated Railway address")
     if len(inbound) < 24 or len(scheduling) < 24 or len(economic) < 24:
         raise ValueError("RR QA credentials are unexpectedly short")
+    if len({inbound, scheduling, economic}) != 3:
+        raise ValueError("RR QA browser, scheduling and economic keys must be distinct")
     key_digest = hashlib.sha256(inbound.encode()).hexdigest()
     credential = json.dumps([{
         "key_sha256": key_digest,
