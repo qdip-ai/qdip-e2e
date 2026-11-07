@@ -132,7 +132,8 @@ async function readCatalog(ctx,token){
   const oidc=rows.filter(x=>x?.oidcConfiguration);
   const third=oidc.filter(x=>x.name!=='sdk-managed-qa'&&x.name!=='sdk-external-qa');
   console.log('SDK555_QA_PROJECT_DISTINCT_USER_APPS='+oidc.length);
-  check(third.length>=1,'THIRD_EXISTING_OIDC_APPLICATION');
+  console.log('SDK555_THIRD_EXISTING_OIDC_APPLICATION='+(third.length>=1?'PASS':'BLOCKED'));
+  return third.length>=1;
 }
 async function main(){
   check(typeof PROJECT==='string'&&/^[0-9]{1,32}$/.test(PROJECT)&&
@@ -147,22 +148,33 @@ async function main(){
   ];
   const browser=await chromium.launch({headless:true});
   const info=[];
+  let thirdApp=false;
+  let failures=0;
   try{
     for(const [name,username,password] of identities){
-      const ctx=await logIn(browser,username,password);
+      let ctx;
       try{
+        ctx=await logIn(browser,username,password);
         const principal=await tokenForExistingQaProject(ctx);
         info.push({name,resourceOrg:principal.resourceOrg,subject:principal.subject});
-        if(name==='QA21')await readCatalog(ctx,principal.token);
-        // Do not print token, subject, org IDs or response body.
+        if(name==='QA21')thirdApp=await readCatalog(ctx,principal.token);
         console.log('SDK555_'+name+'_SIGNED_PKCE=PASS');
-      }finally{await ctx.close();}
+      }catch(error){
+        const code=error instanceof Error&&/^[A-Z0-9_]{6,96}$/.test(error.message)?
+          error.message:'SANITIZED_BROWSER_FAILURE';
+        console.log('SDK555_'+name+'_SIGNED_PKCE=BLOCKED_'+code);
+        failures++;
+      }finally{if(ctx)await ctx.close();}
     }
-    check(info.length===3&&new Set(info.map(x=>x.subject)).size===3,
-      'THREE_DISTINCT_REAL_QA_USERS');
+    const distinct=new Set(info.map(x=>x.subject)).size===info.length;
+    console.log('SDK555_DISTINCT_REAL_SUBJECTS='+(distinct?'PASS':'FAIL'));
     const same=info.filter(x=>x.resourceOrg===ORG);
     console.log('SDK555_EXISTING_USERS_IN_QA_ORG='+same.length);
-    check(same.length>=2,'TWO_EXISTING_USERS_IN_SAME_QA_ORG');
+    console.log('SDK555_TWO_EXISTING_USERS_IN_SAME_QA_ORG='+
+      (same.length>=2?'PASS':'BLOCKED'));
+    if(failures||!distinct||same.length<2||!thirdApp){
+      throw Error('MATRIX_PREREQUISITES_MISSING');
+    }
     console.log('SDK555_SAME_ORG_MATRIX_PREFLIGHT=PASS');
   }finally{await browser.close();}
 }
