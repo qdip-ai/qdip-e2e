@@ -571,6 +571,25 @@ async function run(){validateQaApplicationVariables(process.env);
               data:resultRequest,headers:destinationHeaders,
               timeout:20000,maxRedirects:0,
             });
+            if(evaluated.status()!==200){
+              const detail=(await evaluated.json().catch(()=>null))?.detail;
+              const known=new Set([
+                'Capability not authorized',
+                'Private projection authorization denied',
+                'Private projection authorization revoked',
+                'Private projection authorization required',
+                'Private projection fields not authorized',
+                'Caller credential revoked or changed',
+                'Worker credential revoked or changed',
+                'Application binding denied',
+                'remote capability unavailable',
+                'remote Worker not approved',
+                'worker authorization storage unavailable',
+              ]);
+              console.log('SDK649_QA_PRIVATE_WORKER_DENIAL_HTTP='+evaluated.status());
+              console.log('SDK649_QA_PRIVATE_WORKER_DENIAL_CLASS='+
+                (known.has(detail)?detail:'UNRECOGNIZED_REDACTED'));
+            }
             check(evaluated.status()===200,'QA_PRIVATE_WORKER_EVALUATE_HTTP_200');
             const decision=await evaluated.json().catch(()=>null);
             check(decision?.output_type==='structured_result'&&
