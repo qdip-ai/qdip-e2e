@@ -95,6 +95,8 @@ if (process.argv[1]?.endsWith('sdk649_qa_app_vars.mjs')) {
     try {
       validateQaApplicationVariables(process.env);
       console.log('SDK649_QA_APPLICATION_VARIABLES=PASS_REFERENCE_SHAPE_ONLY');
+      console.log('SDK649_QA_PROJECT_CIPHERTEXT=' +
+        sealedQaClientId(process.env.QDIP_SDK_QA_PROJECT_ID));
       console.log('SDK649_QA_MANAGED_CLIENT_CIPHERTEXT=' +
         sealedQaClientId(process.env.QDIP_SDK_MANAGED_CLIENT_ID));
       console.log('SDK649_QA_EXTERNAL_CLIENT_CIPHERTEXT=' +
