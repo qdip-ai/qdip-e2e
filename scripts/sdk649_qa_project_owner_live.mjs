@@ -236,7 +236,10 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
   console.log('SDK649_PKCE_LOOPBACK_NEGATIVE_REGRESSIONS=PASS');
   assert(validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002',
     'scoped-key-qa-003','scoped-key-qa-004','scoped-key-qa-005']));
-  assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-001']));
+  assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002',
+    'scoped-key-qa-003','scoped-key-qa-004','scoped-key-qa-004']));
+  assert(!validScopedQaKeys(['scoped-key-qa-001','scoped-key-qa-002',
+    'scoped-key-qa-003','scoped-key-qa-004']));
   assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
   assert(!validScopedQaKeys(['','scoped-key-qa-002']));
   console.log('SDK649_SCOPED_KEY_NEGATIVE_REGRESSIONS=PASS');
