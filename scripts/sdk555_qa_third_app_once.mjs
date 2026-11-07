@@ -6,7 +6,7 @@
  */
 import {chromium} from '@playwright/test';
 import {createServer} from 'node:http';
-import {randomBytes,createHash} from 'node:crypto';
+import {randomBytes,createHash,createHmac} from 'node:crypto';
 
 const SITE='https://qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
@@ -74,6 +74,52 @@ async function request(ctx,bearer,method,body){
   return {status:r.status(),body:await r.json().catch(()=>null)};
 }
 
+// RFC6238: create an actual second factor for this disposable QA principal.
+// No shared factor, plaintext secret logging, MFA skip or provider configuration change.
+function makeTotp(secret,instant=Date.now()){
+  if(!/^[A-Z2-7]{16,128}={0,6}$/i.test(secret))throw Error('TOTP_SECRET_MALFORMED');
+  const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let buffer=0,bits=0,bytes=[];
+  for(const letter of secret.replace(/=+$/,'').toUpperCase()){
+    buffer=(buffer<<5)|alphabet.indexOf(letter);
+    bits+=5;
+    if(bits>=8){bits-=8;bytes.push((buffer>>bits)&255);}
+    buffer&=(1<<bits)-1;
+  }
+  const count=Buffer.alloc(8);
+  count.writeBigUInt64BE(BigInt(Math.floor(instant/30000)));
+  const mac=createHmac('sha1',Buffer.from(bytes)).update(count).digest();
+  const offset=mac[mac.length-1]&15;
+  const numeric=(
+    ((mac[offset]&127)<<24) | ((mac[offset+1]&255)<<16) |
+    ((mac[offset+2]&255)<<8) | (mac[offset+3]&255)
+  )>>>0;
+  return String(numeric%1000000).padStart(6,'0');
+}
+async function registerQaTotp(ctx,adminBearer,userId){
+  const url=ISSUER+'/v2/users/'+encodeURIComponent(userId)+'/totp';
+  const headers={Authorization:'Bearer '+adminBearer,'Content-Type':'application/json'};
+  const request=await ctx.request.post(url,{
+    headers,data:{},timeout:15000,maxRedirects:0});
+  check(request.status()===200,'QA_SECOND_REAL_TOTP_REGISTRATION_200');
+  const response=await request.json().catch(()=>null);
+  let secret=response?.secret;
+  check(typeof secret==='string'&&secret.length>=16,
+    'QA_SECOND_REAL_TOTP_SECRET_RECEIVED_PRIVATELY');
+  const confirmation=await ctx.request.post(url+'/verify',{
+    headers,data:{code:makeTotp(secret)},timeout:15000,maxRedirects:0});
+  check(confirmation.status()===200,'QA_SECOND_REAL_TOTP_VERIFIED_200');
+  const factors=await ctx.request.get(
+    ISSUER+'/v2/users/'+encodeURIComponent(userId)+'/authentication_methods',{
+      headers,timeout:15000,maxRedirects:0});
+  const methods=await factors.json().catch(()=>null);
+  check(factors.status()===200&&Array.isArray(methods?.authMethodTypes)&&
+    methods.authMethodTypes.some(x=>typeof x==='string'&&x.includes('TOTP')),
+    'QA_SECOND_REGISTERED_TOTP_READBACK');
+  // Held in the process only until a real browser signs in; never persisted.
+  return secret;
+}
+
 async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
   const stamp=process.env.GITHUB_RUN_ID;
   check(/^[0-9]{5,24}$/.test(stamp||''),'QA_SECOND_RUN_ISOLATED_ID');
@@ -120,6 +166,7 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
            ?'PRESENT':'ABSENT'));
       }
     }
+    const totpSecret=await registerQaTotp(adminContext,bearer,userId);
     const callbackUri='http://127.0.0.1:8765/oidc/callback';
     const state=randomBytes(24).toString('base64url');
     const verifier=randomBytes(32).toString('base64url');
@@ -166,6 +213,24 @@ async function proveEphemeralSecondQaUser(browser,adminContext,bearer){
         pass=await find(page,['input[autocomplete="current-password"]','input[type="password"]']);
       }
       await pass.fill(password);await pass.press('Enter');
+      // The QA organization requires MFA enrollment. Authenticate with
+      // this user's real, independently registered TOTP second factor.
+      const otpSelector='input[autocomplete="one-time-code"],input[name="code"],'+
+        'input[name*="otp"],input[id*="otp"],input[id*="code"],'+
+        'input[inputmode="numeric"]';
+      let otpEntered=false;
+      for(let n=0;n<70;n++){
+        const otp=page.locator(otpSelector).first();
+        if(await otp.isVisible().catch(()=>false)){
+          await otp.fill(makeTotp(totpSecret));
+          await otp.press('Enter');
+          otpEntered=true;
+          break;
+        }
+        await page.waitForTimeout(200);
+      }
+      console.log('SDK555_SECOND_TOTP_PROMPT='+
+        (otpEntered?'REAL_BROWSER_CODE_ENTERED':'NOT_VISIBLE'));
       let authCode;
       try{
         authCode=await Promise.race([code,new Promise((_,reject)=>
