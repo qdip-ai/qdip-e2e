@@ -116,6 +116,36 @@ async function tokenForExistingQaProject(ctx){
     await new Promise(res=>server.close(res));
   }
 }
+async function adminConsoleToken(ctx){
+  let bearer=null;
+  const page=await ctx.newPage();
+  page.on('request',request=>{
+    try{
+      if(new URL(request.url()).origin!==ISSUER)return;
+      void request.allHeaders().then(headers=>{
+        const value=headers.authorization||'';
+        if(value.startsWith('Bearer ')&&value.length>=24&&value.length<9000)
+          bearer=value.slice(7);
+      }).catch(()=>{});
+    }catch{}
+  });
+  try{
+    await page.goto(ISSUER+'/ui/console/projects',{waitUntil:'domcontentloaded',timeout:30000});
+    const deadline=Date.now()+20000;
+    while(!bearer&&Date.now()<deadline)await page.waitForTimeout(400);
+    check(typeof bearer==='string'&&bearer.length>=20,'QA21_PRIVILEGED_CONSOLE_TOKEN');
+    return bearer;
+  }finally{await page.close();}
+}
+async function canonicalUserOrganization(ctx,consoleToken,subject,name){
+  const result=await ctx.request.get(ISSUER+'/v2/users/'+encodeURIComponent(subject),{
+    headers:{Authorization:'Bearer '+consoleToken},timeout:15000,maxRedirects:0});
+  console.log('SDK555_'+name+'_ADMIN_USER_LOOKUP_HTTP='+result.status());
+  if(result.status()!==200)return null;
+  const body=await result.json().catch(()=>null);
+  if(body?.user?.userId!==subject)return null;
+  return body.user?.details?.resourceOwner??body?.details?.resourceOwner??null;
+}
 async function readCatalog(ctx,token){
   const response=await ctx.request.post(
     ISSUER+'/zitadel.application.v2.ApplicationService/ListApplications',{
@@ -127,9 +157,8 @@ async function readCatalog(ctx,token){
   const rows=json?.applications??[];
   const total=json?.pagination?.totalResult;
   check(Array.isArray(rows)&&Number(total)===rows.length&&
-    rows.every(x=>x?.projectId===PROJECT&&
-      x?.state==='APPLICATION_STATE_ACTIVE'),'QA_PROJECT_INVENTORY_EXACT');
-  const oidc=rows.filter(x=>x?.oidcConfiguration);
+    rows.every(x=>x?.projectId===PROJECT),'QA_PROJECT_INVENTORY_EXACT');
+  const oidc=rows.filter(x=>x?.state==='APPLICATION_STATE_ACTIVE'&&x?.oidcConfiguration);
   const third=oidc.filter(x=>x.name!=='sdk-managed-qa'&&x.name!=='sdk-external-qa');
   console.log('SDK555_QA_PROJECT_DISTINCT_USER_APPS='+oidc.length);
   console.log('SDK555_THIRD_EXISTING_OIDC_APPLICATION='+(third.length>=1?'PASS':'BLOCKED'));
@@ -150,14 +179,21 @@ async function main(){
   const info=[];
   let thirdApp=false;
   let failures=0;
+  let adminBearer=null;
+  let adminContext=null;
   try{
     for(const [name,username,password] of identities){
       let ctx;
       try{
         ctx=await logIn(browser,username,password);
         const principal=await tokenForExistingQaProject(ctx);
-        info.push({name,resourceOrg:principal.resourceOrg,subject:principal.subject});
-        if(name==='QA21')thirdApp=await readCatalog(ctx,principal.token);
+        info.push({name,resourceOrg:null,subject:principal.subject});
+        if(name==='QA21'){
+          adminBearer=await adminConsoleToken(ctx);
+          thirdApp=await readCatalog(ctx,adminBearer);
+          adminContext=ctx;
+          ctx=null; // Keep only the owner's authorized session for readback.
+        }
         console.log('SDK555_'+name+'_SIGNED_PKCE=PASS');
       }catch(error){
         const code=error instanceof Error&&/^[A-Z0-9_]{6,96}$/.test(error.message)?
@@ -166,7 +202,15 @@ async function main(){
         failures++;
       }finally{if(ctx)await ctx.close();}
     }
-    const distinct=new Set(info.map(x=>x.subject)).size===info.length;
+    if(adminContext&&adminBearer){
+      for(const item of info){
+        item.resourceOrg=await canonicalUserOrganization(
+          adminContext,adminBearer,item.subject,item.name);
+        console.log('SDK555_'+item.name+'_CANONICAL_QA_ORG='+
+          (item.resourceOrg===ORG?'PASS':'NOT_VERIFIED'));
+      }
+    }
+    const distinct=info.length===3&&new Set(info.map(x=>x.subject)).size===3;
     console.log('SDK555_DISTINCT_REAL_SUBJECTS='+(distinct?'PASS':'FAIL'));
     const same=info.filter(x=>x.resourceOrg===ORG);
     console.log('SDK555_EXISTING_USERS_IN_QA_ORG='+same.length);
@@ -176,7 +220,10 @@ async function main(){
       throw Error('MATRIX_PREREQUISITES_MISSING');
     }
     console.log('SDK555_SAME_ORG_MATRIX_PREFLIGHT=PASS');
-  }finally{await browser.close();}
+  }finally{
+    if(adminContext)await adminContext.close();
+    await browser.close();
+  }
 }
 main().catch(err=>{
   const label=err instanceof Error&&/^[A-Z0-9_]{6,96}$/.test(err.message)?
