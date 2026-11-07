@@ -464,8 +464,7 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                 )
                 # Real signed-in browser; QA identity has no QDIP ORG_OWNER,
                 # so the staging owner relay must return an empty selection.
-                anonymous_owner = page.request.get(base + "/api/observatory/organizations")
-                # Request is already signed in here; verify the HMAC relay below.
+                signed_owner = page.request.get(base + "/api/observatory/organizations")
                 session = page.request.get(base + "/api/rr-operator/session")
                 assert session.status == 200, f"RR_QA_SESSION_HTTP_{session.status}"
                 state = session.json()
@@ -477,10 +476,10 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                 assert missing.status == 404, (
                     f"RR_QA_SCOPED_API_READ_HTTP_{missing.status}"
                 )
-                assert anonymous_owner.status == 200, (
-                    f"RR_QA_STAGING_OWNER_LIST_HTTP_{anonymous_owner.status}"
+                assert signed_owner.status == 200, (
+                    f"RR_QA_STAGING_OWNER_LIST_HTTP_{signed_owner.status}"
                 )
-                owners = anonymous_owner.json().get("organizations")
+                owners = signed_owner.json().get("organizations")
                 assert isinstance(owners, list), "RR_STAGING_OWNER_LIST_INVALID"
                 assert not any(org.get("id") == "368555767923594379" for org in owners), (
                     "RR_STAGING_QA_TEST_USER_MUST_NOT_OWN_QDIP"
@@ -506,6 +505,12 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                         "heading", name="RR staging — підтвердження організації"
                     )
                     title.wait_for(state="visible", timeout=20000)
+                    evidence = Path("test-results/rr-staging-owner") / f"owner-{width}x{height}.png"
+                    evidence.parent.mkdir(parents=True, exist_ok=True)
+                    page.get_by_role(
+                        "region", name="Мої організації Zitadel"
+                    ).screenshot(path=str(evidence))
+                    print(f"RR_STAGING_OWNER_VIEWPORT_SCREENSHOT_{width}x{height}=PASS")
                     assert page.evaluate(
                         "document.documentElement.scrollWidth <= window.innerWidth + 1"
                     ), f"RR_STAGING_OWNER_SELECTOR_OVERFLOW_{width}x{height}"
