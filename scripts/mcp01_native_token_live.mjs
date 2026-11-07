@@ -420,19 +420,20 @@ async function assertExternalDelegation(client){
    marker('MCP03_INDEPENDENT_CLIENT_MANAGED_KERNEL','PASS');
    return;
  }
- check(delegationPhase==='revoked','MCP03_REVOKED_PHASE_EXPECTED');
+ check(['revoked','ungranted'].includes(delegationPhase),'MCP03_NEGATIVE_PHASE_EXPECTED');
+ const label=delegationPhase==='ungranted'?'UNGRANTED':'REVOKED';
  const listed=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
  check(listed.isError!==true&&isDeepStrictEqual(listed.structuredContent?.capabilities,[]),
-   'MCP03_REVOKED_DISCOVERY_EMPTY');
+   'MCP03_'+label+'_DISCOVERY_EMPTY');
  for(const [name,arguments_] of [
    ['qdip_describe_capability',args],
    ['qdip_invoke_decision',{...args,input:{first_value:7,second_value:3}}]]){
    const result=await client.callTool({name,arguments:arguments_},{timeout:20000});
    check(result.isError===true&&result.structuredContent?.error?.code==='FORBIDDEN'&&
      !('execution_id' in (result.structuredContent??{})),
-     'MCP03_REVOKED_'+name.toUpperCase()+'_DENIED');
+     'MCP03_'+label+'_'+name.toUpperCase()+'_DENIED');
  }
- marker('MCP03_REVOCATION_REAL_MCP','PASS');
+ marker('MCP03_'+label+'_REAL_MCP','PASS');
 }
 
 async function executeMcpDecision(client){
@@ -806,6 +807,11 @@ async function main(){
    consoleToken=null;await consolePage.close();
 
    if(delegationMode){
+     // A distinct B OAuth client is not authorized solely by shared user/org.
+     // Prove live denial *before* A grants B any capability.
+     delegationPhase='ungranted';
+     check(await nativeFlow(ctx,metadata,agentApplication,owner.sub,'MCP_RESOURCE'),
+       'MCP03_FOREIGN_UNGRANTED_AGENT_DENIED_FLOW');
      let granted=false;
      const action=async(method,token)=>{
        const response=await ctx.request.fetch(QA_GATEWAY+'/api/v1/qa/mcp652/agent-delegation',{
