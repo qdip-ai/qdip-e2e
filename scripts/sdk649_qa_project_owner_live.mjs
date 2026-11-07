@@ -429,7 +429,34 @@ async function run(){validateQaApplicationVariables(process.env);
               readyPkce[i].label+'_CROSS_APP_TOKEN_DENIED_403');
           }
           console.log('SDK649_QA_CORE_CANONICAL_LINK=PASS_TWO_204');
-          console.log('SDK649_QA_MONGO_READBACK=NOT_VERIFIED');
+          // Authoritative read-only Mongo query, separate from link_application.
+          // The signed job and BOTH real PKCE tokens must match the stored
+          // application/issuer/project/owner/client tuple. No row contents leak.
+          const readbackHeaders={
+            Authorization:'Bearer '+await githubQaWorkloadJwt(),
+            'content-type':'application/json',
+            'x-zitadel-managed-token':tokens[0],
+            'x-zitadel-external-token':tokens[1],
+          };
+          const readbackUrl=STAGING_CORE+'/api/v1/sdk/qa/mongo-owners/readback';
+          const readbackBody=JSON.stringify({
+            managed_application_id:readyPkce[0].appId,
+            external_application_id:readyPkce[1].appId,
+          });
+          const receipt=await fetch(readbackUrl,{
+            method:'POST',headers:readbackHeaders,body:readbackBody,
+            redirect:'error',signal:AbortSignal.timeout(20000),
+          });
+          check(receipt.status===204,'QA_MONGO_OWNER_READBACK_HTTP_204');
+          const swapped=await fetch(readbackUrl,{
+            method:'POST',headers:{...readbackHeaders,
+              'x-zitadel-managed-token':tokens[1],
+              'x-zitadel-external-token':tokens[0],
+            },body:readbackBody,redirect:'error',
+            signal:AbortSignal.timeout(20000),
+          });
+          check(swapped.status===403,'QA_MONGO_SWAPPED_OWNER_TOKENS_DENIED_403');
+          console.log('SDK649_QA_MONGO_READBACK=PASS_DIRECT_STAGING_DB');
           console.log('SDK649_CANONICAL_BINDING=PASS_TWO_204');
         }finally{
           try{if(issued)await revokeCoreQaKeys();}
