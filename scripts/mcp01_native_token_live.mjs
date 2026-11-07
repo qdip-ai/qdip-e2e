@@ -326,33 +326,19 @@ async function assertWorkerTimeout(client){
 
 
 /** MCP-02 live qualification: use the existing independent MCP client and Native token.
- * The second real published workload is supplied as bounded non-secret QA fixture variables;
- * absent or unexpected fixture values fail the job, never create synthetic PASS.
+ * The second QA workload's exact published manifest and expected Kernel result
+ * are pinned to the reviewed SDK-02 fixture; missing publication fails closed.
  */
 async function executeMcpMultiCapability(client){
- const requireJson=(name)=>{
-   const value=process.env[name];
-   check(typeof value==='string'&&value.length>1&&value.length<=4096,'MCP02_'+name+'_CONFIGURED');
-   try{return JSON.parse(value);}catch{throw Error('MCP02_INVALID_FIXTURE_JSON');}
- };
- const identity={capability_id:process.env.MCP02_SECOND_CAPABILITY_ID,
-   capability_version:process.env.MCP02_SECOND_CAPABILITY_VERSION};
- check(typeof identity.capability_id==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identity.capability_id)&&
-   identity.capability_id!=='mcp.qa.choice'&&
-   typeof identity.capability_version==='string'&&identity.capability_version.length>0&&
-   identity.capability_version.length<=32,'MCP02_SECOND_CAPABILITY_IDENTITY');
- const input=requireJson('MCP02_SECOND_INPUT_JSON');
- const expectedSchema=requireJson('MCP02_SECOND_SCHEMA_JSON');
- const expectedSolution=requireJson('MCP02_SECOND_SOLUTION_JSON');
- const expectedObjective=process.env.MCP02_SECOND_OBJECTIVE;
- check(typeof input==='object'&&input!==null&&!Array.isArray(input)&&
-   typeof expectedSchema==='object'&&expectedSchema!==null&&!Array.isArray(expectedSchema)&&
-   expectedSchema.additionalProperties===false&&
-   typeof expectedSolution==='object'&&expectedSolution!==null&&!Array.isArray(expectedSolution)&&
-   Object.values(expectedSolution).every(v=>typeof v==='string')&&
-   typeof expectedObjective==='string'&&/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(expectedObjective),
-   'MCP02_SECOND_FIXTURE_BOUNDED');
- const first={capability_id:'mcp.qa.choice',capability_version:'1'};
+ const identity={capability_id:'mcp.qa.bonus',capability_version:'2'};
+ const input={first_value:7,second_value:3,second_bonus:6};
+ const expectedSchema={type:'object',properties:{
+   first_value:{type:'integer',minimum:0,maximum:1000000},
+   second_value:{type:'integer',minimum:0,maximum:1000000},
+   second_bonus:{type:'integer',minimum:0,maximum:1000000}},
+   required:['first_value','second_value','second_bonus'],additionalProperties:false};
+ const expectedSolution={first:'0',second:'1'};
+ const expectedObjective='9';
  const requested=async (name,args)=>{
    const result=await client.callTool({name,arguments:args},{timeout:20000});
    const diagnostic=result.structuredContent?.error?.code;
