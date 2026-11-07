@@ -210,7 +210,7 @@ jobs:
           node mcp01_native_token_live.mjs --mcp-application-b-link
 
   qa-multi:
-    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'workflow_dispatch' && github.event.inputs.qa_scenario == 'multi'
+    if: github.repository == 'qdip-ai/qdip-e2e' && ((github.event_name == 'workflow_dispatch' && github.event.inputs.qa_scenario == 'multi') || (github.event_name == 'push' && github.ref == 'refs/heads/feat/mcp-02-two-capability-e2e'))
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -251,7 +251,11 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/mcp02-native
-          node mcp01_native_token_live.mjs --mcp-two-capabilities
+          if [[ "${{ github.event_name }}" == push ]]; then
+            node mcp01_native_token_live.mjs --mcp-discovery-preflight
+          else
+            node mcp01_native_token_live.mjs --mcp-two-capabilities
+          fi
 
   qa-multi-syntax:
     if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mcp-02-two-capability-e2e'
