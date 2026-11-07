@@ -189,7 +189,7 @@ if (Bun.env.RR_STAGING_OWNER_LINK_ENABLED === "1") {
         const name = "rr-qa-s2s-20261107-once";
         const existing = inventory.filter((entry: unknown) =>
           entry && typeof entry === "object" && "name" in entry && entry.name === name &&
-          "status" in entry && entry.status === "active"
+          "revoked_at" in entry && entry.revoked_at === null
         );
         if (existing.length !== 0) {
           console.log("RR_S2S_PROVISION=ALREADY_ISSUED"); return;
