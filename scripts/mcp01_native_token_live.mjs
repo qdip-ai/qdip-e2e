@@ -17,11 +17,13 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const MCP='https://qdip-mcp-sandbox.up.railway.app/mcp';
 const USER='qa-21@qdip.ai';
 const executionMode=process.argv.includes('--mcp-execution');
+const multiCapabilityMode=process.argv.includes('--mcp-two-capabilities');
+const discoveryPreflightMode=process.argv.includes('--mcp-discovery-preflight');
 // Explicit QA-only B owner-link acceptance; the protected operator retains the B key.
 const secondAppLinkMode=process.argv.includes('--mcp-application-b-link');
 const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
-const realDecisionMode=executionMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
+const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -269,8 +271,16 @@ async function realMcpClient(access){
    const tools=await client.listTools();
    check(isDeepStrictEqual(tools.tools.map(t=>t.name).sort(),['qdip_describe_capability','qdip_invoke_decision','qdip_list_capabilities']),'REAL_MCP_THREE_TOOLS');
    marker('REAL_MCP_TOOLS_LIST','PASS');
-   if(workerUnavailableMode)await assertWorkerUnavailable(client);
+   if(discoveryPreflightMode){
+     const list=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
+     check(list.isError!==true&&Array.isArray(list.structuredContent?.capabilities),'MCP02_REAL_DISCOVERY_READ_ONLY');
+     const items=list.structuredContent.capabilities;
+     marker('MCP02_REAL_AUTHORIZED_COUNT',items.length);
+     marker('MCP02_REAL_AUTHORIZED_IDENTITIES',JSON.stringify(items.slice(0,16).map(x=>({id:x.capability_id,version:x.capability_version}))));
+   }
+   else if(workerUnavailableMode)await assertWorkerUnavailable(client);
    else if(workerTimeoutMode)await assertWorkerTimeout(client);
+   else if(multiCapabilityMode)await executeMcpMultiCapability(client);
    else if(executionMode)await executeMcpDecision(client);
  }finally{await client.close();}
 }
@@ -312,6 +322,90 @@ async function assertWorkerTimeout(client){
    'REAL_WORKER_TIMEOUT_FAILS_CLOSED_NO_RETRY');
  check(Date.now()-started<15000,'REAL_WORKER_TIMEOUT_BOUNDED');
  marker('REAL_WORKER_TIMEOUT_QA','PASS');
+}
+
+
+/** MCP-02 live qualification: use the existing independent MCP client and Native token.
+ * The second QA workload's exact published manifest and expected Kernel result
+ * are pinned to the reviewed SDK-02 fixture; missing publication fails closed.
+ */
+async function executeMcpMultiCapability(client){
+ const identity={capability_id:'mcp.qa.bonus',capability_version:'2'};
+ const input={first_value:7,second_value:3,second_bonus:6};
+ const expectedSchema={type:'object',properties:{
+   first_value:{type:'integer',minimum:0,maximum:1000000},
+   second_value:{type:'integer',minimum:0,maximum:1000000},
+   second_bonus:{type:'integer',minimum:0,maximum:1000000}},
+   required:['first_value','second_value','second_bonus'],additionalProperties:false};
+ const expectedSolution={first:'0',second:'1'};
+ const expectedObjective='9';
+ const requested=async (name,args)=>{
+   const result=await client.callTool({name,arguments:args},{timeout:20000});
+   const diagnostic=result.structuredContent?.error?.code;
+   if(result.isError&&typeof diagnostic==='string'&&/^[A-Z_]{1,80}$/.test(diagnostic))
+     marker('MCP02_TOOL_DIAGNOSTIC',diagnostic);
+   check(result.isError!==true&&!!result.structuredContent,'MCP02_'+name.toUpperCase()+'_SUCCESS');
+   check(JSON.stringify(result.structuredContent).length<=131072,'MCP02_RESPONSE_BOUNDED');
+   return result.structuredContent;
+ };
+ const list=await requested('qdip_list_capabilities',{});
+ check(Array.isArray(list.capabilities)&&list.capabilities.length>=2&&
+   list.capabilities.some(x=>x.capability_id===first.capability_id&&x.capability_version===first.capability_version)&&
+   list.capabilities.some(x=>x.capability_id===identity.capability_id&&x.capability_version===identity.capability_version),
+   'MCP02_TWO_REAL_AUTHORIZED_CAPABILITIES');
+ const keys=list.capabilities.map(x=>[x.plugin_id,x.capability_id,x.capability_version].join(':'));
+ check(keys.length===new Set(keys).size,'MCP02_AUTHORIZED_LIST_UNIQUE');
+ const a=await requested('qdip_describe_capability',first);
+ const b=await requested('qdip_describe_capability',identity);
+ const firstSchema={type:'object',properties:{
+   first_value:{type:'integer',minimum:0,maximum:1000000},
+   second_value:{type:'integer',minimum:0,maximum:1000000}},
+   required:['first_value','second_value'],additionalProperties:false};
+ check(a.plugin_id==='sdk-managed-qa'&&a.capability_id===first.capability_id&&
+   a.capability_version==='1'&&a.execution_mode==='managed_kernel'&&
+   isDeepStrictEqual(a.input_schema,firstSchema),'MCP02_CHOICE_V1_TRUSTED_MANIFEST');
+ check(b.plugin_id==='sdk-managed-qa'&&b.capability_id===identity.capability_id&&
+   b.capability_version===identity.capability_version&&b.execution_mode==='managed_kernel'&&
+   isDeepStrictEqual(b.input_schema,expectedSchema)&&
+   !isDeepStrictEqual(b.input_schema,a.input_schema),'MCP02_SECOND_EXACT_TRUSTED_MANIFEST');
+ for(const [capability_id,capability_version] of [['mcp.qa.unknown','1'],[identity.capability_id,'__wrong_version__']]){
+   const denied=await client.callTool({name:'qdip_invoke_decision',
+     arguments:{capability_id,capability_version,input}},{timeout:20000});
+   check(denied.isError===true&&denied.structuredContent?.error?.code==='FORBIDDEN'&&
+     !('execution_id' in (denied.structuredContent??{})),'MCP02_UNKNOWN_OR_WRONG_VERSION_DENIED');
+ }
+ const invalid=await client.callTool({name:'qdip_invoke_decision',arguments:{
+   ...identity,input:{...input,__unexpected_mcp02:true},timeout_seconds:10}},{timeout:20000});
+ check(invalid.isError===true&&invalid.structuredContent?.error?.code==='INVALID_REQUEST'&&
+   !('execution_id' in (invalid.structuredContent??{})),'MCP02_INVALID_SCHEMA_DENIED');
+ const firstResult=await requested('qdip_invoke_decision',{...first,input:{first_value:7,second_value:3},timeout_seconds:10});
+ const secondResult=await requested('qdip_invoke_decision',{...identity,input,timeout_seconds:10});
+ const normalizeDecimal=(value)=>{
+   if(typeof value!=='string'||!/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value))return null;
+   const [integer,fraction='']=value.split('.');
+   const remainder=fraction.replace(/0+$/,'');
+   return (integer==='-0'?'0':integer)+(remainder?'.'+remainder:'');
+ };
+ const sameDecimal=(actual,expected)=>normalizeDecimal(actual)!==null&&normalizeDecimal(actual)===normalizeDecimal(expected);
+ const sameSolution=(actual,expected)=>actual&&typeof actual==='object'&&!Array.isArray(actual)&&
+   isDeepStrictEqual(Object.keys(actual).sort(),Object.keys(expected).sort())&&
+   Object.keys(expected).every(key=>sameDecimal(actual[key],expected[key]));
+ const validEvidence=(result,solution,objective)=>{
+   const manifest=result.manifest,replay=result.replay_contract;
+   return typeof result.execution_id==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(result.execution_id)&&
+     result.semantic_status==='EXACT'&&result.backend_status==='OPTIMAL'&&result.actionable===true&&
+     sameSolution(result.solution,solution)&&sameDecimal(result.objective_value,objective)&&
+     manifest?.execution_id===result.execution_id&&manifest?.backend_id==='ortools-cp-sat'&&
+     manifest?.semantic_version==='1.0.0'&&replay?.semantic_version==='1.0.0'&&
+     ['decision_id','decision_spec_hash','ir_hash','compiler_version'].every(k=>typeof manifest[k]==='string'&&manifest[k]===replay[k])&&
+     ['decision_spec_hash','ir_hash'].every(k=>/^[a-f0-9]{64}$/.test(manifest[k]))&&
+     isDeepStrictEqual(result.diagnostics,{redacted:true});
+ };
+ check(validEvidence(firstResult,{first:'1',second:'0'},'7'),'MCP02_CHOICE_V1_REAL_KERNEL_RESULT');
+ check(validEvidence(secondResult,expectedSolution,expectedObjective),'MCP02_SECOND_REAL_KERNEL_RESULT');
+ check(firstResult.execution_id!==secondResult.execution_id,'MCP02_DISTINCT_REAL_EXECUTIONS');
+ marker('MCP02_EXECUTION_IDS',JSON.stringify([firstResult.execution_id,secondResult.execution_id]));
+ marker('MCP02_TWO_REAL_CAPABILITIES_E2E','PASS');
 }
 
 async function executeMcpDecision(client){
@@ -539,8 +633,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout'].includes(arg))&&
+ const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,
