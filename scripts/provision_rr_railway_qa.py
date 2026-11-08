@@ -24,7 +24,7 @@ def required(name):
 def gql(query, variables, token):
     payload = json.dumps({"query": query, "variables": variables}).encode()
     request = urllib.request.Request(API, data=payload, headers={
-        "Authorization": "Bearer " + token, "Content-Type": "application/json",
+        "Project-Access-Token": token, "Content-Type": "application/json",
     }, method="POST")
     with urllib.request.urlopen(request, timeout=20) as response:
         result = json.load(response)
