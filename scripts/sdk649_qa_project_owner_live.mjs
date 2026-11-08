@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {createHash, randomBytes} from 'node:crypto';
+import {createHash, createHmac, randomBytes} from 'node:crypto';
 import {chromium} from '@playwright/test';
 import {validateQaApplicationVariables} from './sdk649_qa_app_vars.mjs';
 const SITE='https://qdip.ai', ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
@@ -272,6 +272,141 @@ async function readRpc(req,path,bearer,data,id){
   check(r.status()===200,id+'_HTTP_200');
   const json=await r.json().catch(()=>null);check(json&&typeof json==='object',id+'_JSON');
   return json;}
+
+// The same signed QA21 E2E uses a second genuine, short-lived Zitadel principal.
+// Its real PKCE/MFA tokens are never forged or persisted; cleanup is fail-closed.
+function qaTotp(secret){
+  check(typeof secret==='string'&&/^[A-Z2-7]{16,128}={0,6}$/i.test(secret),
+    'SECOND_TOTP_SECRET_VALID');
+  const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let buffer=0,bits=0,bytes=[];
+  for(const char of secret.replace(/=+$/,'').toUpperCase()){
+    buffer=(buffer<<5)|alphabet.indexOf(char);bits+=5;
+    if(bits>=8){bits-=8;bytes.push((buffer>>bits)&255);}
+    buffer&=(1<<bits)-1;
+  }
+  const counter=Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));
+  const mac=createHmac('sha1',Buffer.from(bytes)).update(counter).digest();
+  const i=mac[mac.length-1]&15;
+  const num=(((mac[i]&127)<<24)|((mac[i+1]&255)<<16)|
+    ((mac[i+2]&255)<<8)|(mac[i+3]&255))>>>0;
+  return String(num%1000000).padStart(6,'0');
+}
+async function withSecondQaUser(browser,ownerCtx,adminBearer,projectId,verify){
+  const runId=process.env.GITHUB_RUN_ID;
+  check(/^[0-9]{5,24}$/.test(runId||''),'SECOND_SIGNED_QA_RUN_ID');
+  const email='sdk555-qa-user-'+runId+'@example.com';
+  const password=randomBytes(32).toString('base64url')+'!Aa9';
+  const headers={Authorization:'Bearer '+adminBearer,'Content-Type':'application/json'};
+  let subject=null,secondCtx=null;
+  try{
+    const created=await ownerCtx.request.post(ISSUER+'/v2/users/new',{
+      headers,timeout:20000,maxRedirects:0,
+      data:{organizationId:ORG,username:email,human:{
+        profile:{givenName:'SDK555',familyName:'QA',displayName:'SDK555 test user'},
+        email:{email,isVerified:true},password:{password,changeRequired:false},
+      }},
+    });
+    check(created.status()===200,'SECOND_USER_CREATED_200');
+    subject=(await created.json().catch(()=>null))?.id;
+    check(typeof subject==='string'&&/^[0-9]{1,32}$/.test(subject),
+      'SECOND_REAL_SUBJECT');
+    const record=await ownerCtx.request.get(ISSUER+'/v2/users/'+subject,{
+      headers,timeout:15000,maxRedirects:0,
+    });
+    const info=(await record.json().catch(()=>null))?.user;
+    check(record.status()===200&&info?.userId===subject&&
+      info?.details?.resourceOwner===ORG,'SECOND_SAME_QA_ORG');
+    const factor=await ownerCtx.request.post(ISSUER+'/v2/users/'+subject+'/totp',{
+      headers,data:{},timeout:15000,maxRedirects:0,
+    });
+    check(factor.status()===200,'SECOND_TOTP_CREATED_200');
+    const secret=(await factor.json().catch(()=>null))?.secret;
+    check(typeof secret==='string'&&secret.length>=16,'SECOND_TOTP_AVAILABLE');
+    const factorVerified=await ownerCtx.request.post(
+      ISSUER+'/v2/users/'+subject+'/totp/verify',{
+        headers,data:{code:qaTotp(secret)},timeout:15000,maxRedirects:0,
+      });
+    check(factorVerified.status()===200,'SECOND_TOTP_VERIFIED_200');
+    secondCtx=await browser.newContext({ignoreHTTPSErrors:false,
+      serviceWorkers:'block',acceptDownloads:false,viewport:{width:1280,height:800}});
+    const state=randomBytes(24).toString('base64url');
+    const verifier=randomBytes(32).toString('base64url');
+    const challenge=createHash('sha256').update(verifier).digest('base64url');
+    const callback=await openCallback(state);
+    const page=await secondCtx.newPage();
+    let secondManagedToken=null;
+    try{
+      const authUrl=new URL(ISSUER+'/oauth/v2/authorize');
+      for(const [k,v] of Object.entries({
+        client_id:process.env.QDIP_SDK_MANAGED_CLIENT_ID,
+        redirect_uri:CALLBACK_URI,response_type:'code',state,
+        nonce:randomBytes(20).toString('base64url'),
+        code_challenge:challenge,code_challenge_method:'S256',
+        scope:'openid profile email urn:zitadel:iam:org:project:id:'+projectId+':aud',
+      }))authUrl.searchParams.set(k,v);
+      await page.goto(authUrl.toString(),{waitUntil:'domcontentloaded',timeout:30000});
+      const login=await visible(page,['input[autocomplete="username"]',
+        'input[name="loginName"]','input[name="loginname"]',
+        'input[name="username"]','input[name="email"]','input[type="email"]',
+        'input[type="text"]']);
+      check(!!login,'SECOND_BROWSER_LOGIN_FORM');
+      await login.fill(email);
+      let pass=await visible(page,
+        ['input[autocomplete="current-password"]','input[type="password"]'],1200);
+      if(!pass){await login.press('Enter');
+        pass=await visible(page,
+          ['input[autocomplete="current-password"]','input[type="password"]']);}
+      check(!!pass,'SECOND_BROWSER_PASSWORD_FORM');
+      await pass.fill(password);await pass.press('Enter');
+      const selector='input[autocomplete="one-time-code"],input[name="code"],'+
+        'input[name*="otp"],input[id*="otp"],input[id*="code"],'+
+        'input[inputmode="numeric"]';
+      const otp=await visible(page,[selector],14000);
+      check(!!otp,'SECOND_REAL_BROWSER_MFA_PROMPT');
+      await otp.fill(qaTotp(secret));await otp.press('Enter');
+      const code=await Promise.race([callback.code,new Promise((_,reject)=>
+        setTimeout(()=>reject(Error('SECOND_OIDC_TIMEOUT')),40000))]);
+      const exchanged=await secondCtx.request.post(ISSUER+'/oauth/v2/token',{
+        form:{grant_type:'authorization_code',
+          client_id:process.env.QDIP_SDK_MANAGED_CLIENT_ID,
+          redirect_uri:CALLBACK_URI,code,code_verifier:verifier},
+        timeout:15000,maxRedirects:0,
+      });
+      check(exchanged.status()===200,'SECOND_MANAGED_PKCE_HTTP_200');
+      secondManagedToken=(await exchanged.json().catch(()=>null))?.access_token;
+      check(typeof secondManagedToken==='string'&&secondManagedToken.length>=16,
+        'SECOND_REAL_MANAGED_TOKEN');
+      const who=await secondCtx.request.get(ISSUER+'/oidc/v1/userinfo',{
+        headers:{Authorization:'Bearer '+secondManagedToken},timeout:15000,
+        maxRedirects:0,
+      });
+      const user=(await who.json().catch(()=>null))?.sub;
+      check(who.status()===200&&user===subject,'SECOND_EXACT_PKCE_SUBJECT');
+    }finally{await page.close();await callback.close();}
+    const secondExternal=await verifyPkce(secondCtx,
+      process.env.QDIP_SDK_EXTERNAL_CLIENT_ID,'SECOND_EXTERNAL',projectId,subject);
+    const secondThird=await verifyPkce(secondCtx,
+      THIRD_CLIENT_ID,'SECOND_THIRD',projectId,subject);
+    check(new Set([secondManagedToken,secondExternal,secondThird]).size===3,
+      'SECOND_INDEPENDENT_APP_TOKENS');
+    await verify({managed:secondManagedToken,external:secondExternal,
+      third:secondThird,subject});
+    console.log('SDK555_TWO_USERS_THREE_APPS_NEGATIVE_MATRIX=PASS_LIVE');
+  }finally{
+    if(secondCtx)await secondCtx.close();
+    if(subject){
+      const removed=await ownerCtx.request.delete(
+        ISSUER+'/v2/users/'+subject,{headers,timeout:20000,maxRedirects:0});
+      check(removed.status()===200,'SECOND_USER_CLEANUP_200');
+      const gone=await ownerCtx.request.get(
+        ISSUER+'/v2/users/'+subject,{headers,timeout:15000,maxRedirects:0});
+      check(gone.status()===404,'SECOND_USER_CLEANUP_READBACK_404');
+    }
+  }
+}
+
 async function run(){validateQaApplicationVariables(process.env);
   check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&
     (process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
@@ -554,6 +689,46 @@ async function run(){validateQaApplicationVariables(process.env);
               timeout:20000,maxRedirects:0,
             });
             check(deniedThird.status()===403,'QA_PRIVATE_APP_C_GRANT_BLEED_DENIED_403');
+            await withSecondQaUser(b,ctx,token,p,async second=>{
+              // The source has granted only QA21. Genuine second-user PKCE
+              // cannot reuse that grant, change it, or execute the Worker.
+              const secondCheck=await ctx.request.post(checkUrl,{
+                data:checkBody,headers:{'x-api-key':qaKeys[3],
+                  Authorization:'Bearer '+second.external},
+                timeout:20000,maxRedirects:0,
+              });
+              check(secondCheck.status()===403,
+                'SECOND_USER_EXTERNAL_RESOURCE_DENIED_403');
+              const secondThird=await ctx.request.post(checkUrl,{
+                data:checkBody,headers:{'x-api-key':qaKeys[4],
+                  Authorization:'Bearer '+second.third},
+                timeout:20000,maxRedirects:0,
+              });
+              check(secondThird.status()===403,
+                'SECOND_USER_THIRD_APP_RESOURCE_DENIED_403');
+              const secondConsent=await ctx.request.post(grantPath+'consent',{
+                data:grantBody,headers:{'x-api-key':qaKeys[2],
+                  Authorization:'Bearer '+second.managed},
+                timeout:20000,maxRedirects:0,
+              });
+              check(secondConsent.status()===403,
+                'SECOND_USER_CANNOT_CONSENT_FOR_FIRST_403');
+              const secondRevoke=await ctx.request.delete(grantPath+'consent',{
+                data:{resource_id:resourceId,
+                  destination_plugin_id:'sdk-external-qa',projection,purpose},
+                headers:{'x-api-key':qaKeys[2],
+                  Authorization:'Bearer '+second.managed},
+                timeout:20000,maxRedirects:0,
+              });
+              check(secondRevoke.status()===403,
+                'SECOND_USER_CANNOT_REVOKE_FIRST_403');
+              const firstStillAllowed=await ctx.request.post(checkUrl,{
+                data:checkBody,headers:destinationHeaders,
+                timeout:20000,maxRedirects:0,
+              });
+              check(firstStillAllowed.status()===204,
+                'FIRST_USER_GRANT_UNCHANGED_AFTER_SECOND_204');
+            });
             // Hard merge gate: the actual approved external SDK Worker must run.
             // A passing grant/check endpoint or an unapproved REGISTER is not
             // evidence of a Worker result. Do not soft-skip missing workers.
