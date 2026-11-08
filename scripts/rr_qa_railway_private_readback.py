@@ -44,7 +44,7 @@ class RailwayReadback:
             API,
             data=json.dumps({"query": query, "variables": variables or {}}).encode(),
             headers={
-                "Authorization": "Bearer " + self.token,
+                "Project-Access-Token": self.token,
                 "Content-Type": "application/json",
             },
             method="POST",
