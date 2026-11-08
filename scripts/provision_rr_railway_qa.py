@@ -38,27 +38,70 @@ def verify_project_token(token):
     if scope.get("projectId") != PROJECT or scope.get("environmentId") != ENVIRONMENT:
         raise RuntimeError("RR QA Railway token is not bound to exact project/environment")
 
-def upsert(name, value, token, service=RR_SERVICE):
-    if service not in (RR_SERVICE, WEB_SERVICE):
+def stage_sealed_variables(bindings, token):
+    """One atomic QA-only Railway patch; no raw credentials in logs or readback."""
+    if set(bindings) != {RR_SERVICE, WEB_SERVICE} and set(bindings) != {RR_SERVICE}:
         raise RuntimeError("Unexpected Railway destination")
-    result = gql("""mutation($input: VariableUpsertInput!) {
-      variableUpsert(input: $input)
-    }""", {"input": {
-        "projectId": PROJECT, "environmentId": ENVIRONMENT,
-        "serviceId": service, "name": name, "value": value,
-        "skipDeploys": True,
-    }}, token)
-    if result.get("variableUpsert") is not True:
-        raise RuntimeError("Railway did not confirm variable upsert for " + name)
+    current = gql(
+        "query($e:String!){environmentStagedChanges(environmentId:$e){id status patch}}",
+        {"e": ENVIRONMENT}, token,
+    ).get("environmentStagedChanges")
+    if current not in (None, {}, []) and not (
+        isinstance(current, dict) and current.get("status") == "STAGED"
+        and current.get("patch") == {}
+    ):
+        raise RuntimeError("Unrelated staged Railway changes; refusing credential overwrite")
 
-def redeploy_existing(service, token):
-    if service not in (RR_SERVICE, WEB_SERVICE):
-        raise RuntimeError("Unexpected Railway redeploy destination")
-    result = gql("""mutation($serviceId: String!, $environmentId: String!) {
-      serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)
-    }""", {"serviceId": service, "environmentId": ENVIRONMENT}, token)
-    if not result.get("serviceInstanceRedeploy"):
-        raise RuntimeError("Railway did not accept the existing QA redeploy")
+    services = {}
+    for service, records in bindings.items():
+        if not isinstance(records, dict) or not records:
+            raise RuntimeError("Empty Railway delivery")
+        variables = {}
+        for name, binding in records.items():
+            if (not isinstance(binding, tuple) or len(binding) != 2
+                    or not isinstance(binding[0], str) or not binding[0]
+                    or type(binding[1]) is not bool):
+                raise RuntimeError("Malformed QA credential binding")
+            value, sealed = binding
+            if name in ("RR_S2S_QDIP_API_KEY", "RR_S2S_ECONOMIC_API_KEY", "RR_ORG_API_KEY") and not sealed:
+                raise RuntimeError("Credential must be sealed at rest")
+            variables[name] = {"value": value, "isSealed": sealed}
+        services[service] = {"variables": variables}
+
+    stage = gql(
+        "mutation($e:String!,$input:EnvironmentConfig!,$merge:Boolean){"
+        "environmentStageChanges(environmentId:$e,input:$input,merge:$merge){id status}}",
+        {"e": ENVIRONMENT, "input": {"services": services}, "merge": False}, token,
+    ).get("environmentStageChanges")
+    if not isinstance(stage, dict) or not stage.get("id"):
+        raise RuntimeError("Railway did not acknowledge sealed staging")
+    # Never retry an ambiguous commit: Core credentials are one-time issue.
+    committed = gql(
+        "mutation($e:String!){environmentPatchCommitStaged(environmentId:$e)}",
+        {"e": ENVIRONMENT}, token,
+    ).get("environmentPatchCommitStaged")
+    if committed is None or committed is False:
+        raise RuntimeError("Railway sealed commit acknowledgment missing")
+
+    receipt = gql(
+        "query($e:String!,$p:String!){environment(id:$e,projectId:$p){"
+        "variables(first:10000){edges{node{name serviceId isSealed}}}}}",
+        {"e": ENVIRONMENT, "p": PROJECT}, token,
+    ).get("environment")
+    edges = (((receipt or {}).get("variables") or {}).get("edges") or [])
+    if not isinstance(edges, list):
+        raise RuntimeError("Railway sealed metadata unavailable")
+    nodes = [edge.get("node") or {} for edge in edges if isinstance(edge, dict)]
+    for service, records in bindings.items():
+        for name, (_, sealed) in records.items():
+            matching = [node for node in nodes if (
+                node.get("name") == name and node.get("serviceId") == service
+            )]
+            if len(matching) != 1 or matching[0].get("isSealed") is not sealed:
+                raise RuntimeError("Railway sealed delivery metadata mismatch")
+    # The atomic environment patch automatically schedules service redeploys.
+    print("RR_QA_ATOMIC_SEALED_DELIVERY=PASS")
+
 
 def main():
     if os.environ.get("GITHUB_REPOSITORY") != "qdip-ai/qdip-e2e":
@@ -110,32 +153,24 @@ def main():
         "key_sha256": key_digest,
         "organization_id": organization, "scopes": ["decisions:read", "audit:read"],
     }], separators=(",", ":"))
-    # Configure dependencies first; enable gates only after credentials are in place.
-    variables = {
-        "RR_WRITE_CREDENTIALS_JSON": credential,
-        "RR_QA_OPERATOR_READ_CREDENTIALS_JSON": operator_read,
-        "RR_S2S_QDIP_API_KEY": scheduling,
-        "RR_S2S_ECONOMIC_API_KEY": economic,
-        "RR_S2S_GATEWAY_URL": gateway_url,
-        "RR_S2S_ECONOMIC_GATEWAY_URL": economic_url,
+    # Stage both services together so no partial key set can become live.
+    bindings = {
+        RR_SERVICE: {
+            "RR_WRITE_CREDENTIALS_JSON": (credential, False),
+            "RR_QA_OPERATOR_READ_CREDENTIALS_JSON": (operator_read, False),
+            "RR_S2S_QDIP_API_KEY": (scheduling, True),
+            "RR_S2S_ECONOMIC_API_KEY": (economic, True),
+            "RR_S2S_GATEWAY_URL": (gateway_url, False),
+            "RR_S2S_ECONOMIC_GATEWAY_URL": (economic_url, False),
+        },
+        WEB_SERVICE: {
+            "RR_ORGANIZATION_ID": (organization, False),
+            "RR_ORG_API_KEY": (inbound, True),
+        },
     }
-    for name, value in variables.items():
-        upsert(name, value, token)
-        print("RR_QA_PROVISIONED=" + name)
-    # BFF must use the exact same tenant/key as the RR read+write credential
-    # verifier; otherwise apparent OIDC success masks a mismatched tenant.
-    for name, value in {
-        "RR_ORGANIZATION_ID": organization, "RR_ORG_API_KEY": inbound,
-    }.items():
-        upsert(name, value, token, service=WEB_SERVICE)
-        print("RR_QA_WEB_BOUND=" + name)
-    # skipDeploys keeps partial credential sets from becoming live; start one
-    # redeploy per existing QA service after all bindings are accepted.
-    for service, label in ((RR_SERVICE, "rr-api"), (WEB_SERVICE, "web-bff")):
-        redeploy_existing(service, token)
-        print("RR_QA_REDEPLOY_REQUESTED=" + label)
-    # No unreviewed write/economic feature activation here; these are separate
-    # existing QA flags and remain subject to their original acceptance gates.
+    stage_sealed_variables(bindings, token)
+    # No unreviewed write/economic feature activation here. These remain
+    # subject to their existing independent QA and E2E acceptance gates.
     print("RR_QA_WRITE_ACTIVATION=NOT_PERFORMED")
 
 if __name__ == "__main__":
