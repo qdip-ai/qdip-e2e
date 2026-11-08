@@ -24,6 +24,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Inventory existing QA bindings without reading or printing secrets
+        env:
+          EXACT_RR_TOKEN: ${{ secrets.RR_QA_RAILWAY_TOKEN != '' }}
+          REPO_RAILWAY_PROJECT: ${{ secrets.RAILWAY_PROJECT_TOKEN != '' }}
+          REPO_RO_PROJECT: ${{ secrets.RAILWAY_RO_PROJECT_TOKEN != '' }}
+          REPO_RO_QA_PROJECT: ${{ secrets.RO_QA_RAILWAY_PROJECT_TOKEN != '' }}
+          MCP_QA_PROJECT: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN != '' }}
+          CORE_OPERATOR: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+          CORE_MCP_OPERATOR: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
+          RR_SCHEDULING_KEY: ${{ secrets.RR_QA_S2S_API_KEY != '' }}
+          RR_BROWSER_KEY: ${{ secrets.RR_QA_ORG_API_KEY != '' }}
+          RR_ECONOMIC_KEY: ${{ secrets.RR_QA_ECONOMIC_API_KEY != '' }}
+          PROVISION_APPROVAL: ${{ vars.RR_QA_PROVISION_APPROVED == '1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in EXACT_RR_TOKEN REPO_RAILWAY_PROJECT REPO_RO_PROJECT REPO_RO_QA_PROJECT MCP_QA_PROJECT CORE_OPERATOR CORE_MCP_OPERATOR RR_SCHEDULING_KEY RR_BROWSER_KEY RR_ECONOMIC_KEY PROVISION_APPROVAL; do
+            if [[ "${!key}" == 'true' ]]; then
+              echo "RR_QA_BINDING_${key}=PRESENT"
+            else
+              echo "RR_QA_BINDING_${key}=ABSENT"
+            fi
+          done
+          echo 'RR_QA_BINDING_PROBE_READ_ONLY=PASS'
       - name: Provision only the existing Railway RR QA service
         env:
           RR_QA_PROVISION_APPROVED: ${{ vars.RR_QA_PROVISION_APPROVED }}
