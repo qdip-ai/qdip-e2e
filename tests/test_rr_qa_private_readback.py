@@ -271,10 +271,10 @@ class TestCredentialProvisioning(unittest.TestCase):
         self.env["RR_QA_SCHEDULING_GATEWAY_URL"] = "https://observatory.qdip.ai"
         with (patch.dict(os.environ, self.env, clear=True),
               patch.object(provision, "verify_project_token"),
-              patch.object(provision, "upsert") as upsert):
+              patch.object(provision, "stage_sealed_variables") as delivery):
             with self.assertRaisesRegex(ValueError, "isolated Railway"):
                 provision.main()
-        upsert.assert_not_called()
+        delivery.assert_not_called()
 
     def test_reject_nonowner_branch(self):
         self.env["GITHUB_ACTOR"] = "untrusted"
