@@ -24,6 +24,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Inspect existing credential channels without disclosing values
+        env:
+          QA_PROJECT: ${{ secrets.RR_QA_RAILWAY_TOKEN != '' }}
+          RAILWAY_PROJECT: ${{ secrets.RAILWAY_PROJECT_TOKEN != '' }}
+          RAILWAY_ACCOUNT: ${{ secrets.RAILWAY_TOKEN != '' }}
+          RAILWAY_API: ${{ secrets.RAILWAY_API_TOKEN != '' }}
+          QA_CORE_ADMIN: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
+          CORE_ADMIN: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+          RR_BROWSER_KEY: ${{ secrets.RR_QA_ORG_API_KEY != '' }}
+          RR_SCHEDULING_KEY: ${{ secrets.RR_QA_S2S_API_KEY != '' }}
+          RR_ECONOMIC_KEY: ${{ secrets.RR_QA_ECONOMIC_API_KEY != '' }}
+          QA_OWNER_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN != '' }}
+          QA_OWNER_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD != '' }}
+        run: |
+          set -euo pipefail
+          for name in QA_PROJECT RAILWAY_PROJECT RAILWAY_ACCOUNT RAILWAY_API QA_CORE_ADMIN CORE_ADMIN RR_BROWSER_KEY RR_SCHEDULING_KEY RR_ECONOMIC_KEY QA_OWNER_LOGIN QA_OWNER_PASSWORD; do
+            printf 'RR_EXISTING_CHANNEL_%s=%s\n' "$name" "${!name}"
+          done
       - name: Provision only the existing Railway RR QA service
         env:
           RR_QA_PROVISION_APPROVED: ${{ vars.RR_QA_PROVISION_APPROVED }}
