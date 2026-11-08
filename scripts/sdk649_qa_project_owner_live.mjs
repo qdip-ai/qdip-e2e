@@ -39,6 +39,12 @@ function validScopedQaKeys(keys){
     keys.every(k=>typeof k==='string'&&k.length>=16&&
       !/[\s\x00-\x1f\x7f]/u.test(k));
 }
+function hasLiveExternalWorker(body){
+  return Array.isArray(body?.items)&&body.items.some(item=>
+    item?.plugin_id==='sdk-external-qa'&&
+    item?.capability_id==='calendar.events.read'&&
+    item?.output_type==='structured_result');
+}
 async function proveCoreRejectsMissingOrForgedSdkKey(req,appId,label){
   const url=STAGING_CORE+'/api/v1/private-resource-access/applications/link';
   const body={application_id:appId};
@@ -243,6 +249,14 @@ async function selfTest(){const p='111111111111111111',s='222222222222222222',id
   assert(!validScopedQaKeys(['scoped key-qa-001','scoped-key-qa-002']));
   assert(!validScopedQaKeys(['','scoped-key-qa-002']));
   console.log('SDK649_SCOPED_KEY_NEGATIVE_REGRESSIONS=PASS');
+  const liveWorker={plugin_id:'sdk-external-qa',
+    capability_id:'calendar.events.read',output_type:'structured_result'};
+  assert(hasLiveExternalWorker({items:[liveWorker]}));
+  assert(!hasLiveExternalWorker({items:[]}));
+  assert(!hasLiveExternalWorker({items:[{...liveWorker,plugin_id:'sdk-managed-qa'}]}));
+  assert(!hasLiveExternalWorker({items:[{...liveWorker,capability_id:'other'}]}));
+  assert(!hasLiveExternalWorker({items:[{...liveWorker,output_type:'decision_spec'}]}));
+  console.log('SDK649_WORKER_READINESS_NEGATIVE_REGRESSIONS=PASS');
   // The exact QA job must never downgrade to a missing-OIDC soft skip.
   const savedUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
   const savedToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
@@ -575,6 +589,16 @@ async function run(){validateQaApplicationVariables(process.env);
               headers:{'x-api-key':qaKeys[4],Authorization:'Bearer '+thirdToken},
             });
           check(thirdLink.status()===204,'THIRD_APP_CORE_LINK_HTTP_204');
+          // The Worker execution is an existing hard gate. Fail before costly
+          // fixture/second-user MFA work when its scoped live capability is absent.
+          const readiness=await ctx.request.get(
+            STAGING_CORE+'/api/v1/remote-plugins/capabilities',{
+              headers:{'x-api-key':qaKeys[3],Authorization:'Bearer '+tokens[1]},
+              timeout:20000,maxRedirects:0,
+            });
+          check(readiness.status()===200,'QA_WORKER_DISCOVERY_HTTP_200');
+          check(hasLiveExternalWorker(await readiness.json().catch(()=>null)),
+            'QA_WORKER_CONNECTED_BEFORE_FULL_MATRIX');
           for(let i=0;i<2;i++){
             const j=1-i;
             const r=await ctx.request.post(
