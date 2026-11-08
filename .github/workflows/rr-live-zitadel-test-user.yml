@@ -152,6 +152,22 @@ jobs:
                       assert not errors, f'RR_RAILWAY_JS_ERRORS_{width}x{height}: {len(errors)}'
                       page.screenshot(path=f'test-results/rr-railway-bff-smoke/anonymous-{width}x{height}.png', full_page=True)
                       print(f'RR_RAILWAY_ANONYMOUS_BROWSER_{width}x{height}=PASS')
+                      # The QA-only owner authorization must be discoverable
+                      # without Observatory admin navigation.
+                      qa_home = page.goto(base + '/en', wait_until='domcontentloaded', timeout=30000)
+                      assert qa_home and qa_home.status == 200, f'RR_OWNER_CTA_HOME_HTTP_{width}x{height}'
+                      owner_cta = page.get_by_role('link', name='Verify RR QA organization')
+                      assert owner_cta.count() == 1 and owner_cta.is_visible(), (
+                          f'RR_OWNER_CTA_MISSING_{width}x{height}'
+                      )
+                      assert owner_cta.get_attribute('href') == '/en/admin/apps', (
+                          f'RR_OWNER_CTA_WRONG_TARGET_{width}x{height}'
+                      )
+                      assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), (
+                          f'RR_OWNER_CTA_OVERFLOW_{width}x{height}'
+                      )
+                      page.screenshot(path=f'test-results/rr-railway-bff-smoke/owner-cta-{width}x{height}.png', full_page=True)
+                      print(f'RR_OWNER_CTA_REAL_BROWSER_{width}x{height}=PASS')
                       page.close()
               finally:
                   browser.close()
@@ -161,7 +177,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rr-railway-bff-anonymous-viewport-evidence
-          path: test-results/rr-railway-bff-smoke/anonymous-*.png
+          path: |
+            test-results/rr-railway-bff-smoke/anonymous-*.png
+            test-results/rr-railway-bff-smoke/owner-cta-*.png
           if-no-files-found: warn
           retention-days: 7
   rr-railway-real-zitadel-auth:
