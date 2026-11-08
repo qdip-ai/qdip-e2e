@@ -176,44 +176,96 @@ class TestCredentialProvisioning(unittest.TestCase):
             "RR_QA_ECONOMIC_GATEWAY_URL": "https://qdip-core-staging-staging.up.railway.app",
         }
 
-    def test_bind_separate_exact_scope_keys_then_redeploy_existing_services(self):
+    def test_atomic_delivery_seals_secrets_and_keeps_both_services_bound(self):
         with (patch.dict(os.environ, self.env, clear=True),
               patch.object(provision, "verify_project_token"),
-              patch.object(provision, "upsert") as upsert,
-              patch.object(provision, "redeploy_existing") as redeploy,
+              patch.object(provision, "stage_sealed_variables") as delivery,
               patch("builtins.print") as output):
             provision.main()
-        self.assertEqual(redeploy.call_count, 2)
-        self.assertEqual([x.args[0] for x in redeploy.call_args_list], [
-            provision.RR_SERVICE, provision.WEB_SERVICE,
-        ])
-        mapped = {(x.args[0], x.kwargs.get("service", provision.RR_SERVICE)): x.args[1]
-                  for x in upsert.call_args_list}
+        delivery.assert_called_once()
+        variables = delivery.call_args.args[0]
+        rr = variables[provision.RR_SERVICE]
+        web = variables[provision.WEB_SERVICE]
+        self.assertEqual(set(variables), {provision.RR_SERVICE, provision.WEB_SERVICE})
+        self.assertEqual(rr["RR_S2S_QDIP_API_KEY"], (self.env["RR_QA_S2S_API_KEY"], True))
+        self.assertEqual(rr["RR_S2S_ECONOMIC_API_KEY"], (self.env["RR_QA_ECONOMIC_API_KEY"], True))
+        self.assertEqual(web["RR_ORG_API_KEY"], (self.env["RR_QA_ORG_API_KEY"], True))
+        self.assertEqual(web["RR_ORGANIZATION_ID"], (ORG, False))
         digest = hashlib.sha256(self.env["RR_QA_ORG_API_KEY"].encode()).hexdigest()
-        read = json.loads(mapped[("RR_QA_OPERATOR_READ_CREDENTIALS_JSON", provision.RR_SERVICE)])
-        write = json.loads(mapped[("RR_WRITE_CREDENTIALS_JSON", provision.RR_SERVICE)])
+        read = json.loads(rr["RR_QA_OPERATOR_READ_CREDENTIALS_JSON"][0])
+        write = json.loads(rr["RR_WRITE_CREDENTIALS_JSON"][0])
         self.assertEqual(read[0]["key_sha256"], digest)
         self.assertEqual(read[0]["scopes"], ["decisions:read", "audit:read"])
         self.assertEqual(write[0]["scopes"], ["decisions:execute"])
         self.assertEqual(read[0]["organization_id"], ORG)
         self.assertEqual(write[0]["organization_id"], ORG)
-        self.assertEqual(mapped[("RR_ORG_API_KEY", provision.WEB_SERVICE)],
-                         self.env["RR_QA_ORG_API_KEY"])
-        self.assertEqual(mapped[("RR_ORGANIZATION_ID", provision.WEB_SERVICE)], ORG)
-        self.assertEqual(mapped[("RR_S2S_QDIP_API_KEY", provision.RR_SERVICE)],
-                         self.env["RR_QA_S2S_API_KEY"])
         messages = " ".join(" ".join(map(str, x.args)) for x in output.call_args_list)
         for secret in ("o" * 32, "s" * 32, "e" * 32):
             self.assertNotIn(secret, messages)
+
+    def test_sealed_stage_is_atomic_and_does_not_echo_secret(self):
+        data = {
+            provision.RR_SERVICE: {"RR_S2S_QDIP_API_KEY": ("s" * 32, True)},
+            provision.WEB_SERVICE: {"RR_ORG_API_KEY": ("o" * 32, True)},
+        }
+        calls = []
+        def gql(query, variables, token):
+            calls.append((query, variables))
+            if "environmentStagedChanges" in query:
+                return {"environmentStagedChanges": None}
+            if "environmentStageChanges" in query:
+                patch = variables["input"]["services"]
+                self.assertEqual(set(patch), {provision.RR_SERVICE, provision.WEB_SERVICE})
+                self.assertTrue(patch[provision.RR_SERVICE]["variables"]["RR_S2S_QDIP_API_KEY"]["isSealed"])
+                self.assertTrue(patch[provision.WEB_SERVICE]["variables"]["RR_ORG_API_KEY"]["isSealed"])
+                return {"environmentStageChanges": {"id": "stage", "status": "STAGED"}}
+            if "environmentPatchCommitStaged" in query:
+                return {"environmentPatchCommitStaged": True}
+            if "variables(first:10000)" in query:
+                return {"environment": {"variables": {"edges": [
+                    {"node": {"serviceId": service, "name": name, "isSealed": True}}
+                    for service, records in data.items() for name in records
+                ]}}}
+            raise AssertionError("Unexpected GraphQL operation")
+        with patch.object(provision, "gql", side_effect=gql):
+            provision.stage_sealed_variables(data, "r" * 32)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(sum("environmentPatchCommitStaged" in q for q, _ in calls), 1)
+
+    def test_sealed_stage_refuses_unrelated_pending_changes(self):
+        with patch.object(provision, "gql", return_value={"environmentStagedChanges": {
+            "id": "pending", "status": "STAGED", "patch": {"services": {"other": {}}}
+        }}) as query:
+            with self.assertRaisesRegex(RuntimeError, "Unrelated staged"):
+                provision.stage_sealed_variables({
+                    provision.RR_SERVICE: {"RR_S2S_QDIP_API_KEY": ("s" * 32, True)}
+                }, "r" * 32)
+        query.assert_called_once()
+
+    def test_sealed_stage_rejects_unsealed_receipt(self):
+        records = {provision.RR_SERVICE: {"RR_S2S_QDIP_API_KEY": ("s" * 32, True)}}
+        def gql(query, variables, token):
+            if "environmentStagedChanges" in query:
+                return {"environmentStagedChanges": None}
+            if "environmentStageChanges" in query:
+                return {"environmentStageChanges": {"id": "stage", "status": "STAGED"}}
+            if "environmentPatchCommitStaged" in query:
+                return {"environmentPatchCommitStaged": True}
+            return {"environment": {"variables": {"edges": [{
+                "node": {"name": "RR_S2S_QDIP_API_KEY", "serviceId": provision.RR_SERVICE, "isSealed": False}
+            }]}}}
+        with patch.object(provision, "gql", side_effect=gql):
+            with self.assertRaisesRegex(RuntimeError, "sealed"):
+                provision.stage_sealed_variables(records, "r" * 32)
 
     def test_reject_shared_browser_and_backend_key(self):
         self.env["RR_QA_S2S_API_KEY"] = self.env["RR_QA_ORG_API_KEY"]
         with (patch.dict(os.environ, self.env, clear=True),
               patch.object(provision, "verify_project_token"),
-              patch.object(provision, "upsert") as upsert):
+              patch.object(provision, "stage_sealed_variables") as delivery):
             with self.assertRaisesRegex(ValueError, "must be distinct"):
                 provision.main()
-        upsert.assert_not_called()
+        delivery.assert_not_called()
 
     def test_reject_production_gateway_url(self):
         self.env["RR_QA_SCHEDULING_GATEWAY_URL"] = "https://observatory.qdip.ai"
