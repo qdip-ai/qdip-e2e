@@ -47,7 +47,8 @@ def verify_existing_sealed_s2s(token):
     edges = (((receipt or {}).get("variables") or {}).get("edges") or [])
     if not isinstance(edges, list):
         raise RuntimeError("Railway RR QA credential metadata unavailable")
-    nodes = [edge.get("node") or {} for edge in edges if isinstance(edge, dict)]
+    nodes = [edge["node"] for edge in edges if isinstance(edge, dict)
+             and isinstance(edge.get("node"), dict)]
     for name in ("RR_S2S_QDIP_API_KEY", "RR_S2S_ECONOMIC_API_KEY"):
         matches = [n for n in nodes if n.get("name") == name and n.get("serviceId") == RR_SERVICE]
         if len(matches) != 1 or matches[0].get("isSealed") is not True:
@@ -61,7 +62,8 @@ def stage_sealed_variables(bindings, token):
     """One atomic QA-only Railway patch; no raw credentials in logs or readback."""
     if set(bindings) != {RR_SERVICE, WEB_SERVICE} and set(bindings) != {RR_SERVICE}:
         raise RuntimeError("Unexpected Railway destination")
-    if any(name.startswith("RR_S2S_") for records in bindings.values() for name in records):
+    if any(isinstance(records, dict) and any(name.startswith("RR_S2S_") for name in records)
+           for records in bindings.values()):
         raise RuntimeError("Reconciler-owned RR S2S variables cannot be overwritten")
     current = gql(
         "query($e:String!){environmentStagedChanges(environmentId:$e){id status patch}}",
