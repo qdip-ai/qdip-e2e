@@ -83,6 +83,38 @@ if (readbackExecution) {
 try {
  const migration="-- RR-owned schema. Apply only to a dedicated RR PostgreSQL database.\n-- This migration does not touch Core or any MongoDB collection.\nCREATE TABLE IF NOT EXISTS rr_decision_heads (\n    organization_id text NOT NULL,\n    decision_id text NOT NULL,\n    head_execution_id text NOT NULL,\n    head_payload_digest char(64) NOT NULL CHECK (head_payload_digest ~ '^[0-9a-f]{64}$'),\n    PRIMARY KEY (organization_id, decision_id)\n);\n\nCREATE TABLE IF NOT EXISTS rr_execution_records (\n    organization_id text NOT NULL,\n    execution_id text NOT NULL,\n    decision_id text NOT NULL,\n    change_id text,\n    predecessor_execution_id text,\n    payload_digest char(64) NOT NULL CHECK (payload_digest ~ '^[0-9a-f]{64}$'),\n    created_at timestamptz NOT NULL,\n    record jsonb NOT NULL,\n    PRIMARY KEY (organization_id, execution_id)\n);\n\nCREATE UNIQUE INDEX IF NOT EXISTS rr_unique_operator_change_v1\n    ON rr_execution_records (organization_id, decision_id, change_id)\n    WHERE change_id IS NOT NULL;\n\nCREATE INDEX IF NOT EXISTS rr_tenant_decision_history_v1\n    ON rr_execution_records (organization_id, decision_id, created_at, execution_id);\n\nCREATE INDEX IF NOT EXISTS rr_tenant_decision_export_v1\n    ON rr_execution_records (organization_id, decision_id, execution_id);\n";
  for(const statement of migration.split(";").map(s=>s.trim()).filter(Boolean)) await db.unsafe(statement);
+ const scenarioMigration="CREATE TABLE IF NOT EXISTS rr_economic_scenario_advice_archive (organization_id text NOT NULL, execution_id text NOT NULL, snapshot_id text NOT NULL, snapshot_digest char(64) NOT NULL CHECK (snapshot_digest ~ '^[0-9a-f]{64}
+ const tables=await db`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('rr_decision_heads','rr_execution_records')`;
+ ok(tables[0].n===2,"schema");
+ const org="rrqa-"+crypto.randomUUID();const org2="rrqa-"+crypto.randomUUID();const dec="rr-test";
+ ok(await initial(org,dec,"e1")==="created","initial");
+ ok(await initial(org,dec,"e-other")==="conflict","duplicate-head");
+ const r=await Promise.all([advance(org,dec,"e1","a".repeat(64),"e2","c2"),advance(org,dec,"e1","a".repeat(64),"e3","c3")]);
+ const head=await db`SELECT head_execution_id,head_payload_digest FROM rr_decision_heads WHERE organization_id=${org} AND decision_id=${dec}`;
+ const hist=await db`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec} ORDER BY execution_id`;
+ ok(r.includes("created")&&r.includes("stale_predecessor")&&hist.length===2&&head[0].head_execution_id===hist[1].execution_id,"cas-concurrency");
+ await initial(org2,dec,"e1");
+ const other=await db`SELECT count(*)::int AS n FROM rr_execution_records WHERE organization_id=${org2} AND decision_id=${dec}`;
+ ok(other[0].n===1&&hist.length===2,"tenant-isolation");
+ const oldHead=head[0].head_execution_id;
+ const duplicate=await advance(org,dec,oldHead,"b".repeat(64),"e4",hist[1].execution_id==="e2"?"c2":"c3");
+ const after=await db`SELECT head_execution_id FROM rr_decision_heads WHERE organization_id=${org} AND decision_id=${dec}`;
+ ok(duplicate==="conflict"&&after[0].head_execution_id===oldHead,"unique-change-rollback");
+ const snap=await db.begin(async tx=>{await tx.unsafe("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");const h=await tx`SELECT head_execution_id FROM rr_decision_heads WHERE organization_id=${org} AND decision_id=${dec}`; const rows=await tx`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec}`;return {h:h[0].head_execution_id,n:rows.length};});
+ ok(snap.h===oldHead&&snap.n===2,"snapshot");
+ const first=await db`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec} ORDER BY execution_id LIMIT 1`;
+ const next=await db`SELECT execution_id FROM rr_execution_records WHERE organization_id=${org} AND decision_id=${dec} AND execution_id > ${first[0].execution_id} ORDER BY execution_id LIMIT 1`;
+ ok(first.length===1&&next.length===1&&first[0].execution_id!==next[0].execution_id,"export");
+ const readbackOk=await db`SELECT (record = ${JSON.stringify(record(org,"e1",dec))}::jsonb) AS identical FROM rr_execution_records WHERE organization_id=${org} AND execution_id=${"e1"}`;
+ const negative=await db`SELECT (record = ${JSON.stringify({...record(org,"e1",dec), actor_id:"wrong-actor"})}::jsonb) AS identical FROM rr_execution_records WHERE organization_id=${org} AND execution_id=${"e1"}`;
+ ok(readbackOk.length===1&&readbackOk[0].identical===true&&negative.length===1&&negative[0].identical===false,"record-readback-equality");
+ console.log("RR_QA_RESULT:PASS "+passed.length+"/"+expected.length);
+} catch(e){console.error("RR_QA_RESULT:FAIL",String(e?.message || e));process.exitCode=1;}
+finally{await db.close();}
+
+}
+), record jsonb NOT NULL, PRIMARY KEY (organization_id, execution_id))";
+ await db.unsafe(scenarioMigration);
  const tables=await db`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('rr_decision_heads','rr_execution_records')`;
  ok(tables[0].n===2,"schema");
  const org="rrqa-"+crypto.randomUUID();const org2="rrqa-"+crypto.randomUUID();const dec="rr-test";
