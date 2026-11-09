@@ -699,7 +699,6 @@ def test_real_zitadel_rr_cvar_staging() -> None:
                 assert post("/economic-v2/scenario-advice", bad_alpha).status == 422
                 tampered_history = copy.deepcopy(scenario)
                 tampered_history["execution_id"] = "rr-cvar-history-" + suffix
-                tampered_history["scenarios"][1]["operational"] = {"decision_id": "forged"}
                 # Tampering nested projections is rejected even when IDs look valid.
                 tampered_history["scenarios"][1]["projected_request"]["operational"][
                     "decision_id"
