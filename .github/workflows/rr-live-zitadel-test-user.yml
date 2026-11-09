@@ -251,7 +251,10 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_ORGANIZATION_ID RR_QA_RAILWAY_TOKEN QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
+          # The Railway project token is required only by private PostgreSQL readback,
+          # not by the preceding real browser→RR→Kernel operation. That readback
+          # still fails closed via readback_from_ci when its token is absent.
+          for name in RR_BROWSER_URL RR_E2E_STAGING_WRITE RR_E2E_ORGANIZATION_ID QDIP_E2E_ZITADEL_TEST_LOGIN QDIP_E2E_ZITADEL_TEST_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "RR_E2E_BLOCKED_MISSING_BINDING=${name}"
               missing=1
