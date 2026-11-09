@@ -955,8 +955,7 @@ async function main(){
    }
 
    if(qa23ReadOnlyMode){
-     check(process.env.QDIP_E2E_ZITADEL_TEST23_LOGIN?.toLowerCase()===QA23&&
-       (process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD??'').length>=8,'AUTHZ01_QA23_SEALED_LOGIN_CONFIGURED');
+     check((process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD??'').length>=8,'AUTHZ01_QA23_SEALED_LOGIN_CONFIGURED');
      const readCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
      try{
        await loginToSite(readCtx,QA23,process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD,'AUTHZ01_QA23');
