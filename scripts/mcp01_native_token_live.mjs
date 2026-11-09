@@ -106,6 +106,15 @@ async function loginToSite(ctx,user,password,stage){
  if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
  check(!!pass,stage+'_PASSWORD_FORM');
  let callbackReceived=false;
+ const qa23IssuerPostStatuses=[];
+ if(stage==='AUTHZ01_QA23'){
+   page.on('response',response=>{
+     try{
+       if(new URL(response.url()).origin!==ISSUER||response.request().method()!=='POST')return;
+       if(qa23IssuerPostStatuses.length<16)qa23IssuerPostStatuses.push(response.status());
+     }catch{}
+   });
+ }
  const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000})
    .then(r=>{callbackReceived=true;return r;}).catch(()=>null);
  await pass.fill(password);await pass.press('Enter');
@@ -138,6 +147,17 @@ async function loginToSite(ctx,user,password,stage){
  }
  const done=await callback;
  if(!done){
+   if(stage==='AUTHZ01_QA23'){
+     marker(stage+'_ISSUER_POST_COUNT',qa23IssuerPostStatuses.length);
+     marker(stage+'_ISSUER_POST_STATUS_CODES',JSON.stringify(qa23IssuerPostStatuses));
+     const passwordInput=page.locator('input[type="password"]').first();
+     marker(stage+'_PASSWORD_ARIA_INVALID',await passwordInput.getAttribute('aria-invalid').catch(()=>null)==='true');
+     marker(stage+'_VISIBLE_ALERT',await page.getByRole('alert').first().isVisible().catch(()=>false));
+     marker(stage+'_VISIBLE_VALIDATION_ERROR',
+       await page.locator('[data-state="error"],[role="alert"],[aria-live="assertive"]').first().isVisible().catch(()=>false));
+     marker(stage+'_SUBMIT_BUTTON_VISIBLE',await page.locator('button[type="submit"]').first().isVisible().catch(()=>false));
+     marker(stage+'_SUBMIT_BUTTON_DISABLED',await page.locator('button[type="submit"]').first().isDisabled().catch(()=>false));
+   }
    // Booleans only: never output the login page, response, URL, user, or credentials.
    const location=new URL(page.url());
    marker(stage+'_LOGIN_STALLED_ORIGIN',location.origin===ISSUER?'ISSUER':location.origin===SITE?'SITE':'OTHER');
