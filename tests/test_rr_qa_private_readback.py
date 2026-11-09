@@ -89,7 +89,10 @@ class TestPrivateReadback(unittest.TestCase):
             "delete", "delete", "delete", "delete",
         ])
         self.assertEqual(client.actions[-4][1], "RR_E2E_READBACK_EXECUTION_ID")
-        self.assertEqual(client.actions[1][1], "RR_E2E_EXPECTED_RECORD_JSON")
+        self.assertEqual(client.actions[1][1], "RR_E2E_EXPECTED_RECORD_SHA256")
+        # Only a cryptographic fingerprint is sent to Railway, never the
+        # complete potentially sensitive browser response as an environment variable.
+        self.assertEqual(client.actions[1][0], "upsert")
         self.assertEqual(client.actions[4][1], "RR_E2E_READBACK_EXECUTION_ID")
 
     def test_scenario_readback_reuses_private_executor_and_cleans_up(self):
@@ -116,7 +119,7 @@ class TestPrivateReadback(unittest.TestCase):
         self.assertEqual([x[1] for x in client.actions if x[0] == "delete"], [
             "RR_E2E_READBACK_EXECUTION_ID",
             "RR_E2E_READBACK_ORGANIZATION_ID",
-            "RR_E2E_EXPECTED_RECORD_JSON",
+            "RR_E2E_EXPECTED_RECORD_SHA256",
             "RR_E2E_READBACK_KIND",
         ])
 
