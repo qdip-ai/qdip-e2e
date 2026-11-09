@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Provision existing RR Railway QA service from trusted CI secrets; never print secrets."""
+"""Bind the existing RR QA browser credential without rotating reconciler-owned S2S keys."""
 import hashlib
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
 
 API = "https://backboard.railway.com/graphql/v2"
 PROJECT = "4665798b-2012-466e-be91-2555d76f36c2"
@@ -38,10 +37,32 @@ def verify_project_token(token):
     if scope.get("projectId") != PROJECT or scope.get("environmentId") != ENVIRONMENT:
         raise RuntimeError("RR QA Railway token is not bound to exact project/environment")
 
+def verify_existing_sealed_s2s(token):
+    """Require reconciler-owned sealed credentials without attempting secret readback."""
+    receipt = gql(
+        "query($e:String!,$p:String!){environment(id:$e,projectId:$p){"
+        "variables(first:10000){edges{node{name serviceId isSealed}}}}}",
+        {"e": ENVIRONMENT, "p": PROJECT}, token,
+    ).get("environment")
+    edges = (((receipt or {}).get("variables") or {}).get("edges") or [])
+    if not isinstance(edges, list):
+        raise RuntimeError("Railway RR QA credential metadata unavailable")
+    nodes = [edge.get("node") or {} for edge in edges if isinstance(edge, dict)]
+    for name in ("RR_S2S_QDIP_API_KEY", "RR_S2S_ECONOMIC_API_KEY"):
+        matches = [n for n in nodes if n.get("name") == name and n.get("serviceId") == RR_SERVICE]
+        if len(matches) != 1 or matches[0].get("isSealed") is not True:
+            raise RuntimeError("Reconciler-owned RR QA S2S credential missing or unsealed")
+    for name in ("RR_S2S_QDIP_API_KEY_ID", "RR_S2S_ECONOMIC_API_KEY_ID"):
+        if sum(n.get("name") == name and n.get("serviceId") == RR_SERVICE for n in nodes) != 1:
+            raise RuntimeError("Reconciler-owned RR QA S2S credential ID missing")
+
+
 def stage_sealed_variables(bindings, token):
     """One atomic QA-only Railway patch; no raw credentials in logs or readback."""
     if set(bindings) != {RR_SERVICE, WEB_SERVICE} and set(bindings) != {RR_SERVICE}:
         raise RuntimeError("Unexpected Railway destination")
+    if any(name.startswith("RR_S2S_") for records in bindings.values() for name in records):
+        raise RuntimeError("Reconciler-owned RR S2S variables cannot be overwritten")
     current = gql(
         "query($e:String!){environmentStagedChanges(environmentId:$e){id status patch}}",
         {"e": ENVIRONMENT}, token,
@@ -123,27 +144,10 @@ def main():
     organization = required("RR_QA_ORGANIZATION_ID")
     if organization != VERIFIED_CORE_STAGING_ORG:
         raise ValueError("RR QA organization must match verified Core staging tenant")
+    verify_existing_sealed_s2s(token)
     inbound = required("RR_QA_ORG_API_KEY")
-    scheduling = required("RR_QA_S2S_API_KEY")
-    economic = required("RR_QA_ECONOMIC_API_KEY")
-    gateway_url = required("RR_QA_SCHEDULING_GATEWAY_URL")
-    economic_url = required("RR_QA_ECONOMIC_GATEWAY_URL")
-    for url in (gateway_url, economic_url):
-        parsed = urlsplit(url)
-        if (
-            parsed.username or parsed.password or parsed.fragment
-            or parsed.scheme not in ("http", "https")
-            or not parsed.hostname
-            or not (
-                parsed.scheme == "https" and parsed.hostname.endswith(".up.railway.app")
-                or parsed.scheme == "http" and parsed.hostname.endswith(".railway.internal")
-            )
-        ):
-            raise ValueError("RR QA gateway must be an isolated Railway address")
-    if len(inbound) < 24 or len(scheduling) < 24 or len(economic) < 24:
-        raise ValueError("RR QA credentials are unexpectedly short")
-    if len({inbound, scheduling, economic}) != 3:
-        raise ValueError("RR QA browser, scheduling and economic keys must be distinct")
+    if len(inbound) < 24:
+        raise ValueError("RR QA browser credential is unexpectedly short")
     key_digest = hashlib.sha256(inbound.encode()).hexdigest()
     credential = json.dumps([{
         "key_sha256": key_digest,
@@ -158,10 +162,6 @@ def main():
         RR_SERVICE: {
             "RR_WRITE_CREDENTIALS_JSON": (credential, False),
             "RR_QA_OPERATOR_READ_CREDENTIALS_JSON": (operator_read, False),
-            "RR_S2S_QDIP_API_KEY": (scheduling, True),
-            "RR_S2S_ECONOMIC_API_KEY": (economic, True),
-            "RR_S2S_GATEWAY_URL": (gateway_url, False),
-            "RR_S2S_ECONOMIC_GATEWAY_URL": (economic_url, False),
         },
         WEB_SERVICE: {
             "RR_ORGANIZATION_ID": (organization, False),
