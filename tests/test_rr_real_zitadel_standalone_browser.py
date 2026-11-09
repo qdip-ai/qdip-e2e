@@ -8,6 +8,7 @@ One real-account login per run to avoid account lockout across viewports.
 from __future__ import annotations
 
 import copy
+import hashlib
 from decimal import Decimal
 import json
 import os
@@ -222,6 +223,17 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             assert record["organization_id"] == organization_id, "RR_ORGANIZATION_BINDING_MISMATCH"
             # Independent verifier executes INSIDE existing Railway PostgreSQL QA,
             # returns only a pass/fail and a REAL foreign journal identifier.
+            # A public, non-sensitive fingerprint permits an independent QA
+            # PostgreSQL verifier to check the same execution out of band.
+            # This does not replace the mandatory protected in-job verifier.
+            record_sha = hashlib.sha256(json.dumps(
+                record, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            print(
+                f"RR_SQL_READBACK_PROBE_KIND=scheduling ORG={organization_id} "
+                f"EXECUTION={first_id} SHA256={record_sha}",
+                flush=True,
+            )
             foreign_org, foreign_execution_id = readback_from_ci(record)
             assert foreign_execution_id != first_id, "RR_FOREIGN_FIXTURE_INVALID"
             foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
@@ -674,6 +686,14 @@ def test_real_zitadel_rr_cvar_staging() -> None:
                 assert replayed.status == 200 and replayed.json() == output
                 # Independent PostgreSQL query runs in existing private Railway,
                 # comparing the response JSONB for this exact org/execution.
+                scenario_sha = hashlib.sha256(json.dumps(
+                    output, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8")).hexdigest()
+                print(
+                    f"RR_SQL_READBACK_PROBE_KIND=scenario ORG={organization_id} "
+                    f"EXECUTION={scenario['execution_id']} SHA256={scenario_sha}",
+                    flush=True,
+                )
                 scenario_readback_from_ci(output, organization_id)
                 print("RR_CVAR_REAL_PERSISTENCE_AND_REPLAY=PASS")
 
