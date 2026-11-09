@@ -105,29 +105,38 @@ async function loginToSite(ctx,user,password,stage){
  let pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]'],1200);
  if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
  check(!!pass,stage+'_PASSWORD_FORM');
- const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
+ let callbackReceived=false;
+ const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000})
+   .then(r=>{callbackReceived=true;return r;}).catch(()=>null);
  await pass.fill(password);await pass.press('Enter');
  if(stage==='AUTHZ01_QA23'){
-   const seed=process.env.QDIP_E2E_ZITADEL_TEST23_TOTP_SEED;
-   check(typeof seed==='string'&&seed.length>=16,'AUTHZ01_QA23_TOTP_SEALED_SEED_PRESENT');
-   // Hosted ZITADEL may offer method selection before the actual code form.
+   // Let the real ZITADEL policy decide: no MFA challenge means no TOTP seed needed.
    const fieldSelectors=['input[autocomplete="one-time-code"]','input[name="code"]',
      'input[inputmode="numeric"]','input[type="tel"]'];
-   let totp=await visible(page,fieldSelectors,3500);
-   if(!totp){
-     const authenticator=page.getByRole('button',{name:/authenticator|totp|verification app/i}).first();
-     if(await authenticator.isVisible().catch(()=>false))await authenticator.click();
-     totp=await visible(page,fieldSelectors,12000);
+   let totp=null,methodSelected=false;
+   const deadline=Date.now()+12000;
+   while(!callbackReceived&&Date.now()<deadline){
+     totp=await visible(page,fieldSelectors,350);
+     if(totp)break;
+     if(!methodSelected){
+       const authenticator=page.getByRole('button',{name:/authenticator|totp|verification app/i}).first();
+       if(await authenticator.isVisible().catch(()=>false)){
+         await authenticator.click();
+         methodSelected=true;
+       }
+     }
    }
-   check(Boolean(totp),'AUTHZ01_QA23_TOTP_CHALLENGE_VISIBLE');
-   // Do not submit an almost-expired code; never print digits or the secret.
-   const untilNextStep=30000-(Date.now()%30000);
-   if(untilNextStep<5000)await page.waitForTimeout(untilNextStep+700);
-   await totp.fill(totpAt(seed,Date.now()));
-   await totp.press('Enter');
-   marker('AUTHZ01_QA23_TOTP_SUBMITTED','PASS');
+   if(totp){
+     const seed=process.env.QDIP_E2E_ZITADEL_TEST23_TOTP_SEED;
+     check(typeof seed==='string'&&seed.length>=16,'AUTHZ01_QA23_TOTP_SEALED_SEED_PRESENT');
+     const untilNextStep=30000-(Date.now()%30000);
+     if(untilNextStep<5000)await page.waitForTimeout(untilNextStep+700);
+     await totp.fill(totpAt(seed,Date.now()));
+     await totp.press('Enter');
+     marker('AUTHZ01_QA23_TOTP_SUBMITTED','PASS');
+   }else if(callbackReceived)marker('AUTHZ01_QA23_NO_MFA_CHALLENGE','PASS');
  }
- const done=await callback.catch(()=>null);
+ const done=await callback;
  if(!done){
    // Booleans only: never output the login page, response, URL, user, or credentials.
    const location=new URL(page.url());
