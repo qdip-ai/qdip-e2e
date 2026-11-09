@@ -121,7 +121,7 @@ async function loginToSite(ctx,user,password,stage){
  if(stage==='AUTHZ01_QA23'){
    // ZITADEL Login V2 binds handleSubmit to the button onClick (not form onSubmit).
    // Pressing Enter may perform a native form POST without executing the login action.
-   const submit=page.getByTestId('submit-button');
+   const submit=page.locator('button[type="submit"]').first();
    check(await submit.isVisible(),'AUTHZ01_QA23_REAL_SUBMIT_BUTTON_VISIBLE');
    await submit.click({timeout:12000});
    marker('AUTHZ01_QA23_REACT_SUBMIT_CLICKED','PASS');
