@@ -1018,6 +1018,53 @@ async function main(){
    }
    let qa23Subject=null;
    if(qa23ReadOnlyMode){
+     const response=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/ListProjectRoles',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+       data:{projectId:project,pagination:{limit:50},
+         filters:[{roleKeyFilter:{key:'mcp:read'}}]}}),'AUTHZ01_QA23_PROJECT_ROLE');
+     check((response.projectRoles??[]).filter(x=>x.key==='mcp:read'&&x.projectId===project).length===1,
+       'AUTHZ01_QA23_READ_ROLE_REGISTERED');
+     const grants=await json(await ctx.request.post(ISSUER+'/zitadel.authorization.v2.AuthorizationService/ListAuthorizations',{
+       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
+       data:{pagination:{limit:100,offset:0},filters:[
+         {projectId:{id:project}},{organizationId:{id:QA_ZITADEL_ORG}}
+       ]}}),'AUTHZ01_QA23_ROLE_ASSIGNMENT');
+     const items=grants.authorizations??[];
+     check(Array.isArray(items)&&items.length<=100&&
+       (!grants.pagination?.totalResult||grants.pagination.totalResult<=100),
+       'AUTHZ01_QA23_ASSIGNMENT_INVENTORY_COMPLETE');
+     // ZITADEL preferredLoginName may include an IdP/organization suffix.
+     // Pin the unique read-only project assignment by immutable subject; the
+     // separate real QA23 OAuth flow below must match that exact subject.
+     const matches=items.filter(x=>x.project?.id===project&&x.organization?.id===QA_ZITADEL_ORG&&
+       x.state==='STATE_ACTIVE'&&x.roles?.some(role=>role.key==='mcp:read')&&
+       !x.roles?.some(role=>role.key==='mcp:use'));
+     check(matches.length===1,'AUTHZ01_QA23_UNIQUE_READONLY_ASSIGNMENT');
+     const grant=matches[0],roles=grant.roles?.map(x=>x.key)??[];
+     check(grant.project?.id===project&&grant.project?.organizationId===QA_ZITADEL_ORG&&
+       grant.organization?.id===QA_ZITADEL_ORG&&grant.user?.organizationId===QA_ZITADEL_ORG&&
+       grant.state==='STATE_ACTIVE'&&roles.includes('mcp:read')&&!roles.includes('mcp:use')&&
+       /^[0-9]{1,32}$/.test(grant.user?.id??''),'AUTHZ01_QA23_EXCLUSIVE_ROLE_VERIFIED');
+     qa23Subject=grant.user.id;
+   }
+   consoleToken=null;await consolePage.close();
+   if(crossOrgMode){
+     // Existing main-org identity is a cross-org negative control, NEVER a read-only positive.
+     const username=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
+     const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
+     check(typeof username==='string'&&username.length>3&&username!==USER&&
+       typeof password==='string'&&password.length>=8,'AUTHZ05_EXISTING_SEPARATE_TEST_IDENTITY');
+     const readCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
+     try{
+       await loginToSite(readCtx,username,password,'AUTHZ05');
+       check(await nativeFlow(readCtx,metadata,{project,client,redirect},null,'MCP_RESOURCE',
+         async (_token,subject)=>check(subject!==owner.sub,'AUTHZ05_DIFFERENT_ZITADEL_SUBJECT')),
+         'AUTHZ05_LIVE_CROSS_ORG_DENIAL_FLOW');
+     }finally{await readCtx.close();}
+     return;
+   }
+
+   if(qa23ReadOnlyMode){
      check((process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD??'').length>=8,
        'AUTHZ01_QA23_SEALED_LOGIN_CONFIGURED');
      const qaApp={project,client,redirect};
