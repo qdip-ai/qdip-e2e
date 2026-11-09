@@ -83,7 +83,11 @@ if (readbackExecution) {
 try {
  const migration="-- RR-owned schema. Apply only to a dedicated RR PostgreSQL database.\n-- This migration does not touch Core or any MongoDB collection.\nCREATE TABLE IF NOT EXISTS rr_decision_heads (\n    organization_id text NOT NULL,\n    decision_id text NOT NULL,\n    head_execution_id text NOT NULL,\n    head_payload_digest char(64) NOT NULL CHECK (head_payload_digest ~ '^[0-9a-f]{64}$'),\n    PRIMARY KEY (organization_id, decision_id)\n);\n\nCREATE TABLE IF NOT EXISTS rr_execution_records (\n    organization_id text NOT NULL,\n    execution_id text NOT NULL,\n    decision_id text NOT NULL,\n    change_id text,\n    predecessor_execution_id text,\n    payload_digest char(64) NOT NULL CHECK (payload_digest ~ '^[0-9a-f]{64}$'),\n    created_at timestamptz NOT NULL,\n    record jsonb NOT NULL,\n    PRIMARY KEY (organization_id, execution_id)\n);\n\nCREATE UNIQUE INDEX IF NOT EXISTS rr_unique_operator_change_v1\n    ON rr_execution_records (organization_id, decision_id, change_id)\n    WHERE change_id IS NOT NULL;\n\nCREATE INDEX IF NOT EXISTS rr_tenant_decision_history_v1\n    ON rr_execution_records (organization_id, decision_id, created_at, execution_id);\n\nCREATE INDEX IF NOT EXISTS rr_tenant_decision_export_v1\n    ON rr_execution_records (organization_id, decision_id, execution_id);\n";
  for(const statement of migration.split(";").map(s=>s.trim()).filter(Boolean)) await db.unsafe(statement);
- const scenarioMigration="CREATE TABLE IF NOT EXISTS rr_economic_scenario_advice_archive (organization_id text NOT NULL, execution_id text NOT NULL, snapshot_id text NOT NULL, snapshot_digest char(64) NOT NULL CHECK (snapshot_digest ~ '^[0-9a-f]{64}
+ const scenarioMigration = "CREATE TABLE IF NOT EXISTS rr_economic_scenario_advice_archive (" +
+  "organization_id text NOT NULL, execution_id text NOT NULL, snapshot_id text NOT NULL, " +
+  "snapshot_digest char(64) NOT NULL CHECK (snapshot_digest ~ ('^[0-9a-f]{64}' || chr(36))), " +
+  "record jsonb NOT NULL, PRIMARY KEY (organization_id, execution_id))";
+ await db.unsafe(scenarioMigration);
  const tables=await db`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('rr_decision_heads','rr_execution_records')`;
  ok(tables[0].n===2,"schema");
  const org="rrqa-"+crypto.randomUUID();const org2="rrqa-"+crypto.randomUUID();const dec="rr-test";
