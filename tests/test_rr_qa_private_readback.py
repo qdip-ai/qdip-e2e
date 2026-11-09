@@ -72,12 +72,29 @@ class TestPrivateReadback(unittest.TestCase):
         client = FakeReadback()
         self.assertEqual(client.verify(record()), (FOREIGN, "foreign-execution"))
         self.assertEqual([x[0] for x in client.actions], [
-            "scope", "upsert", "upsert", "upsert", "deploy", "verify",
-            "delete", "delete", "delete",
+            "scope", "upsert", "upsert", "upsert", "upsert", "deploy", "verify",
+            "delete", "delete", "delete", "delete",
         ])
-        self.assertEqual(client.actions[-3][1], "RR_E2E_READBACK_EXECUTION_ID")
+        self.assertEqual(client.actions[-4][1], "RR_E2E_READBACK_EXECUTION_ID")
         self.assertEqual(client.actions[1][1], "RR_E2E_EXPECTED_RECORD_JSON")
-        self.assertEqual(client.actions[3][1], "RR_E2E_READBACK_EXECUTION_ID")
+        self.assertEqual(client.actions[4][1], "RR_E2E_READBACK_EXECUTION_ID")
+
+    def test_scenario_readback_reuses_private_executor_and_cleans_up(self):
+        client = FakeReadback()
+        response = {
+            "schema_version": "readiness-recovery.economic-scenario-preview.v1",
+            "execution_id": "rr-cvar-1",
+            "actionable": False, "supply_source_verified": False,
+        }
+        self.assertEqual(
+            client.verify(response, mode="scenario", organization_id=ORG),
+            (FOREIGN, "foreign-execution"),
+        )
+        self.assertEqual(client.actions[3], ("upsert", "RR_E2E_READBACK_KIND"))
+        self.assertEqual(client.actions[4], ("upsert", "RR_E2E_READBACK_EXECUTION_ID"))
+        self.assertEqual(client.actions[-1], ("delete", "RR_E2E_READBACK_KIND"))
+        with self.assertRaisesRegex(PrivateReadbackBlocked, "SCENARIO_CONTRACT"):
+            client.verify({**response, "actionable": True}, mode="scenario", organization_id=ORG)
 
     def test_failure_cleans_ephemeral_variables(self):
         client = FakeReadback(fail_at="RR_E2E_READBACK_EXECUTION_ID")
@@ -87,6 +104,7 @@ class TestPrivateReadback(unittest.TestCase):
             "RR_E2E_READBACK_EXECUTION_ID",
             "RR_E2E_READBACK_ORGANIZATION_ID",
             "RR_E2E_EXPECTED_RECORD_JSON",
+            "RR_E2E_READBACK_KIND",
         ])
 
     def test_invalid_tenant_rejected_before_provisioning(self):
