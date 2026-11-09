@@ -238,7 +238,7 @@ jobs:
     env:
       RR_BROWSER_URL: 'https://rr-standalone-web-qa-qa.up.railway.app'
       RR_E2E_STAGING_WRITE: '1' # RR-E2E-01 explicitly authorizes writes only to the pinned isolated Railway QA
-      RR_E2E_ORGANIZATION_ID: '79320f9e-ab38-49a6-b02c-fe2b896b66aa' # verified Core staging QDIP tenant
+      RR_E2E_ORGANIZATION_ID: 'ff638747-1962-4a44-95ee-3902c28d949f' # verified RR BFF/actor-bound operator tenant; Core SDK Worker uses a separate S2S service tenant
       RR_QA_RAILWAY_TOKEN: ${{ secrets.RR_QA_RAILWAY_TOKEN }} # QA project/environment scoped; no PostgreSQL DSN in GitHub
       QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
       QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
