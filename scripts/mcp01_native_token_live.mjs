@@ -71,19 +71,18 @@ function selfTest(){
 }
 
 async function loginToSite(ctx,user,password,stage){
+ // Browser context owns page lifetime; closing during OAuth redirect hung Actions.
  const page=await ctx.newPage();
- try{
-   await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
-   check(new URL(page.url()).origin===ISSUER,stage+'_LOGIN_ISSUER');
-   const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);
-   check(!!login,stage+'_LOGIN_FORM');await login.fill(user);
-   let pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]'],1200);
-   if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
-   check(!!pass,stage+'_PASSWORD_FORM');
-   const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
-   await pass.fill(password);await pass.press('Enter');
-   const done=await callback.catch(()=>null);check(done&&[302,303].includes(done.status()),stage+'_LOGIN_CALLBACK');
- }finally{await page.close();}
+ await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
+ check(new URL(page.url()).origin===ISSUER,stage+'_LOGIN_ISSUER');
+ const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);
+ check(!!login,stage+'_LOGIN_FORM');await login.fill(user);
+ let pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]'],1200);
+ if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
+ check(!!pass,stage+'_PASSWORD_FORM');
+ const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
+ await pass.fill(password);await pass.press('Enter');
+ const done=await callback.catch(()=>null);check(done&&[302,303].includes(done.status()),stage+'_LOGIN_CALLBACK');
 }
 
 async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
