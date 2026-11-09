@@ -8,6 +8,7 @@ on:
       - scripts/rr_live_zitadel_test_user.mjs
       - .github/workflows/rr-live-zitadel-test-user.yml
       - tests/test_rr_real_zitadel_standalone_browser.py
+      - scripts/rr_qa_railway_private_readback.py
   workflow_dispatch:
 permissions:
   contents: read
