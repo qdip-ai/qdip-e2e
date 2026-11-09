@@ -9,6 +9,8 @@ on:
       - .github/workflows/rr-live-zitadel-test-user.yml
       - tests/test_rr_real_zitadel_standalone_browser.py
       - scripts/rr_qa_railway_private_readback.py
+      - scripts/rr_qa_private_postgres_readback.ts
+      - tests/test_rr_qa_private_readback.py
   workflow_dispatch:
 permissions:
   contents: read
