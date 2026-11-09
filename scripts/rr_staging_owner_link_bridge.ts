@@ -156,6 +156,32 @@ if (Bun.env.RR_STAGING_OWNER_LINK_ENABLED === "1") {
         return;
       }
       console.log("RR_STAGING_QDIP_ORG_READBACK=PASS", linked[0].id);
+      // Read-only process-local Worker registry; print counts only, never key IDs.
+      // Distinguish a correctly registered canonical Worker from an old staging tenant.
+      const registrationReply = await fetch(
+        "https://" + EXPECTED_CORE_DOMAIN + "/api/v1/remote-plugins/registrations",
+        { headers: { "x-api-key": Bun.env.CORE_API_KEY! },
+          redirect: "error", signal: AbortSignal.timeout(8000) },
+      );
+      if (!registrationReply.ok) {
+        console.log("RR_SCHEDULER_REGISTRATION_READBACK_HTTP", registrationReply.status);
+      } else {
+        const rawRegistrations = await registrationReply.text();
+        if (rawRegistrations.length > 65536) { console.log("RR_SCHEDULER_REGISTRATION_READBACK=INVALID_SIZE"); return; }
+        const parsed: unknown = JSON.parse(rawRegistrations);
+        if (!parsed || typeof parsed !== "object" || !("items" in parsed) ||
+            !Array.isArray(parsed.items)) {
+          console.log("RR_SCHEDULER_REGISTRATION_READBACK=INVALID_SHAPE"); return;
+        }
+        const scheduling = parsed.items.filter((r: unknown) =>
+          r && typeof r === "object" && "organization_id" in r &&
+          "capabilities" in r && Array.isArray(r.capabilities) &&
+          r.capabilities.includes("readiness-recovery.scheduling.plan.v1"));
+        console.log("RR_SCHEDULER_REGISTRATION_CANONICAL_COUNT",
+          scheduling.filter((r: any) => r.organization_id === linked[0].id).length);
+        console.log("RR_SCHEDULER_REGISTRATION_LEGACY_COUNT",
+          scheduling.filter((r: any) => r.organization_id === "fcbb4afe-383d-4123-ad8e-303db1d6f3bd").length);
+      }
       // Metadata-only readback: confirms if a dedicated S2S key already exists.
       // Raw credential values are never returned or logged by this Core endpoint.
       const keyResponse = await fetch(
