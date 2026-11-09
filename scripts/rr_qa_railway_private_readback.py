@@ -22,6 +22,7 @@ VARIABLES = (
     "RR_E2E_READBACK_EXECUTION_ID",
     "RR_E2E_READBACK_ORGANIZATION_ID",
     "RR_E2E_EXPECTED_RECORD_JSON",
+    "RR_E2E_READBACK_KIND",
 )
 EXECUTION_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 ORG_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,36}$", re.I)
@@ -161,12 +162,22 @@ class RailwayReadback:
             time.sleep(3)
         raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_TIMED_OUT")
 
-    def verify(self, record: dict) -> tuple[str, str]:
-        own_org = record.get("organization_id")
+    def verify(self, record: dict, *, mode: str = "scheduling",
+               organization_id: str | None = None) -> tuple[str, str]:
+        if mode not in {"scheduling", "scenario"}:
+            raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_UNSUPPORTED_MODE")
+        own_org = organization_id if mode == "scenario" else record.get("organization_id")
         execution = (
+            record.get("execution_id") if mode == "scenario" else
             record.get("result", {}).get("workflow", {}).get("execution_id")
             if isinstance(record.get("result"), dict) else None
         )
+        if mode == "scenario" and (
+            record.get("schema_version") != "readiness-recovery.economic-scenario-preview.v1"
+            or record.get("actionable") is not False
+            or record.get("supply_source_verified") is not False
+        ):
+            raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_SCENARIO_CONTRACT_INVALID")
         if not isinstance(own_org, str) or not ORG_RE.fullmatch(own_org):
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_ORGANIZATION_INVALID")
         if not isinstance(execution, str) or not EXECUTION_ID_RE.fullmatch(execution):
@@ -181,6 +192,7 @@ class RailwayReadback:
             for name, value in (
                 (VARIABLES[2], expected),
                 (VARIABLES[1], own_org),
+                (VARIABLES[3], mode),
                 (VARIABLES[0], execution),
             ):
                 self.upsert(name, value)
@@ -211,3 +223,16 @@ def readback_from_ci(record: dict) -> tuple[str, str]:
     ):
         raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_TRUSTED_BRANCH_REQUIRED")
     return RailwayReadback(os.environ.get("RR_QA_RAILWAY_TOKEN", "")).verify(record)
+
+
+def scenario_readback_from_ci(response: dict, organization_id: str) -> tuple[str, str]:
+    """Use the same existing Railway private function for a sealed CVaR response."""
+    if (
+        os.environ.get("GITHUB_REPOSITORY") != "qdip-ai/qdip-e2e"
+        or os.environ.get("GITHUB_REF") != "refs/heads/feat/rr-e2e-01-standalone"
+        or not os.environ.get("GITHUB_RUN_ID")
+    ):
+        raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_TRUSTED_BRANCH_REQUIRED")
+    return RailwayReadback(os.environ.get("RR_QA_RAILWAY_TOKEN", "")).verify(
+        response, mode="scenario", organization_id=organization_id,
+    )
