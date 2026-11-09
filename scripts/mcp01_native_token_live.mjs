@@ -24,8 +24,9 @@ const secondAppLinkMode=process.argv.includes('--mcp-application-b-link');
 const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
 const delegationMode=process.argv.includes('--mcp-delegation');
+const readonlyMode=process.argv.includes('--mcp-authz-readonly');
 let delegationPhase='not-started';
-const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode;
+const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode||readonlyMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -69,6 +70,22 @@ function selfTest(){
  marker('MCP_EMPTY_STAGED_PATCH_REGRESSION','PASS');
 }
 
+async function loginToSite(ctx,user,password,stage){
+ const page=await ctx.newPage();
+ try{
+   await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
+   check(new URL(page.url()).origin===ISSUER,stage+'_LOGIN_ISSUER');
+   const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);
+   check(!!login,stage+'_LOGIN_FORM');await login.fill(user);
+   let pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]'],1200);
+   if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
+   check(!!pass,stage+'_PASSWORD_FORM');
+   const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
+   await pass.fill(password);await pass.press('Enter');
+   const done=await callback.catch(()=>null);check(done&&[302,303].includes(done.status()),stage+'_LOGIN_CALLBACK');
+ }finally{await page.close();}
+}
+
 async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const verifier=randomBytes(32).toString('base64url'),state=randomBytes(24).toString('base64url');
  const nonce=randomBytes(24).toString('base64url');
@@ -76,7 +93,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const authorize=originUrl(metadata.authorization_endpoint);
  const scope=['openid','profile',`urn:zitadel:iam:org:project:id:${app.project}:aud`];
  if(mode==='MCP_RESOURCE'){
-   if(process.env.MCP01_OAUTH_PROFILE==='zitadel_project_roles'||process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles','urn:zitadel:iam:org:project:role:mcp:use');
+   if(process.env.MCP01_OAUTH_PROFILE==='zitadel_project_roles'||process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles',readonlyMode?'urn:zitadel:iam:org:project:role:mcp:read':'urn:zitadel:iam:org:project:role:mcp:use');
    else scope.push('mcp:use');
  }
  for(const [k,v] of Object.entries({client_id:app.client,response_type:'code',redirect_uri:redirect.href,
@@ -147,18 +164,34 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
    marker(mode+'_RESPONSE_MCP_SCOPE',typeof payload.scope==='string'&&payload.scope.split(' ').includes('mcp:use'));
    const userinfo=await json(await ctx.request.get(originUrl(metadata.userinfo_endpoint).href,{timeout:15000,maxRedirects:0,
      headers:{Authorization:'Bearer '+access}}),mode+'_USERINFO');
-   check(userinfo.sub===subject,mode+'_SAME_OWNER_SUBJECT');
+   check(subject===null?typeof userinfo.sub==='string'&&/^[0-9]{1,32}$/.test(userinfo.sub):userinfo.sub===subject,mode+'_SAME_OWNER_SUBJECT');
    if(access.split('.').length===3){
      const keys=createRemoteJWKSet(originUrl(metadata.jwks_uri),{timeoutDuration:5000});
      const verified=(await jwtVerify(access,keys,{issuer:ISSUER,audience:app.project,algorithms:['RS256'],requiredClaims:['iss','aud','sub','exp']})).payload;
-     check(verified.sub===subject&&verified.azp===app.client,mode+'_SIGNED_NATIVE_CLIENT_OWNER');
+     check(verified.sub===userinfo.sub&&verified.azp===app.client,mode+'_SIGNED_NATIVE_CLIENT_OWNER');
      const aud=Array.isArray(verified.aud)?verified.aud:[verified.aud];
      marker(mode+'_JWT_AUDIENCE_HAS_MCP_URL',aud.includes(MCP));
      marker(mode+'_JWT_AUDIENCE_HAS_QA_PROJECT',aud.includes(app.project));
+     // Audience is a public resource/client identifier, never an access token.
+     check(aud.length>0&&aud.length<=12&&aud.every(x=>typeof x==='string'&&x.length<256&&/^[A-Za-z0-9:/._-]+$/.test(x)),
+       'OAUTH_AUDIENCE_BOUNDED');
+     marker('OAUTH01_ACTUAL_AUD',JSON.stringify(aud));
+     marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE',aud.includes(MCP)?'PASS':'CONTRACT_FAIL');
+     if(readonlyMode){
+       const roles=verified[`urn:zitadel:iam:org:project:${app.project}:roles`];
+       const read=roles?.['mcp:read']?.[QA_ZITADEL_ORG];
+       const use=roles?.['mcp:use']?.[QA_ZITADEL_ORG];
+       check(typeof read==='string'&&read.length>0&&!use,'AUTHZ01_REAL_EXCLUSIVE_READ_ROLE');
+       check(typeof verified.scope==='string'&&verified.scope.split(' ').includes('urn:zitadel:iam:org:project:role:mcp:read'),
+         'AUTHZ01_READ_ROLE_SCOPE_REQUESTED');
+     }
      marker(mode+'_JWT_SCOPE_PRESENT',typeof verified.scope==='string');
      marker(mode+'_JWT_MCP_SCOPE',typeof verified.scope==='string'&&verified.scope.split(' ').includes('mcp:use'));
-   }else marker(mode+'_JWT_SIGNATURE_AND_CLIENT_BINDING','NOT_VERIFIED_OPAQUE');
-   if(onAccess)await onAccess(access);
+   }else{
+     marker(mode+'_JWT_SIGNATURE_AND_CLIENT_BINDING','NOT_VERIFIED_OPAQUE');
+     check(!readonlyMode,'AUTHZ01_REAL_ROLE_CLAIM_REQUIRED');
+   }
+   if(onAccess)await onAccess(access,userinfo.sub);
    if(mode==='MCP_RESOURCE'&&!secondAppLinkMode){
      const mcp=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
        headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
@@ -284,8 +317,26 @@ async function realMcpClient(access){
    else if(workerTimeoutMode)await assertWorkerTimeout(client);
    else if(multiCapabilityMode)await executeMcpMultiCapability(client);
    else if(delegationMode)await assertExternalDelegation(client);
+   else if(readonlyMode)await assertRealReadOnly(client);
    else if(executionMode)await executeMcpDecision(client);
  }finally{await client.close();}
+}
+
+async function assertRealReadOnly(client){
+ const args={capability_id:'mcp.qa.choice',capability_version:'1'};
+ const listed=await client.callTool({name:'qdip_list_capabilities',arguments:{}},{timeout:20000});
+ check(listed.isError!==true&&Array.isArray(listed.structuredContent?.capabilities)&&
+   listed.structuredContent.capabilities.some(x=>x.capability_id===args.capability_id&&x.capability_version===args.capability_version),
+   'AUTHZ01_READ_LIST_REAL_CORE_GRANT');
+ const described=await client.callTool({name:'qdip_describe_capability',arguments:args},{timeout:20000});
+ check(described.isError!==true&&described.structuredContent?.capability_id===args.capability_id&&
+   described.structuredContent.capability_version===args.capability_version,'AUTHZ01_READ_DESCRIBE_REAL_CORE_GRANT');
+ const denied=await client.callTool({name:'qdip_invoke_decision',arguments:{
+   ...args,input:{first_value:7,second_value:3},timeout_seconds:10}},{timeout:20000});
+ check(denied.isError===true&&denied.structuredContent?.error?.code==='UNAUTHORIZED'&&
+   !('execution_id' in (denied.structuredContent??{})),'AUTHZ02_READONLY_INVOKE_DENIED');
+ marker('AUTHZ02_KERNEL_EXECUTION_CORRELATION_AUDIT','NOT_VERIFIED');
+ marker('AUTHZ01_AUTHZ02_REAL_MCP_READONLY','PASS');
 }
 
 // QA fault-injection qualification. Run ONLY while the reviewed QA worker is
@@ -661,8 +712,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode,delegationMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight','--mcp-delegation'].includes(arg))&&
+ const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode,delegationMode,readonlyMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight','--mcp-delegation','--mcp-authz-readonly'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,
@@ -682,14 +733,7 @@ async function main(){
    const metadata=await json(await ctx.request.get(ISSUER+'/.well-known/openid-configuration',{timeout:15000,maxRedirects:0}),'DISCOVERY');
    check(metadata.issuer===ISSUER&&metadata.code_challenge_methods_supported?.includes('S256'),'ISSUER_S256');
    if(executionMode||secondAppLinkMode||ownerBootstrapMode||applicationLinkMode||delegationMode)check(typeof metadata.revocation_endpoint==='string','REVOCATION_ENDPOINT_REQUIRED');
-   const page=await ctx.newPage();await page.goto(SITE+'/api/auth/login?return_to='+encodeURIComponent(SITE+'/en'),{waitUntil:'domcontentloaded',timeout:30000});
-   check(new URL(page.url()).origin===ISSUER,'LOGIN_ISSUER');
-   const login=await visible(page,['input[autocomplete="username"]','input[name="loginName"]','input[name="loginname"]','input[name="username"]','input[name="email"]','input[type="email"]','input[type="text"]']);check(!!login,'LOGIN_FORM');await login.fill(USER);
-   let pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]'],1200);
-   if(!pass){await login.press('Enter');pass=await visible(page,['input[autocomplete="current-password"]','input[type="password"]']);}
-   check(!!pass,'PASSWORD_FORM');const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
-   await pass.fill(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD);await pass.press('Enter');
-   const done=await callback.catch(()=>null);check(done&&[302,303].includes(done.status()),'QA21_LOGIN_CALLBACK');
+   await loginToSite(ctx,USER,process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD,'QA21');
    const consolePage=await ctx.newPage();consolePage.on('request',request=>{try{if(new URL(request.url()).origin!==ISSUER)return;void request.allHeaders().then(h=>{const value=h.authorization||'';if(value.startsWith('Bearer ')&&value.length>=24&&value.length<9000)consoleToken=value.slice(7);}).catch(()=>{});}catch{}});
    await consolePage.goto(ISSUER+'/ui/console/projects',{waitUntil:'domcontentloaded',timeout:30000});
    const end=Date.now()+20000;while(!consoleToken&&Date.now()<end)await consolePage.waitForTimeout(250);check(!!consoleToken,'CONFIG_READ_AUTHORITY');
@@ -805,6 +849,21 @@ async function main(){
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
    consoleToken=null;await consolePage.close();
+   if(readonlyMode){
+     // Existing separate Zitadel test identity only; no role assignment or Core grant mutation.
+     const username=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
+     const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
+     check(typeof username==='string'&&username.length>3&&username!==USER&&
+       typeof password==='string'&&password.length>=8,'AUTHZ01_EXISTING_SEPARATE_TEST_IDENTITY');
+     const readCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
+     try{
+       await loginToSite(readCtx,username,password,'AUTHZ01');
+       check(await nativeFlow(readCtx,metadata,{project,client,redirect},null,'MCP_RESOURCE',
+         async (_token,subject)=>check(subject!==owner.sub,'AUTHZ01_DIFFERENT_ZITADEL_SUBJECT')),
+         'AUTHZ01_LIVE_READONLY_FLOW');
+     }finally{await readCtx.close();}
+     return;
+   }
 
    if(delegationMode){
      // A distinct B OAuth client is not authorized solely by shared user/org.
