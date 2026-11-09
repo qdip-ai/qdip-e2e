@@ -53,8 +53,12 @@ class RailwayReadback:
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 result = json.load(response)
-        except (urllib.error.URLError, ValueError) as exc:
-            # Railway errors may include submitted variable values: do not log them.
+        except urllib.error.HTTPError as exc:
+            # HTTPError subclasses URLError: classify only safe status codes,
+            # never echo provider bodies, response headers or submitted values.
+            code = exc.code if exc.code in (400, 401, 403, 404, 429, 500, 502, 503) else 0
+            raise PrivateReadbackBlocked(f"RR_PRIVATE_READBACK_RAILWAY_HTTP_{code}") from None
+        except (urllib.error.URLError, ValueError):
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_RAILWAY_API_UNAVAILABLE") from None
         if result.get("errors") or not isinstance(result.get("data"), dict):
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_RAILWAY_API_REJECTED")
