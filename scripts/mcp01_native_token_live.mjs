@@ -117,7 +117,15 @@ async function loginToSite(ctx,user,password,stage){
  }
  const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000})
    .then(r=>{callbackReceived=true;return r;}).catch(()=>null);
- await pass.fill(password);await pass.press('Enter');
+ await pass.fill(password);
+ if(stage==='AUTHZ01_QA23'){
+   // ZITADEL Login V2 binds handleSubmit to the button onClick (not form onSubmit).
+   // Pressing Enter may perform a native form POST without executing the login action.
+   const submit=page.getByTestId('submit-button');
+   check(await submit.isVisible(),'AUTHZ01_QA23_REAL_SUBMIT_BUTTON_VISIBLE');
+   await submit.click({timeout:12000});
+   marker('AUTHZ01_QA23_REACT_SUBMIT_CLICKED','PASS');
+ }else await pass.press('Enter');
  if(stage==='AUTHZ01_QA23'){
    // Let the real ZITADEL policy decide: no MFA challenge means no TOTP seed needed.
    const fieldSelectors=['input[autocomplete="one-time-code"]','input[name="code"]',
