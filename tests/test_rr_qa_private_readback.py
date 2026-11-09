@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import urllib.error
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +68,17 @@ class TestPrivateReadback(unittest.TestCase):
 
         with patch("urllib.request.urlopen", side_effect=reply):
             RailwayReadback(token).check_scope()
+
+    def test_railway_http_error_logs_only_safe_status(self):
+        error = urllib.error.HTTPError(
+            "https://backboard.railway.com/graphql/v2",
+            403, "private-token-do-not-log", {}, io.BytesIO(b"secret-payload"),
+        )
+        with patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(PrivateReadbackBlocked) as raised:
+                RailwayReadback("x" * 32).check_scope()
+        self.assertEqual(str(raised.exception), "RR_PRIVATE_READBACK_RAILWAY_HTTP_403")
+        self.assertNotIn("secret", str(raised.exception))
 
     def test_success_requires_exact_record_and_cleans_up(self):
         client = FakeReadback()
