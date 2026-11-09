@@ -25,8 +25,9 @@ const workerUnavailableMode=process.argv.includes('--mcp-worker-unavailable');
 const workerTimeoutMode=process.argv.includes('--mcp-worker-timeout');
 const delegationMode=process.argv.includes('--mcp-delegation');
 const crossOrgMode=process.argv.includes('--mcp-authz-cross-org');
+const unassignedRoleMode=process.argv.includes('--mcp-authz-unassigned');
 let delegationPhase='not-started';
-const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode||crossOrgMode;
+const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode||crossOrgMode||unassignedRoleMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
 const QA_GATEWAY='https://mcp652-gateway-qa-staging.up.railway.app';
@@ -92,7 +93,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
  const authorize=originUrl(metadata.authorization_endpoint);
  const scope=['openid','profile',`urn:zitadel:iam:org:project:id:${app.project}:aud`];
  if(mode==='MCP_RESOURCE'){
-   if(process.env.MCP01_OAUTH_PROFILE==='zitadel_project_roles'||process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles',crossOrgMode?'urn:zitadel:iam:org:project:role:mcp:read':'urn:zitadel:iam:org:project:role:mcp:use');
+   if(process.env.MCP01_OAUTH_PROFILE==='zitadel_project_roles'||process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')scope.push('urn:zitadel:iam:org:projects:roles',(crossOrgMode||unassignedRoleMode)?'urn:zitadel:iam:org:project:role:mcp:read':'urn:zitadel:iam:org:project:role:mcp:use');
    else scope.push('mcp:use');
  }
  for(const [k,v] of Object.entries({client_id:app.client,response_type:'code',redirect_uri:redirect.href,
@@ -176,10 +177,11 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        'OAUTH_AUDIENCE_BOUNDED');
      marker('OAUTH01_ACTUAL_AUD',JSON.stringify(aud));
      marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE',aud.includes(MCP)?'PASS':'CONTRACT_FAIL');
-     if(crossOrgMode){
+     if(crossOrgMode||unassignedRoleMode){
        const roles=verified[`urn:zitadel:iam:org:project:${app.project}:roles`];
-       check(!roles?.['mcp:read']?.[QA_ZITADEL_ORG]&&!roles?.['mcp:use']?.[QA_ZITADEL_ORG],
-         'AUTHZ05_FOREIGN_SUBJECT_HAS_NO_QA_ROLE');
+       check(!roles?.['mcp:read']?.[QA_ZITADEL_ORG],
+         crossOrgMode?'AUTHZ05_FOREIGN_SUBJECT_HAS_NO_QA_READ_ROLE':'AUTHZ06_NO_ASSIGNED_READ_ROLE');
+       if(crossOrgMode)check(!roles?.['mcp:use']?.[QA_ZITADEL_ORG],'AUTHZ05_FOREIGN_SUBJECT_HAS_NO_QA_USE_ROLE');
      }
      marker(mode+'_JWT_SCOPE_PRESENT',typeof verified.scope==='string');
      marker(mode+'_JWT_MCP_SCOPE',typeof verified.scope==='string'&&verified.scope.split(' ').includes('mcp:use'));
@@ -190,16 +192,18 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      marker('OAUTH01_ACTUAL_AUD','NOT_VERIFIED_OPAQUE_ACCESS_TOKEN');
      marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE','NOT_VERIFIED_OPAQUE_ACCESS_TOKEN');
      if(crossOrgMode)marker('AUTHZ05_ROLE_EVIDENCE','LIVE_MCP_DENIAL_REQUIRED');
+     if(unassignedRoleMode)marker('AUTHZ06_ROLE_EVIDENCE','EXISTING_ZITADEL_ASSIGNMENT_READBACK');
    }
    if(onAccess)await onAccess(access,userinfo.sub);
-   if(crossOrgMode){
+   if(crossOrgMode||unassignedRoleMode){
+     const stage=crossOrgMode?'AUTHZ05_CROSS_ORG':'AUTHZ06_UNASSIGNED_ROLE';
      const denied=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
        headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
          'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'server/discover'},
        data:{jsonrpc:'2.0',id:501,method:'server/discover',params:{}}});
-     marker('AUTHZ05_CROSS_ORG_MCP_HTTP',denied.status());
-     check([401,403].includes(denied.status()),'AUTHZ05_CROSS_ORG_DENIED');
-     marker('AUTHZ05_CROSS_ORG','PASS');
+     marker(stage+'_MCP_HTTP',denied.status());
+     check([401,403].includes(denied.status()),stage+'_DENIED');
+     marker(stage,'PASS');
      return true;
    }
    if(mode==='MCP_RESOURCE'&&!secondAppLinkMode){
@@ -705,8 +709,8 @@ async function bootstrapQaOwner(ctx,token){
 }
 
 async function main(){
- const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode,delegationMode,crossOrgMode].filter(Boolean).length;
- check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight','--mcp-delegation','--mcp-authz-cross-org'].includes(arg))&&
+ const modes=[executionMode,multiCapabilityMode,discoveryPreflightMode,secondAppLinkMode,ownerPreviewSetup,ownerBootstrapMode,applicationLinkMode,workerUnavailableMode,workerTimeoutMode,delegationMode,crossOrgMode,unassignedRoleMode].filter(Boolean).length;
+ check(process.argv.slice(2).every(arg=>['--mcp-execution','--mcp-application-b-link','--configure-owner-preview','--mcp-owner-bootstrap','--mcp-application-link','--mcp-worker-unavailable','--mcp-worker-timeout','--mcp-two-capabilities','--mcp-discovery-preflight','--mcp-delegation','--mcp-authz-cross-org','--mcp-authz-unassigned'].includes(arg))&&
    modes<=1,'CLI_MODE_SUPPORTED');
  check(process.env.QDIP_E2E_ZITADEL_TEST21_LOGIN===USER&&(process.env.QDIP_E2E_ZITADEL_TEST21_PASSWORD||'').length>=8,'QA21_ACCOUNT_BOUND');
  const project=process.env.QDIP_SDK_QA_PROJECT_ID,
@@ -841,6 +845,24 @@ async function main(){
    marker('REGISTERED_REDIRECT_URI_NOT_LOGGED','PASS');
    if(provision)introspection=await provisionIntrospection(ctx,consoleToken,project,client);
    if(process.env.MCP01_CONFIGURE_ROLE_CONTRACT==='true')await configureRoleContract(ctx,consoleToken,project,owner.sub);
+   if(unassignedRoleMode){
+     const headers={Authorization:'Bearer '+consoleToken};
+     const projectRoles=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/ListProjectRoles',{
+       timeout:15000,maxRedirects:0,headers,data:{projectId:project,pagination:{limit:10},
+         filters:[{roleKeyFilter:{key:'mcp:read'}}]}}),'AUTHZ06_REAL_PROJECT_ROLE');
+     check((projectRoles.projectRoles??[]).filter(x=>x.key==='mcp:read'&&x.projectId===project).length===1,
+       'AUTHZ06_READ_ROLE_EXISTS');
+     const assignments=await json(await ctx.request.post(ISSUER+'/zitadel.authorization.v2.AuthorizationService/ListAuthorizations',{
+       timeout:15000,maxRedirects:0,headers,data:{pagination:{limit:10},filters:[
+         {projectId:{id:project}},{organizationId:{id:QA_ZITADEL_ORG}},{inUserIds:{ids:[owner.sub]}}
+       ]}}),'AUTHZ06_REAL_ROLE_ASSIGNMENTS');
+     const items=assignments.authorizations??[];
+     check(Array.isArray(items)&&items.length===1&&items[0].user?.id===owner.sub&&
+       items[0].project?.id===project&&items[0].organization?.id===QA_ZITADEL_ORG&&
+       items[0].state==='STATE_ACTIVE','AUTHZ06_EXACT_QA_OWNER_ASSIGNMENT');
+     const keys=items[0].roles?.map(x=>x.key)??[];
+     check(keys.includes('mcp:use')&&!keys.includes('mcp:read'),'AUTHZ06_USE_ASSIGNED_READ_UNASSIGNED');
+   }
    consoleToken=null;await consolePage.close();
    if(crossOrgMode){
      // Existing main-org identity is a cross-org negative control, NEVER a read-only positive.
@@ -858,6 +880,11 @@ async function main(){
      return;
    }
 
+   if(unassignedRoleMode){
+     check(await nativeFlow(ctx,metadata,{project,client,redirect},owner.sub,'MCP_RESOURCE'),
+       'AUTHZ06_LIVE_REQUESTED_BUT_UNASSIGNED_ROLE_DENIAL');
+     return;
+   }
    if(delegationMode){
      // A distinct B OAuth client is not authorized solely by shared user/org.
      // Prove live denial *before* A grants B any capability.
