@@ -188,8 +188,12 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      marker(mode+'_JWT_SCOPE_PRESENT',typeof verified.scope==='string');
      marker(mode+'_JWT_MCP_SCOPE',typeof verified.scope==='string'&&verified.scope.split(' ').includes('mcp:use'));
    }else{
+     // ZITADEL may issue opaque access tokens; their audience/roles cannot be inferred
+     // from ID tokens, requested scopes, or a successful userinfo request.
      marker(mode+'_JWT_SIGNATURE_AND_CLIENT_BINDING','NOT_VERIFIED_OPAQUE');
-     check(!readonlyMode,'AUTHZ01_REAL_ROLE_CLAIM_REQUIRED');
+     marker('OAUTH01_ACTUAL_AUD','NOT_VERIFIED_OPAQUE_ACCESS_TOKEN');
+     marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE','NOT_VERIFIED_OPAQUE_ACCESS_TOKEN');
+     if(readonlyMode)marker('AUTHZ01_ROLE_EVIDENCE','LIVE_MCP_BEHAVIOR_REQUIRED');
    }
    if(onAccess)await onAccess(access,userinfo.sub);
    if(mode==='MCP_RESOURCE'&&!secondAppLinkMode){
