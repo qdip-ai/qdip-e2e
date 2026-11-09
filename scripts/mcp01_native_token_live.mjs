@@ -6,7 +6,7 @@
  */
 import {chromium} from '@playwright/test';
 import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
-import {createHash,randomBytes} from 'node:crypto';
+import {createHash,createHmac,randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
 import {isDeepStrictEqual} from 'node:util';
 import assert from 'node:assert/strict';
@@ -44,6 +44,25 @@ async function json(response,stage){check(response.status()===200,stage+'_HTTP_2
  try{return JSON.parse(body.toString('utf8'));}catch{throw Error(stage+'_JSON');}}
 async function visible(page,selectors,ms=14000){const end=Date.now()+ms;
  while(Date.now()<end){for(const selector of selectors){const n=page.locator(selector).first();if(await n.isVisible().catch(()=>false))return n;}await page.waitForTimeout(250);}return null;}
+// RFC 6238 / SHA-1, fixed 30-second step and 6 digits. QA-only seed, never logged.
+function totpAt(secret,epochMs){
+ if(typeof secret!=='string'||!/^[A-Z2-7]{16,128}={0,6}$/.test(secret.toUpperCase()))
+   throw Error('AUTHZ01_QA23_TOTP_SEED_INVALID');
+ const base32=secret.toUpperCase().replace(/=+$/,'');
+ let bits=0,value=0,bytes=[];
+ for(const c of base32){value=(value<<5)|'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(c);bits+=5;
+   if(bits>=8){bits-=8;bytes.push((value>>>bits)&255);}}
+ if(bytes.length<10)throw Error('AUTHZ01_QA23_TOTP_SEED_INVALID');
+ const key=Buffer.from(bytes);
+ const counter=Buffer.alloc(8);
+ counter.writeBigUInt64BE(BigInt(Math.floor(epochMs/30_000)));
+ const digest=createHmac('sha1',key).update(counter).digest();
+ key.fill(0);counter.fill(0);bytes.fill(0);
+ const offset=digest[digest.length-1]&15;
+ const value31=(digest.readUInt32BE(offset)&0x7fffffff);
+ digest.fill(0);
+ return String(value31%1_000_000).padStart(6,'0');
+}
 function callbackMatches(actual,target){return actual.origin===target.origin&&actual.pathname===target.pathname&&
  [...target.searchParams].every(([k,v])=>actual.searchParams.get(k)===v);}
 
@@ -70,6 +89,9 @@ function selfTest(){
  assert(!noUnrelatedStagedPatch({id:'foreign',status:'STAGED',patch:{services:{other:{}}}}));
  assert(!noUnrelatedStagedPatch({id:'applying',status:'APPLYING',patch:{}}));
  assert(!noUnrelatedStagedPatch({id:'unknown',status:'STAGED'}));
+ assert.equal(totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',59000),'287082');
+ assert.throws(()=>totpAt('badseed',59000),/AUTHZ01_QA23_TOTP_SEED_INVALID/);
+ marker('QA23_TOTP_RFC6238_REGRESSION','PASS');
  marker('MCP_EMPTY_STAGED_PATCH_REGRESSION','PASS');
 }
 
@@ -85,6 +107,26 @@ async function loginToSite(ctx,user,password,stage){
  check(!!pass,stage+'_PASSWORD_FORM');
  const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
  await pass.fill(password);await pass.press('Enter');
+ if(stage==='AUTHZ01_QA23'){
+   const seed=process.env.QDIP_E2E_ZITADEL_TEST23_TOTP_SEED;
+   check(typeof seed==='string'&&seed.length>=16,'AUTHZ01_QA23_TOTP_SEALED_SEED_PRESENT');
+   // Hosted ZITADEL may offer method selection before the actual code form.
+   const fieldSelectors=['input[autocomplete="one-time-code"]','input[name="code"]',
+     'input[inputmode="numeric"]','input[type="tel"]'];
+   let totp=await visible(page,fieldSelectors,3500);
+   if(!totp){
+     const authenticator=page.getByRole('button',{name:/authenticator|totp|verification app/i}).first();
+     if(await authenticator.isVisible().catch(()=>false))await authenticator.click();
+     totp=await visible(page,fieldSelectors,12000);
+   }
+   check(Boolean(totp),'AUTHZ01_QA23_TOTP_CHALLENGE_VISIBLE');
+   // Do not submit an almost-expired code; never print digits or the secret.
+   const untilNextStep=30000-(Date.now()%30000);
+   if(untilNextStep<5000)await page.waitForTimeout(untilNextStep+700);
+   await totp.fill(totpAt(seed,Date.now()));
+   await totp.press('Enter');
+   marker('AUTHZ01_QA23_TOTP_SUBMITTED','PASS');
+ }
  const done=await callback.catch(()=>null);
  if(!done){
    // Booleans only: never output the login page, response, URL, user, or credentials.
