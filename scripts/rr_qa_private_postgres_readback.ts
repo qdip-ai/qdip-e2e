@@ -1,5 +1,16 @@
 
 import { SQL } from "bun";
+
+// Lexicographic object-key ordering makes the digest independent of JSONB key order.
+function canonical(value: any): string {
+ if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+ if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',') + '}';
+ return JSON.stringify(value);
+}
+async function fingerprint(value: any): Promise<string> {
+ const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical(value)));
+ return Buffer.from(digest).toString('hex');
+}
 const connection = Bun.env.RR_TEST_POSTGRES_DSN;
 if (!connection || !new URL(connection).pathname.endsWith("/rr_test")) throw new Error("RR_QA_BLOCKED: dedicated rr_test required");
 const db = new SQL(connection);
@@ -30,39 +41,50 @@ if (readbackExecution) {
  try {
   const organization = Bun.env.RR_E2E_READBACK_ORGANIZATION_ID ?? "";
   const rawExpected = Bun.env.RR_E2E_EXPECTED_RECORD_JSON ?? "";
+  const expectedSha = Bun.env.RR_E2E_EXPECTED_RECORD_SHA256 ?? "";
   if (!/^[A-Za-z0-9_.-]{1,128}$/.test(readbackExecution)
       || !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(organization)
-      || rawExpected.length === 0 || rawExpected.length > 1000000) {
+      || rawExpected.length > 1000000
+      || ((rawExpected.length > 0) === (expectedSha.length > 0))
+      || (expectedSha.length > 0 && !/^[0-9a-f]{64}$/.test(expectedSha))) {
    throw new Error("RR_E2E_READBACK_INVALID_BOUND_INPUT");
   }
-  const expected = JSON.parse(rawExpected);
+  const expected = rawExpected ? JSON.parse(rawExpected) : null;
   const kind = Bun.env.RR_E2E_READBACK_KIND ?? "scheduling";
   if (!["scheduling", "scenario"].includes(kind)) {
    throw new Error("RR_E2E_READBACK_KIND_INVALID");
   }
   if (kind === "scenario") {
-   if (expected?.execution_id !== readbackExecution
+   if (expected && (expected.execution_id !== readbackExecution
        || expected?.schema_version !== "readiness-recovery.economic-scenario-preview.v1"
-       || expected?.actionable !== false || expected?.supply_source_verified !== false) {
+       || expected.actionable !== false || expected.supply_source_verified !== false)) {
     throw new Error("RR_E2E_READBACK_EXPECTED_SCENARIO_INVALID");
    }
-   const rows = await db`SELECT (record->'response' = ${rawExpected}::jsonb) AS identical
-                         FROM rr_economic_scenario_advice_archive
-                         WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
-   if (rows.length !== 1 || rows[0].identical !== true) {
-    throw new Error("RR_E2E_READBACK_PERSISTED_SCENARIO_MISMATCH");
-   }
+   const rows = expectedSha
+      ? await db`SELECT record->'response' AS response FROM rr_economic_scenario_advice_archive
+                 WHERE organization_id=${organization} AND execution_id=${readbackExecution}`
+      : await db`SELECT (record->'response' = ${rawExpected}::jsonb) AS identical
+                  FROM rr_economic_scenario_advice_archive
+                  WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
+   const matches = rows.length === 1 && (expectedSha
+       ? await fingerprint(rows[0].response) === expectedSha
+       : rows[0].identical === true);
+   if (!matches) throw new Error("RR_E2E_READBACK_PERSISTED_SCENARIO_MISMATCH");
   } else {
-   if (expected?.organization_id !== organization
-       || expected?.result?.workflow?.execution_id !== readbackExecution) {
+   if (expected && (expected.organization_id !== organization
+       || expected?.result?.workflow?.execution_id !== readbackExecution)) {
     throw new Error("RR_E2E_READBACK_EXPECTED_IDENTITY_MISMATCH");
    }
-   const rows = await db`SELECT (record = ${rawExpected}::jsonb) AS identical
-                         FROM rr_execution_records
-                         WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
-   if (rows.length !== 1 || rows[0].identical !== true) {
-    throw new Error("RR_E2E_READBACK_PERSISTED_RECORD_MISMATCH");
-   }
+   const rows = expectedSha
+      ? await db`SELECT record FROM rr_execution_records
+                 WHERE organization_id=${organization} AND execution_id=${readbackExecution}`
+      : await db`SELECT (record = ${rawExpected}::jsonb) AS identical
+                  FROM rr_execution_records
+                  WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
+   const matches = rows.length === 1 && (expectedSha
+       ? await fingerprint(rows[0].record) === expectedSha
+       : rows[0].identical === true);
+   if (!matches) throw new Error("RR_E2E_READBACK_PERSISTED_RECORD_MISMATCH");
   }
     const foreign = await db`SELECT organization_id, execution_id FROM rr_execution_records
                            WHERE organization_id <> ${organization}
