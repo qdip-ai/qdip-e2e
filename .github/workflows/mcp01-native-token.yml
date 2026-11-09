@@ -1,7 +1,7 @@
 name: MCP01 real Native QA ownership bootstrap
 on:
   push:
-    branches: [test/mcp01-native-token-contract, feat/mcp-02-two-capability-e2e, feat/mcp-03-independent-agent-e2e]
+    branches: [test/mcp01-native-token-contract, feat/mcp-02-two-capability-e2e, feat/mcp-03-independent-agent-e2e, test/mcp-authz-e2e-01-live-zitadel]
     paths:
       - .github/workflows/mcp01-native-token.yml
       - scripts/mcp01_native_token_live.mjs
@@ -305,3 +305,96 @@ jobs:
           set -euo pipefail
           cd /tmp/mcp03-native
           node mcp01_native_token_live.mjs --mcp-delegation
+
+  qa-authz-live:
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event_name == 'push' && github.ref == 'refs/heads/test/mcp-authz-e2e-01-live-zitadel'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reuse pinned independent OAuth client and existing browser runtime
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mcp-authz-native
+          cp scripts/mcp01_native_token_live.mjs /tmp/mcp-authz-native/
+          cd /tmp/mcp-authz-native
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts --no-audit --no-fund @playwright/test@1.56.1 jose@6.1.3 @modelcontextprotocol/client@2.4.0
+          npx playwright install chromium
+          node --check mcp01_native_token_live.mjs
+          node mcp01_native_token_live.mjs --self-test
+      - name: OAuth P0 actual audience probe (independent from RBAC verdict)
+        env:
+          MCP01_PROVISION_OAUTH: 'false'
+          MCP01_VERIFY_EXISTING_OAUTH: 'false'
+          MCP01_CONFIGURE_ROLE_CONTRACT: 'false'
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: 'false'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp-authz-native
+          node mcp01_native_token_live.mjs --mcp-discovery-preflight
+      - name: Independent foreign-org Zitadel principal must be denied MCP
+        env:
+          MCP01_PROVISION_OAUTH: 'false'
+          MCP01_VERIFY_EXISTING_OAUTH: 'false'
+          MCP01_CONFIGURE_ROLE_CONTRACT: 'false'
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: 'false'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp-authz-native
+          node mcp01_native_token_live.mjs --mcp-authz-cross-org
+      - name: QA owner requests unassigned read role and must be denied
+        env:
+          MCP01_PROVISION_OAUTH: 'false'
+          MCP01_VERIFY_EXISTING_OAUTH: 'false'
+          MCP01_CONFIGURE_ROLE_CONTRACT: 'false'
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: 'false'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp-authz-native
+          node mcp01_native_token_live.mjs --mcp-authz-unassigned
+      - name: QA23 actual read-only role and Core-bound MCP list, describe and invoke denial
+        env:
+          MCP01_PROVISION_OAUTH: 'false'
+          MCP01_VERIFY_EXISTING_OAUTH: 'false'
+          MCP01_CONFIGURE_ROLE_CONTRACT: 'false'
+          MCP01_OAUTH_PROFILE: zitadel_project_roles
+          MCP01_REGISTER_QA_CALLBACK: 'false'
+          QDIP_E2E_ZITADEL_TEST21_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_LOGIN }}
+          QDIP_E2E_ZITADEL_TEST21_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST21_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST23_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST23_PASSWORD }}
+          QDIP_E2E_ZITADEL_TEST23_TOTP_SEED: ${{ secrets.QDIP_E2E_ZITADEL_TEST23_TOTP_SEED }}
+          QDIP_SDK_QA_PROJECT_ID: ${{ vars.QDIP_SDK_QA_PROJECT_ID }}
+          QDIP_SDK_MANAGED_APP_ID: ${{ vars.QDIP_SDK_MANAGED_APP_ID }}
+          QDIP_SDK_MANAGED_CLIENT_ID: ${{ vars.QDIP_SDK_MANAGED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          cd /tmp/mcp-authz-native
+          node mcp01_native_token_live.mjs --mcp-authz-qa23-readonly
