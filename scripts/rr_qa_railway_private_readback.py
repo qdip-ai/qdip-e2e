@@ -47,6 +47,7 @@ class RailwayReadback:
             headers={
                 "Project-Access-Token": self.token,
                 "Content-Type": "application/json",
+                "User-Agent": "qdip-rr-private-readback/1.0",
             },
             method="POST",
         )
