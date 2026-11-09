@@ -443,6 +443,35 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                 assert missing.status == 404, (
                     f"RR_QA_SCOPED_API_READ_HTTP_{missing.status}"
                 )
+                # Read-only real-session preflight: test the activated BFF -> RR
+                # scheduling boundary without executing Kernel or writing PostgreSQL.
+                sample = json.loads(
+                    (Path(__file__).resolve().parents[1] / "fixtures" /
+                     "rr_reference_api_v1.json").read_text(encoding="utf-8")
+                )
+                proof_id = "rr-qa-preflight-" + uuid4().hex
+                now = datetime.now(UTC)
+                sample["execution_id"] = proof_id
+                sample["payload"]["decision_id"] = proof_id
+                sample["source"]["snapshot_id"] = proof_id
+                sample["source"]["captured_at"] = (now - timedelta(minutes=2)).isoformat()
+                sample["ingested_at"] = (now - timedelta(minutes=1)).isoformat()
+                preview_response = page.request.post(
+                    base + "/api/rr-operator/kernel/preflight",
+                    data=json.dumps(sample, separators=(",", ":")),
+                    headers={"origin": base, "content-type": "application/json"},
+                    timeout=30_000,
+                )
+                assert preview_response.status == 200, (
+                    f"RR_QA_AUTHENTICATED_SCHEDULING_PREFLIGHT_HTTP_{preview_response.status}"
+                )
+                preview = preview_response.json()
+                assert (
+                    preview.get("execution_id") == proof_id
+                    and preview.get("validation_scope") == "SCHEMA_AND_ADMISSION_ONLY"
+                    and preview.get("accepted_for_kernel_submission") is True
+                ), "RR_QA_AUTHENTICATED_SCHEDULING_PREFLIGHT_CONTRACT"
+                print("RR_QA_AUTHENTICATED_SCHEDULING_PREFLIGHT=PASS")
                 assert signed_owner.status == 200, (
                     f"RR_QA_STAGING_OWNER_LIST_HTTP_{signed_owner.status}"
                 )
