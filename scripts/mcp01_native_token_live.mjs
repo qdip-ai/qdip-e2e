@@ -85,7 +85,24 @@ async function loginToSite(ctx,user,password,stage){
  check(!!pass,stage+'_PASSWORD_FORM');
  const callback=page.waitForResponse(r=>{try{const u=new URL(r.url());return u.origin===SITE&&u.pathname==='/api/auth/callback/zitadel';}catch{return false;}},{timeout:40000});
  await pass.fill(password);await pass.press('Enter');
- const done=await callback.catch(()=>null);check(done&&[302,303].includes(done.status()),stage+'_LOGIN_CALLBACK');
+ const done=await callback.catch(()=>null);
+ if(!done){
+   // Booleans only: never output the login page, response, URL, user, or credentials.
+   const location=new URL(page.url());
+   marker(stage+'_LOGIN_STALLED_ORIGIN',location.origin===ISSUER?'ISSUER':location.origin===SITE?'SITE':'OTHER');
+   const body=(await page.locator('body').innerText().catch(()=>'' )).slice(0,12000).toLowerCase();
+   const signs={
+     invalid_credentials:/invalid.*(password|credentials|login)|incorrect.*(password|credentials)|wrong password|login failed|falsches passwort|nieprawidłowe hasło/.test(body),
+     password_reset:/reset password|change password|new password|password expired|passwort ändern/.test(body),
+     email_verification:/verify.*(email|address)|confirm.*email|email not verified|verify your account/.test(body),
+     second_factor:/authentication code|authenticator|one.time password|two.factor|mfa|passkey|verify.*(identity|login)|sms code/.test(body),
+     consent:/approve|grant access|authorize application|consent/.test(body)
+   };
+   for(const [key,value] of Object.entries(signs))marker(stage+'_LOGIN_STATE_'+key.toUpperCase(),value);
+   marker(stage+'_LOGIN_PASSWORD_FIELD_VISIBLE',await page.locator('input[type="password"]').first().isVisible().catch(()=>false));
+   marker(stage+'_LOGIN_OTP_FIELD_VISIBLE',await page.locator('input[autocomplete="one-time-code"]').first().isVisible().catch(()=>false));
+ }
+ check(done&&[302,303].includes(done.status()),stage+'_LOGIN_CALLBACK');
 }
 
 async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
