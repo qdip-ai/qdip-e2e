@@ -283,6 +283,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p test-results/rr-standalone
           python -m pytest -q tests/test_rr_real_zitadel_standalone_browser.py --basetemp=test-results/rr-standalone --junitxml=test-results/rr-standalone-report.xml -ra
       - name: Verify all six real-browser viewport images were created
         shell: bash
