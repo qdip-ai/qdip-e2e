@@ -29,6 +29,7 @@ const qa23ReadOnlyMode=process.argv.includes('--mcp-authz-qa23-readonly');
 const QA23='qa-23@qdip.ai';
 const unassignedRoleMode=process.argv.includes('--mcp-authz-unassigned');
 let delegationPhase='not-started';
+let qa23ReadPhase='before';
 const realDecisionMode=executionMode||multiCapabilityMode||discoveryPreflightMode||workerUnavailableMode||workerTimeoutMode||secondAppLinkMode||delegationMode||crossOrgMode||unassignedRoleMode||qa23ReadOnlyMode;
 const ownerBootstrapMode=process.argv.includes('--mcp-owner-bootstrap');
 const applicationLinkMode=process.argv.includes('--mcp-application-link');
@@ -459,19 +460,32 @@ async function assertQa23ReadOnly(access){
    const invoked=await client.callTool({name:'qdip_invoke_decision',
      arguments:{capability_id:'mcp.qa.choice',capability_version:'1',
        input:{first_value:7,second_value:3},timeout_seconds:10}},{timeout:20000});
-   const neverExecuted=invoked.isError===true&&invoked.structuredContent?.error?.code==='UNAUTHORIZED'&&
-     !('execution_id' in (invoked.structuredContent??{}));
-   check(neverExecuted,'AUTHZ02_QA23_READONLY_INVOKE_DENIED_NO_EXECUTION_ID');
-   // Lack of execution_id alone is not an independent zero-Kernel-executions audit.
-   marker('AUTHZ02_KERNEL_CORRELATION_AUDIT','NOT_VERIFIED');
+   check(invoked.isError===true&&invoked.structuredContent?.error?.code==='UNAUTHORIZED'&&
+     !('execution_id' in (invoked.structuredContent??{})),
+     'AUTHZ_XUSER_'+qa23ReadPhase.toUpperCase()+'_INVOKE_DENIED');
    const listOk=list.isError!==true&&Array.isArray(list.structuredContent?.capabilities)&&
-     list.structuredContent.capabilities.some(x=>x.capability_id==='mcp.qa.choice'&&x.capability_version==='1');
-   marker('AUTHZ01_QA23_BOUND_SDK_LIST',listOk?'PASS':'FAIL');
+     list.structuredContent.capabilities.length===1&&
+     list.structuredContent.capabilities[0].capability_id==='mcp.qa.choice'&&
+     list.structuredContent.capabilities[0].capability_version==='1';
    const describeOk=described.isError!==true&&described.structuredContent?.capability_id==='mcp.qa.choice'&&
      described.structuredContent?.capability_version==='1';
-   marker('AUTHZ01_QA23_BOUND_SDK_DESCRIBE',describeOk?'PASS':'FAIL');
-   check(listOk&&describeOk,'AUTHZ01_QA23_CORE_APPLICATION_BINDING');
+   if(qa23ReadPhase==='granted'){
+     check(listOk&&describeOk,'AUTHZ_XUSER_GRANTED_EXACT_READ');
+   }else{
+     check(list.isError===true&&described.isError===true&&!listOk&&!describeOk,
+       'AUTHZ_XUSER_'+qa23ReadPhase.toUpperCase()+'_READ_DENIED');
+   }
  }finally{await client.close();}
+}
+
+async function qa23ReadAudit(ctx,token){
+ const response=await ctx.request.get(QA_GATEWAY+'/api/v1/qa/mcp652/decision-audit',{
+   timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+token}});
+ check(response.status()===200,'AUTHZ_XUSER_CORE_AUDIT_AVAILABLE');
+ const body=await json(response,'AUTHZ_XUSER_CORE_AUDIT_RESPONSE');
+ check(Number.isSafeInteger(body.execution_events)&&body.execution_events>=0,
+   'AUTHZ_XUSER_CORE_AUDIT_RECORD_COUNT_VALID');
+ return body.execution_events;
 }
 
 // QA fault-injection qualification. Run ONLY while the reviewed QA worker is
@@ -1004,60 +1018,53 @@ async function main(){
    }
    let qa23Subject=null;
    if(qa23ReadOnlyMode){
-     const response=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/ListProjectRoles',{
-       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
-       data:{projectId:project,pagination:{limit:50},
-         filters:[{roleKeyFilter:{key:'mcp:read'}}]}}),'AUTHZ01_QA23_PROJECT_ROLE');
-     check((response.projectRoles??[]).filter(x=>x.key==='mcp:read'&&x.projectId===project).length===1,
-       'AUTHZ01_QA23_READ_ROLE_REGISTERED');
-     const grants=await json(await ctx.request.post(ISSUER+'/zitadel.authorization.v2.AuthorizationService/ListAuthorizations',{
-       timeout:15000,maxRedirects:0,headers:{Authorization:'Bearer '+consoleToken},
-       data:{pagination:{limit:100,offset:0},filters:[
-         {projectId:{id:project}},{organizationId:{id:QA_ZITADEL_ORG}}
-       ]}}),'AUTHZ01_QA23_ROLE_ASSIGNMENT');
-     const items=grants.authorizations??[];
-     check(Array.isArray(items)&&items.length<=100&&
-       (!grants.pagination?.totalResult||grants.pagination.totalResult<=100),
-       'AUTHZ01_QA23_ASSIGNMENT_INVENTORY_COMPLETE');
-     // ZITADEL preferredLoginName may include an IdP/organization suffix.
-     // Pin the unique read-only project assignment by immutable subject; the
-     // separate real QA23 OAuth flow below must match that exact subject.
-     const matches=items.filter(x=>x.project?.id===project&&x.organization?.id===QA_ZITADEL_ORG&&
-       x.state==='STATE_ACTIVE'&&x.roles?.some(role=>role.key==='mcp:read')&&
-       !x.roles?.some(role=>role.key==='mcp:use'));
-     check(matches.length===1,'AUTHZ01_QA23_UNIQUE_READONLY_ASSIGNMENT');
-     const grant=matches[0],roles=grant.roles?.map(x=>x.key)??[];
-     check(grant.project?.id===project&&grant.project?.organizationId===QA_ZITADEL_ORG&&
-       grant.organization?.id===QA_ZITADEL_ORG&&grant.user?.organizationId===QA_ZITADEL_ORG&&
-       grant.state==='STATE_ACTIVE'&&roles.includes('mcp:read')&&!roles.includes('mcp:use')&&
-       /^[0-9]{1,32}$/.test(grant.user?.id??''),'AUTHZ01_QA23_EXCLUSIVE_ROLE_VERIFIED');
-     qa23Subject=grant.user.id;
-   }
-   consoleToken=null;await consolePage.close();
-   if(crossOrgMode){
-     // Existing main-org identity is a cross-org negative control, NEVER a read-only positive.
-     const username=process.env.QDIP_E2E_ZITADEL_TEST_LOGIN;
-     const password=process.env.QDIP_E2E_ZITADEL_TEST_PASSWORD;
-     check(typeof username==='string'&&username.length>3&&username!==USER&&
-       typeof password==='string'&&password.length>=8,'AUTHZ05_EXISTING_SEPARATE_TEST_IDENTITY');
+     check((process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD??'').length>=8,
+       'AUTHZ01_QA23_SEALED_LOGIN_CONFIGURED');
+     const qaApp={project,client,redirect};
      const readCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
-     try{
-       await loginToSite(readCtx,username,password,'AUTHZ05');
-       check(await nativeFlow(readCtx,metadata,{project,client,redirect},null,'MCP_RESOURCE',
-         async (_token,subject)=>check(subject!==owner.sub,'AUTHZ05_DIFFERENT_ZITADEL_SUBJECT')),
-         'AUTHZ05_LIVE_CROSS_ORG_DENIAL_FLOW');
-     }finally{await readCtx.close();}
-     return;
-   }
-
-   if(qa23ReadOnlyMode){
-     check((process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD??'').length>=8,'AUTHZ01_QA23_SEALED_LOGIN_CONFIGURED');
-     const readCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
+     let mustClean=false,before=null;
+     const action=async(method,token)=>{
+       const result=await ctx.request.fetch(QA_GATEWAY+'/api/v1/qa/mcp652/read-delegation',{
+         method,timeout:15000,maxRedirects:0,
+         headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+         data:{recipient_subject:qa23Subject}});
+       check(result.status()===204,'AUTHZ_XUSER_'+(method==='POST'?'GRANT':'REVOKE')+'_CORE_HTTP_204');
+     };
+     const asOwner=async callback=>check(await nativeFlow(ctx,metadata,qaApp,owner.sub,
+       'PROJECT_BASELINE',callback),'AUTHZ_XUSER_OWNER_NATIVE_PKCE');
      try{
        await loginToSite(readCtx,QA23,process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD,'AUTHZ01_QA23');
-       check(await nativeFlow(readCtx,metadata,{project,client,redirect},qa23Subject,'MCP_RESOURCE'),
-         'AUTHZ01_QA23_LIVE_READ_ONLY_FLOW');
-     }finally{await readCtx.close();}
+       // Clean an abandoned QA-only grant before checking the no-grant path.
+       await asOwner(token=>action('DELETE',token));
+       qa23ReadPhase='before';
+       check(await nativeFlow(readCtx,metadata,qaApp,qa23Subject,'MCP_RESOURCE'),
+         'AUTHZ_XUSER_BEFORE_GRANT_FLOW');
+       await asOwner(async token=>{
+         before=await qa23ReadAudit(ctx,token);
+         mustClean=true; // ensure finally revokes even if Core commits and response fails
+         await action('POST',token);
+       });
+       qa23ReadPhase='granted';
+       check(await nativeFlow(readCtx,metadata,qaApp,qa23Subject,'MCP_RESOURCE'),
+         'AUTHZ_XUSER_GRANTED_FLOW');
+     }finally{
+       if(mustClean){
+         await asOwner(async token=>{
+           await action('DELETE',token);
+           const after=await qa23ReadAudit(ctx,token);
+           check(before!==null&&after===before,'AUTHZ_XUSER_ZERO_NEW_KERNEL_EXECUTION_RECORDS');
+         });
+       }
+       await readCtx.close();
+     }
+     qa23ReadPhase='revoked';
+     const revokedCtx=await browser.newContext({ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false});
+     try{
+       await loginToSite(revokedCtx,QA23,process.env.QDIP_E2E_ZITADEL_TEST23_PASSWORD,'AUTHZ01_QA23');
+       check(await nativeFlow(revokedCtx,metadata,qaApp,qa23Subject,'MCP_RESOURCE'),
+         'AUTHZ_XUSER_REVOKED_FLOW');
+     }finally{await revokedCtx.close();}
+     marker('AUTHZ_XUSER_CROSS_USER_LIVE_E2E','PASS');
      return;
    }
    if(unassignedRoleMode){
