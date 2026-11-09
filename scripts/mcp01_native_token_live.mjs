@@ -927,9 +927,13 @@ async function main(){
      check(Array.isArray(items)&&items.length<=100&&
        (!grants.pagination?.totalResult||grants.pagination.totalResult<=100),
        'AUTHZ01_QA23_ASSIGNMENT_INVENTORY_COMPLETE');
-     const matches=items.filter(x=>(x.user?.preferredLoginName??'').toLowerCase()===QA23||
-       (x.user?.preferredLoginName??'').toLowerCase().startsWith(QA23+'@'));
-     check(matches.length===1,'AUTHZ01_QA23_EXACT_IDENTITY_FOUND');
+     // ZITADEL preferredLoginName may include an IdP/organization suffix.
+     // Pin the unique read-only project assignment by immutable subject; the
+     // separate real QA23 OAuth flow below must match that exact subject.
+     const matches=items.filter(x=>x.project?.id===project&&x.organization?.id===QA_ZITADEL_ORG&&
+       x.state==='STATE_ACTIVE'&&x.roles?.some(role=>role.key==='mcp:read')&&
+       !x.roles?.some(role=>role.key==='mcp:use'));
+     check(matches.length===1,'AUTHZ01_QA23_UNIQUE_READONLY_ASSIGNMENT');
      const grant=matches[0],roles=grant.roles?.map(x=>x.key)??[];
      check(grant.project?.id===project&&grant.project?.organizationId===QA_ZITADEL_ORG&&
        grant.organization?.id===QA_ZITADEL_ORG&&grant.user?.organizationId===QA_ZITADEL_ORG&&
