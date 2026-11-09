@@ -234,15 +234,6 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                 f"EXECUTION={first_id} SHA256={record_sha}",
                 flush=True,
             )
-            foreign_org, foreign_execution_id = readback_from_ci(record)
-            assert foreign_execution_id != first_id, "RR_FOREIGN_FIXTURE_INVALID"
-            foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
-            assert foreign.status in (403, 404), (
-                f"RR_FOREIGN_ORGANIZATION_READ_HTTP_{foreign.status}"
-            )
-            assert foreign_org not in foreign.text(), "RR_FOREIGN_ORG_ID_EXPOSED"
-            print("RR_STANDALONE_POSTGRES_READBACK=PASS")
-            print("RR_CROSS_ORG_HTTP_ISOLATION=PASS")
             replay = page.request.get(
                 prefix + "/executions/" + first_id + "/replay-verification"
             )
@@ -292,7 +283,6 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                 f"RR_LIVE_REPLAN_HTTP_{revised.status}"
             )
             assert revised.json()["result"]["workflow"]["execution_id"] == next_id
-            readback_from_ci(revised.json())  # Also prove durable replan record.
             stale = call_post("/executions/" + first_id + "/replan", {
                 **second,
                 "execution_id": "rr-browser-stale-" + suffix,
@@ -418,6 +408,18 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
                     "document.documentElement.scrollWidth <= window.innerWidth + 1"
                 ), f"RR_RESULT_HORIZONTAL_OVERFLOW_{width}x{height}"
 
+            # Browser assertions execute before the independent SQL proof, so
+            # a missing verifier credential cannot hide a product regression.
+            foreign_org, foreign_execution_id = readback_from_ci(record)
+            assert foreign_execution_id != first_id, "RR_FOREIGN_FIXTURE_INVALID"
+            foreign = page.request.get(prefix + "/executions/" + foreign_execution_id)
+            assert foreign.status in (403, 404), (
+                f"RR_FOREIGN_ORGANIZATION_READ_HTTP_{foreign.status}"
+            )
+            assert foreign_org not in foreign.text(), "RR_FOREIGN_ORG_ID_EXPOSED"
+            readback_from_ci(revised.json())  # Durable replan record.
+            print("RR_STANDALONE_POSTGRES_READBACK=PASS")
+            print("RR_CROSS_ORG_HTTP_ISOLATION=PASS")
             assert not browser_errors, (
                 f"RR_BROWSER_UNHANDLED_EXCEPTIONS_{len(browser_errors)}"
             )
@@ -694,8 +696,6 @@ def test_real_zitadel_rr_cvar_staging() -> None:
                     f"EXECUTION={scenario['execution_id']} SHA256={scenario_sha}",
                     flush=True,
                 )
-                scenario_readback_from_ci(output, organization_id)
-                print("RR_CVAR_REAL_PERSISTENCE_AND_REPLAY=PASS")
 
                 neutral = {**scenario, "execution_id": "rr-cvar-neutral-" + suffix}
                 neutral.pop("risk")
@@ -742,6 +742,8 @@ def test_real_zitadel_rr_cvar_staging() -> None:
                 conflict["risk"]["aversion_bps"] = 0
                 assert post("/economic-v2/scenario-advice", conflict).status == 409
                 print("RR_CVAR_NEGATIVE_CONTRACTS=PASS")
+                scenario_readback_from_ci(output, organization_id)
+                print("RR_CVAR_REAL_PERSISTENCE_AND_REPLAY=PASS")
             finally:
                 context.close()
         finally:
