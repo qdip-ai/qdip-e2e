@@ -36,17 +36,35 @@ if (readbackExecution) {
    throw new Error("RR_E2E_READBACK_INVALID_BOUND_INPUT");
   }
   const expected = JSON.parse(rawExpected);
-  if (expected?.organization_id !== organization
-      || expected?.result?.workflow?.execution_id !== readbackExecution) {
-   throw new Error("RR_E2E_READBACK_EXPECTED_IDENTITY_MISMATCH");
+  const kind = Bun.env.RR_E2E_READBACK_KIND ?? "scheduling";
+  if (!["scheduling", "scenario"].includes(kind)) {
+   throw new Error("RR_E2E_READBACK_KIND_INVALID");
   }
-  const rows = await db`SELECT (record = ${rawExpected}::jsonb) AS identical
-                        FROM rr_execution_records
-                        WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
-  if (rows.length !== 1 || rows[0].identical !== true) {
-   throw new Error("RR_E2E_READBACK_PERSISTED_RECORD_MISMATCH");
+  if (kind === "scenario") {
+   if (expected?.execution_id !== readbackExecution
+       || expected?.schema_version !== "readiness-recovery.economic-scenario-preview.v1"
+       || expected?.actionable !== false || expected?.supply_source_verified !== false) {
+    throw new Error("RR_E2E_READBACK_EXPECTED_SCENARIO_INVALID");
+   }
+   const rows = await db`SELECT (record->'response' = ${rawExpected}::jsonb) AS identical
+                         FROM rr_economic_scenario_advice_archive
+                         WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
+   if (rows.length !== 1 || rows[0].identical !== true) {
+    throw new Error("RR_E2E_READBACK_PERSISTED_SCENARIO_MISMATCH");
+   }
+  } else {
+   if (expected?.organization_id !== organization
+       || expected?.result?.workflow?.execution_id !== readbackExecution) {
+    throw new Error("RR_E2E_READBACK_EXPECTED_IDENTITY_MISMATCH");
+   }
+   const rows = await db`SELECT (record = ${rawExpected}::jsonb) AS identical
+                         FROM rr_execution_records
+                         WHERE organization_id=${organization} AND execution_id=${readbackExecution}`;
+   if (rows.length !== 1 || rows[0].identical !== true) {
+    throw new Error("RR_E2E_READBACK_PERSISTED_RECORD_MISMATCH");
+   }
   }
-  const foreign = await db`SELECT organization_id, execution_id FROM rr_execution_records
+    const foreign = await db`SELECT organization_id, execution_id FROM rr_execution_records
                            WHERE organization_id <> ${organization}
                            ORDER BY execution_id LIMIT 1`;
   if (foreign.length !== 1) throw new Error("RR_E2E_REAL_FOREIGN_RECORD_MISSING");
