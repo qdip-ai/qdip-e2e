@@ -240,7 +240,10 @@ class TestCredentialProvisioning(unittest.TestCase):
         query.assert_called_once()
 
     def test_sealed_stage_rejects_unsealed_receipt(self):
-        records = {provision.WEB_SERVICE: {"RR_ORG_API_KEY": ("o" * 32, True)}}
+        records = {
+            provision.RR_SERVICE: {"RR_WRITE_CREDENTIALS_JSON": ("[]", False)},
+            provision.WEB_SERVICE: {"RR_ORG_API_KEY": ("o" * 32, True)},
+        }
         def gql(query, variables, token):
             if "environmentStagedChanges" in query:
                 return {"environmentStagedChanges": None}
@@ -248,9 +251,10 @@ class TestCredentialProvisioning(unittest.TestCase):
                 return {"environmentStageChanges": {"id": "stage", "status": "STAGED"}}
             if "environmentPatchCommitStaged" in query:
                 return {"environmentPatchCommitStaged": True}
-            return {"environment": {"variables": {"edges": [{
-                "node": {"name": "RR_ORG_API_KEY", "serviceId": provision.WEB_SERVICE, "isSealed": False}
-            }]}}}
+            return {"environment": {"variables": {"edges": [
+                {"node": {"name": "RR_WRITE_CREDENTIALS_JSON", "serviceId": provision.RR_SERVICE, "isSealed": False}},
+                {"node": {"name": "RR_ORG_API_KEY", "serviceId": provision.WEB_SERVICE, "isSealed": False}},
+            ]}}}
         with patch.object(provision, "gql", side_effect=gql):
             with self.assertRaisesRegex(RuntimeError, "sealed"):
                 provision.stage_sealed_variables(records, "r" * 32)
