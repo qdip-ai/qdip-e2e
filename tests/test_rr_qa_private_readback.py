@@ -63,6 +63,7 @@ class TestPrivateReadback(unittest.TestCase):
         token = "r" * 32
         def reply(request, timeout):
             self.assertEqual(request.get_header("Project-access-token"), token)
+            self.assertEqual(request.get_header("User-agent"), "qdip-rr-private-readback/1.0")
             self.assertFalse(request.has_header("Authorization"))
             return io.BytesIO(b'{"data":{"projectToken":{"projectId":"4665798b-2012-466e-be91-2555d76f36c2","environmentId":"d867e243-4a53-413f-84a4-e33c15ecc8ba"}}}')
 
