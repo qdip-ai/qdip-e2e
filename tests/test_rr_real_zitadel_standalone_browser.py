@@ -11,6 +11,7 @@ import copy
 from decimal import Decimal
 import json
 import os
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,6 +32,16 @@ def _required(name: str) -> str:
     if not value:
         pytest.fail(f"RR_BROWSER_E2E_MISSING_{name}", pytrace=False)
     return value
+
+
+def _rr_failure_code(response) -> str:
+    """Expose only a small explicit RR error code, never token or response text."""
+    try:
+        detail = response.json().get("detail", {})
+        code = detail.get("code", "") if isinstance(detail, dict) else ""
+    except (TypeError, ValueError, AttributeError):
+        return "UNKNOWN"
+    return code if isinstance(code, str) and re.fullmatch(r"[a-z0-9_]{1,80}", code) else "UNKNOWN"
 
 
 def _visible_input(page, selectors: tuple[str, ...], timeout: float):
@@ -193,7 +204,7 @@ def test_real_zitadel_standalone_rr_bff(tmp_path):
             )
 
             created = call_post("/executions", first)
-            assert created.status == 201, f"RR_LIVE_CREATE_HTTP_{created.status}"
+            assert created.status == 201, f"RR_LIVE_CREATE_HTTP_{created.status}:CODE_{_rr_failure_code(created)}"
             record = created.json()
             assert record["result"]["workflow"]["execution_id"] == first_id
             assert record["result"]["runtime"]["execution_result"]["execution_id"] == first_id
@@ -591,14 +602,14 @@ def test_real_zitadel_rr_cvar_staging() -> None:
 
                 created = post("/economic-v2/snapshots", economic)
                 assert created.status == 201, (
-                    f"RR_CVAR_SOURCE_REGISTER_HTTP_{created.status}"
+                    f"RR_CVAR_SOURCE_REGISTER_HTTP_{created.status}:CODE_{_rr_failure_code(created)}"
                 )
                 assert created.json()["snapshot_id"] == economic["snapshot_id"]
                 # Core scenario model must be reached; ordinary economic-v2
                 # scheduling/advice evidence is insufficient for CVaR.
                 risk_result = post("/economic-v2/scenario-advice", scenario)
                 assert risk_result.status == 200, (
-                    f"RR_CVAR_RISK_HTTP_{risk_result.status}"
+                    f"RR_CVAR_RISK_HTTP_{risk_result.status}:CODE_{_rr_failure_code(risk_result)}"
                 )
                 output = risk_result.json()
                 assert output["schema_version"] == (
