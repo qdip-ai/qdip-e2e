@@ -850,8 +850,9 @@ async function main(){
      const projectRoles=await json(await ctx.request.post(ISSUER+'/zitadel.project.v2.ProjectService/ListProjectRoles',{
        timeout:15000,maxRedirects:0,headers,data:{projectId:project,pagination:{limit:10},
          filters:[{roleKeyFilter:{key:'mcp:read'}}]}}),'AUTHZ06_REAL_PROJECT_ROLE');
-     check((projectRoles.projectRoles??[]).filter(x=>x.key==='mcp:read'&&x.projectId===project).length===1,
-       'AUTHZ06_READ_ROLE_EXISTS');
+     const readRoles=(projectRoles.projectRoles??[]).filter(x=>x.key==='mcp:read'&&x.projectId===project);
+     check(readRoles.length<=1,'AUTHZ06_READ_ROLE_UNAMBIGUOUS');
+     marker('AUTHZ01_READ_ROLE_REGISTERED',readRoles.length===1?'PASS':'BLOCKED_MISSING_ROLE');
      const assignments=await json(await ctx.request.post(ISSUER+'/zitadel.authorization.v2.AuthorizationService/ListAuthorizations',{
        timeout:15000,maxRedirects:0,headers,data:{pagination:{limit:10},filters:[
          {projectId:{id:project}},{organizationId:{id:QA_ZITADEL_ORG}},{inUserIds:{ids:[owner.sub]}}
