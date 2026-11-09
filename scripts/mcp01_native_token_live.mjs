@@ -276,7 +276,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
        'OAUTH_AUDIENCE_BOUNDED');
      marker('OAUTH01_ACTUAL_AUD',JSON.stringify(aud));
      marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE',aud.includes(MCP)?'PASS':'CONTRACT_FAIL');
-     if(crossOrgMode||unassignedRoleMode||qa23ReadOnlyMode){
+     if(crossOrgMode||unassignedRoleMode||(qa23ReadOnlyMode&&mode==='MCP_RESOURCE')){
        const roles=verified[`urn:zitadel:iam:org:project:${app.project}:roles`];
        if(qa23ReadOnlyMode){
          check(typeof roles?.['mcp:read']?.[QA_ZITADEL_ORG]==='string' &&
@@ -297,7 +297,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      marker('OAUTH02_PR6_EXACT_MCP_RESOURCE_AUDIENCE','NOT_VERIFIED_OPAQUE_ACCESS_TOKEN');
      if(crossOrgMode)marker('AUTHZ05_ROLE_EVIDENCE','LIVE_MCP_DENIAL_REQUIRED');
      if(unassignedRoleMode)marker('AUTHZ06_ROLE_EVIDENCE','EXISTING_ZITADEL_ASSIGNMENT_READBACK');
-     if(qa23ReadOnlyMode)marker('AUTHZ01_QA23_ROLE_EVIDENCE','VERIFIED_ZITADEL_ASSIGNMENT_READBACK');
+     if(qa23ReadOnlyMode&&mode==='MCP_RESOURCE')marker('AUTHZ01_QA23_ROLE_EVIDENCE','VERIFIED_ZITADEL_ASSIGNMENT_READBACK');
    }
    if(onAccess)await onAccess(access,userinfo.sub);
    if(crossOrgMode||unassignedRoleMode){
@@ -311,7 +311,7 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      marker(stage,'PASS');
      return true;
    }
-   if(qa23ReadOnlyMode){
+   if(qa23ReadOnlyMode&&mode==='MCP_RESOURCE'){
      // Exercise actual MCP initialize + tools/call; server/discover is not a
      // valid MCP method and HTTP 400 cannot establish token acceptance.
      await assertQa23ReadOnly(access);
