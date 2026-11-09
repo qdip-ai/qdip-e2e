@@ -311,12 +311,8 @@ async function nativeFlow(ctx,metadata,app,subject,mode,onAccess){
      return true;
    }
    if(qa23ReadOnlyMode){
-     const mcp=await ctx.request.post(MCP,{timeout:15000,maxRedirects:0,
-       headers:{Authorization:'Bearer '+access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',
-         'MCP-Protocol-Version':'2026-07-28','Mcp-Method':'server/discover'},
-       data:{jsonrpc:'2.0',id:701,method:'server/discover',params:{}}});
-     marker('AUTHZ01_QA23_MCP_DISCOVER_HTTP',mcp.status());
-     check(mcp.status()===200,'AUTHZ01_QA23_TOKEN_ACCEPTED');
+     // Exercise actual MCP initialize + tools/call; server/discover is not a
+     // valid MCP method and HTTP 400 cannot establish token acceptance.
      await assertQa23ReadOnly(access);
      return true;
    }
