@@ -8,6 +8,7 @@ One real-account login per run to avoid account lockout across viewports.
 from __future__ import annotations
 
 import copy
+from decimal import Decimal
 import json
 import os
 import time
@@ -19,7 +20,7 @@ from uuid import uuid4
 import pytest
 from playwright.sync_api import sync_playwright
 
-from scripts.rr_qa_railway_private_readback import readback_from_ci
+from scripts.rr_qa_railway_private_readback import readback_from_ci, scenario_readback_from_ci
 
 
 VIEWPORTS = ((1440, 900), (390, 844), (844, 390))
@@ -512,6 +513,205 @@ def test_railway_real_zitadel_login_and_scoped_rr_read() -> None:
                     ), f"RR_STAGING_OWNER_SELECTOR_OVERFLOW_{width}x{height}"
                     print(f"RR_STAGING_OWNER_SELECTOR_{width}x{height}=PASS")
                 print("RR_RAILWAY_REAL_ZITADEL_LOGIN_AND_SCOPED_READ=PASS")
+            finally:
+                context.close()
+        finally:
+            browser.close()
+
+
+def test_real_zitadel_rr_cvar_staging() -> None:
+    """Browser->Zitadel->BFF->RR->SDK Worker->Core CVaR->PostgreSQL/replay.
+
+    Deliberately separate from scheduling qualification: a scheduling 503
+    cannot mask the scenario-specific result. Never use a mock session or DB.
+    """
+    base = _required("RR_BROWSER_URL").rstrip("/")
+    organization_id = _required("RR_E2E_ORGANIZATION_ID")
+    assert _required("RR_E2E_STAGING_WRITE") == "1"
+    location = urlparse(base)
+    assert location.scheme == "https" and location.hostname
+    assert location.hostname.endswith(".up.railway.app")
+    assert location.path in ("", "/") and not location.query and not location.fragment
+    username = _required("QDIP_E2E_ZITADEL_TEST_LOGIN")
+    password = _required("QDIP_E2E_ZITADEL_TEST_PASSWORD")
+    suffix = uuid4().hex
+    economic = json.loads(
+        (Path(__file__).resolve().parents[1] / "fixtures" /
+         "rr_cvar_two_stage_v1.json").read_text(encoding="utf-8")
+    )
+    economic["snapshot_id"] = "rr-cvar-live-" + suffix
+    economic["operational"]["decision_id"] = "rr-cvar-decision-" + suffix
+    early = copy.deepcopy(economic)
+    late = copy.deepcopy(economic)
+    # Only an after-reveal delivery delay differs. The submitted current
+    # physical state and pre-reveal commitments must remain authoritative.
+    late["procurements"][0]["arrival_slot"] = 3
+    scenario = {
+        "snapshot_id": economic["snapshot_id"],
+        "execution_id": "rr-cvar-risk-" + suffix,
+        "reveal_slot": 1,
+        "scenarios": [
+            {
+                "id": "early", "probability_bps": 7000,
+                "probability_basis": "ASSUMED", "projected_request": early,
+            },
+            {
+                "id": "late", "probability_bps": 3000,
+                "probability_basis": "ASSUMED", "projected_request": late,
+            },
+        ],
+        "deferred_procurement_ids": [],
+        "risk": {
+            "loss_floor_cents": 300000,
+            "alpha_bps": 9000,
+            "aversion_bps": 3500,
+        },
+    }
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            context = browser.new_context(ignore_https_errors=False)
+            try:
+                page = context.new_page()
+                prefix = base + "/api/rr-operator/kernel"
+                assert page.request.get(
+                    prefix + "/economic-v2/scenario-advice/rr-cvar-unknown"
+                ).status == 401
+                _login_rr_zitadel(
+                    page, base + "/en/readiness-recovery", username, password,
+                )
+                headers = {"origin": base, "content-type": "application/json"}
+
+                def post(path: str, value: dict):
+                    return page.request.post(
+                        prefix + path, data=json.dumps(value),
+                        headers=headers, timeout=180_000,
+                    )
+
+                created = post("/economic-v2/snapshots", economic)
+                assert created.status == 201, (
+                    f"RR_CVAR_SOURCE_REGISTER_HTTP_{created.status}"
+                )
+                assert created.json()["snapshot_id"] == economic["snapshot_id"]
+                # Core scenario model must be reached; ordinary economic-v2
+                # scheduling/advice evidence is insufficient for CVaR.
+                risk_result = post("/economic-v2/scenario-advice", scenario)
+                assert risk_result.status == 200, (
+                    f"RR_CVAR_RISK_HTTP_{risk_result.status}"
+                )
+                output = risk_result.json()
+                assert output["schema_version"] == (
+                    "readiness-recovery.economic-scenario-preview.v1"
+                )
+                assert output["execution_id"] == scenario["execution_id"]
+                assert output["decision_id"] == economic["operational"]["decision_id"]
+                assert output["actionable"] is False
+                assert output["supply_source_verified"] is False
+                result = output["execution_result"]
+                replay = output["replay_contract"]
+                manifest = result["manifest"]
+                assert result["backend_status"] == "OPTIMAL"
+                assert result["semantic_status"] == "EXACT"
+                assert result["execution_id"] == scenario["execution_id"]
+                assert len(manifest["ir_hash"]) == 64
+                assert result["ir_hash"] == replay["ir_hash"] == manifest["ir_hash"]
+                assert replay["decision_spec_hash"] == manifest["decision_spec_hash"]
+                recommendation = output["recommendation"]
+                assert recommendation["status"] == "OPTIMAL"
+                assert recommendation["actionable"] is False
+                assert recommendation["reveal_slot"] == 1
+                assert [world["scenario_id"] for world in recommendation["scenarios"]] == [
+                    "early", "late"
+                ]
+                assert [world["probability_bps"] for world in recommendation["scenarios"]] == [
+                    7000, 3000
+                ]
+                expected = sum(
+                    Decimal(str(world["incremental_margin_cents"]))
+                    * world["probability_bps"]
+                    for world in recommendation["scenarios"]
+                ) / Decimal(10000)
+                assert Decimal(str(recommendation["expected_incremental_margin_cents"])) == expected
+                tail = Decimal(str(recommendation["cvar_loss_cents"]))
+                assert tail >= 0
+                penalty = tail * Decimal(3500) / Decimal(10000)
+                assert Decimal(str(recommendation["risk_penalty_cents"])) == penalty
+                assert Decimal(str(recommendation["risk_adjusted_objective_cents"])) == (
+                    expected - penalty
+                )
+                # The joint model's first-stage assignments cannot depend on
+                # the future scenario. Recourse may differ after reveal.
+                first_stage = recommendation["first_stage_scheduled_jobs"]
+                assert all(job["start_slot"] < 1 for job in first_stage)
+                for world in recommendation["scenarios"]:
+                    realized = [
+                        job for job in world["scheduled_jobs"] if job["start_slot"] < 1
+                    ]
+                    assert realized == first_stage
+                    assert set(recommendation["first_stage_procurement_ids"]).issubset(
+                        set(world["selected_procurement_ids"])
+                    )
+
+                saved = page.request.get(
+                    prefix + "/economic-v2/scenario-advice/" + scenario["execution_id"],
+                    timeout=60_000,
+                )
+                assert saved.status == 200, f"RR_CVAR_READ_HTTP_{saved.status}"
+                assert saved.json() == output
+                replayed = post("/economic-v2/scenario-advice", scenario)
+                assert replayed.status == 200 and replayed.json() == output
+                # Independent PostgreSQL query runs in existing private Railway,
+                # comparing the response JSONB for this exact org/execution.
+                scenario_readback_from_ci(output, organization_id)
+                print("RR_CVAR_REAL_PERSISTENCE_AND_REPLAY=PASS")
+
+                neutral = {**scenario, "execution_id": "rr-cvar-neutral-" + suffix}
+                neutral.pop("risk")
+                zero = copy.deepcopy(scenario)
+                zero["execution_id"] = "rr-cvar-zero-" + suffix
+                zero["risk"]["aversion_bps"] = 0
+                neutral_response = post("/economic-v2/scenario-advice", neutral)
+                zero_response = post("/economic-v2/scenario-advice", zero)
+                assert neutral_response.status == 200, (
+                    f"RR_CVAR_NEUTRAL_HTTP_{neutral_response.status}"
+                )
+                assert zero_response.status == 200, (
+                    f"RR_CVAR_ZERO_HTTP_{zero_response.status}"
+                )
+                a = neutral_response.json()["recommendation"]
+                z = zero_response.json()["recommendation"]
+                assert a["expected_incremental_margin_cents"] == z[
+                    "expected_incremental_margin_cents"
+                ]
+                assert a["first_stage_procurement_ids"] == z[
+                    "first_stage_procurement_ids"
+                ]
+                assert Decimal(str(z["risk_penalty_cents"])) == 0
+
+                bad_prob = copy.deepcopy(scenario)
+                bad_prob["execution_id"] = "rr-cvar-bad-prob-" + suffix
+                bad_prob["scenarios"][0]["probability_bps"] = 6000
+                assert post("/economic-v2/scenario-advice", bad_prob).status == 422
+                bad_alpha = copy.deepcopy(scenario)
+                bad_alpha["execution_id"] = "rr-cvar-bad-alpha-" + suffix
+                bad_alpha["risk"]["alpha_bps"] = 10000
+                assert post("/economic-v2/scenario-advice", bad_alpha).status == 422
+                tampered_history = copy.deepcopy(scenario)
+                tampered_history["execution_id"] = "rr-cvar-history-" + suffix
+                tampered_history["scenarios"][1]["operational"] = {"decision_id": "forged"}
+                # Tampering nested projections is rejected even when IDs look valid.
+                tampered_history["scenarios"][1]["projected_request"]["operational"][
+                    "decision_id"
+                ] = "forged"
+                assert post("/economic-v2/scenario-advice", tampered_history).status == 422
+                stale = {**scenario, "snapshot_id": "rr-cvar-missing-" + suffix,
+                         "execution_id": "rr-cvar-stale-" + suffix}
+                assert post("/economic-v2/scenario-advice", stale).status == 404
+                conflict = copy.deepcopy(scenario)
+                conflict["risk"]["aversion_bps"] = 0
+                assert post("/economic-v2/scenario-advice", conflict).status == 409
+                print("RR_CVAR_NEGATIVE_CONTRACTS=PASS")
             finally:
                 context.close()
         finally:
