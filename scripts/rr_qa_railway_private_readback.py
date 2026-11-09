@@ -7,6 +7,7 @@ The scoped Railway project token is required only in the protected QA CI job.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -21,7 +22,7 @@ VERIFIER = "2ea0ac44-53f8-4ef8-ac97-8b8b5d74c996"
 VARIABLES = (
     "RR_E2E_READBACK_EXECUTION_ID",
     "RR_E2E_READBACK_ORGANIZATION_ID",
-    "RR_E2E_EXPECTED_RECORD_JSON",
+    "RR_E2E_EXPECTED_RECORD_SHA256",
     "RR_E2E_READBACK_KIND",
 )
 EXECUTION_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -187,15 +188,19 @@ class RailwayReadback:
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_ORGANIZATION_INVALID")
         if not isinstance(execution, str) or not EXECUTION_ID_RE.fullmatch(execution):
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_EXECUTION_INVALID")
-        expected = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-        if len(expected.encode()) > 1_000_000:
+        canonical = json.dumps(
+            record, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            allow_nan=False,
+        )
+        if len(canonical.encode("utf-8")) > 1_000_000:
             raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_RECORD_TOO_LARGE")
+        expected_sha = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         self.check_scope()
         submitted = False
         try:
             # Execution ID is written last: incomplete configuration cannot run as E2E.
             for name, value in (
-                (VARIABLES[2], expected),
+                (VARIABLES[2], expected_sha),
                 (VARIABLES[1], own_org),
                 (VARIABLES[3], mode),
                 (VARIABLES[0], execution),
