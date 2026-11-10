@@ -62,7 +62,7 @@ class RunnerIntegrityTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/real-e2e.yml").read_text()
         validator = (root / "scripts/check_sdk383_fenced_revoke.py").read_text()
-        match = re.search(r"^\\s+MONGODB_URL: (\\S+)$", workflow, flags=re.MULTILINE)
+        match = re.search(r"^\s+MONGODB_URL: (\S+)$", workflow, flags=re.MULTILINE)
         self.assertIsNotNone(match)
         target = urlsplit(match.group(1))
         self.assertEqual(target.scheme, "mongodb")
