@@ -30,7 +30,7 @@ def main() -> None:
     mongo_url = os.environ["MONGODB_URL"]
     target = urlsplit(mongo_url)
     if (target.scheme != "mongodb" or target.netloc != "127.0.0.1:27019"
-            or target.path != "/qdip_e2e" or not target.query.startswith("replicaSet=rs0")):
+            or target.path != "/qdip_e2e" or target.query != "replicaSet=rrtest&directConnection=true"):
         raise RuntimeError("Refusing non-disposable MongoDB target")
     admin = os.environ["API_KEY"]
     tenant = os.environ["E2E_KEY_A"]

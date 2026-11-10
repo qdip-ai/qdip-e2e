@@ -55,6 +55,23 @@ class RunnerIntegrityTests(unittest.TestCase):
         )
         self.assertIn("admit_disposable_sdk_worker.py approve", approval)
 
+    def test_sdk383_disposable_mongo_guard_matches_runner(self) -> None:
+        """The fenced-revoke test must allow only the actual isolated Mongo."""
+        from urllib.parse import urlsplit
+
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/real-e2e.yml").read_text()
+        validator = (root / "scripts/check_sdk383_fenced_revoke.py").read_text()
+        match = re.search(r"^\s+MONGODB_URL: (\S+)$", workflow, flags=re.MULTILINE)
+        self.assertIsNotNone(match)
+        target = urlsplit(match.group(1))
+        self.assertEqual(target.scheme, "mongodb")
+        self.assertEqual(target.netloc, "127.0.0.1:27019")
+        self.assertEqual(target.path, "/qdip_e2e")
+        self.assertEqual(target.query, "replicaSet=rrtest&directConnection=true")
+        self.assertIn(f'target.query != "{target.query}"', validator)
+        self.assertNotIn("replicaSet=rs0", validator)
+
     def test_suite_fingerprint_ignores_generated_cache_and_untracked_files(self) -> None:
         first = watch_core.fingerprint()
         root = Path(__file__).resolve().parents[1]
