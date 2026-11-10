@@ -1,0 +1,91 @@
+{
+  "snapshot_id": "rr-cvar-synthetic",
+  "operational": {
+    "decision_id": "rr-cvar-synthetic-decision",
+    "horizon_slots": 5,
+    "workshop_capacity": 1,
+    "technicians": [
+      {
+        "id": "tech",
+        "skills": [
+          "repair"
+        ],
+        "available_slots": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "jobs": [
+      {
+        "id": "repair",
+        "duration_slots": 1,
+        "required_skills": [
+          "repair"
+        ],
+        "deadline_slot": 5,
+        "readiness_gain_units": 0,
+        "parts": [
+          {
+            "part_id": "bearing",
+            "quantity": 1
+          }
+        ]
+      }
+    ]
+  },
+  "assets": [
+    {
+      "id": "machine",
+      "state_revision": 1
+    }
+  ],
+  "restorations": [
+    {
+      "job_id": "repair",
+      "asset_id": "machine"
+    }
+  ],
+  "occupations": [
+    {
+      "job_id": "repair",
+      "asset_ids": [
+        "machine"
+      ]
+    }
+  ],
+  "job_costs": [
+    {
+      "job_id": "repair",
+      "all_in_cost_cents": 0
+    }
+  ],
+  "procurements": [
+    {
+      "id": "expedite",
+      "alternative_group_id": "bearing-offers",
+      "part_id": "bearing",
+      "quantity": 1,
+      "arrival_slot": 1,
+      "all_in_cost_cents": 10000
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "output",
+      "asset_ids": [
+        "machine"
+      ],
+      "contribution_cents_by_slot": [
+        0,
+        100000,
+        100000,
+        100000,
+        100000
+      ]
+    }
+  ]
+}

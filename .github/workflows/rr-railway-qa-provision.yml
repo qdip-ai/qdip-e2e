@@ -1,0 +1,61 @@
+name: Provision existing RR Railway QA credentials
+on:
+  # The pre-merge workflow exists only on the dedicated RR branch. Restrict
+  # credential-bearing pushes to changes of THIS workflow by the repo owner.
+  push:
+    branches: [feat/rr-e2e-01-standalone]
+    paths: [.github/workflows/rr-railway-qa-provision.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  provision:
+    if: github.repository == 'qdip-ai/qdip-e2e' && github.event.repository.private == false && github.actor == 'TarasGez' && (github.ref == 'refs/heads/feat/rr-e2e-01-standalone' || (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'))
+    runs-on: ubuntu-24.04
+    environment: rr-qa-provision
+    concurrency:
+      group: rr-qa-scoped-provisioning
+      cancel-in-progress: false
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inventory existing QA bindings without reading or printing secrets
+        env:
+          EXACT_RR_TOKEN: ${{ secrets.RR_QA_RAILWAY_TOKEN != '' }}
+          REPO_RAILWAY_PROJECT: ${{ secrets.RAILWAY_PROJECT_TOKEN != '' }}
+          REPO_RO_PROJECT: ${{ secrets.RAILWAY_RO_PROJECT_TOKEN != '' }}
+          REPO_RO_QA_PROJECT: ${{ secrets.RO_QA_RAILWAY_PROJECT_TOKEN != '' }}
+          MCP_QA_PROJECT: ${{ secrets.RAILWAY_MCP_QA_PROJECT_TOKEN != '' }}
+          CORE_OPERATOR: ${{ secrets.QDIP_PLATFORM_ADMIN_API_KEY != '' }}
+          CORE_MCP_OPERATOR: ${{ secrets.MCP652_QA_PLATFORM_ADMIN_API_KEY != '' }}
+          RR_SCHEDULING_KEY: ${{ secrets.RR_QA_S2S_API_KEY != '' }}
+          RR_BROWSER_KEY: ${{ secrets.RR_QA_ORG_API_KEY != '' }}
+          RR_ECONOMIC_KEY: ${{ secrets.RR_QA_ECONOMIC_API_KEY != '' }}
+          PROVISION_APPROVAL: ${{ vars.RR_QA_PROVISION_APPROVED == '1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in EXACT_RR_TOKEN REPO_RAILWAY_PROJECT REPO_RO_PROJECT REPO_RO_QA_PROJECT MCP_QA_PROJECT CORE_OPERATOR CORE_MCP_OPERATOR RR_SCHEDULING_KEY RR_BROWSER_KEY RR_ECONOMIC_KEY PROVISION_APPROVAL; do
+            if [[ "${!key}" == 'true' ]]; then
+              echo "RR_QA_BINDING_${key}=PRESENT"
+            else
+              echo "RR_QA_BINDING_${key}=ABSENT"
+            fi
+          done
+          echo 'RR_QA_BINDING_PROBE_READ_ONLY=PASS'
+      - name: Provision only the existing Railway RR QA service
+        env:
+          RR_QA_PROVISION_APPROVED: ${{ vars.RR_QA_PROVISION_APPROVED }}
+          RR_QA_RAILWAY_TOKEN: ${{ secrets.RR_QA_RAILWAY_TOKEN }}
+          RR_QA_ORGANIZATION_ID: '79320f9e-ab38-49a6-b02c-fe2b896b66aa'
+          RR_QA_ORG_API_KEY: ${{ secrets.RR_QA_ORG_API_KEY }}
+          RR_QA_S2S_API_KEY: ${{ secrets.RR_QA_S2S_API_KEY }}
+          RR_QA_ECONOMIC_API_KEY: ${{ secrets.RR_QA_ECONOMIC_API_KEY }}
+          RR_QA_SCHEDULING_GATEWAY_URL: ${{ vars.RR_QA_SCHEDULING_GATEWAY_URL }}
+          RR_QA_ECONOMIC_GATEWAY_URL: ${{ vars.RR_QA_ECONOMIC_GATEWAY_URL }}
+        run: python scripts/provision_rr_railway_qa.py
