@@ -12,8 +12,10 @@ const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const PROJECT='394565917515719957';
 const ORG='368555767923594379';
 const CLIENT='395658023814660262';
-const USER='qa1@qdip.ai';
-const PASS=process.env.QDIP_AUTODEV_QA1_PASSWORD;
+const MODE=process.env.QDIP_AUTODEV_PROOF_MODE||'roleless';
+if(!['roleless','operator'].includes(MODE))throw Error('PROOF_TEST_MODE_INVALID');
+const USER=MODE==='operator'?process.env.QDIP_AUTODEV_OPERATOR_LOGIN:'qa1@qdip.ai';
+const PASS=MODE==='operator'?process.env.QDIP_AUTODEV_OPERATOR_PASSWORD:process.env.QDIP_AUTODEV_QA1_PASSWORD;
 function require_(ok,stage){if(!ok)throw new Error(stage)}
 async function field(page,selectors,wait=12000){
  const until=Date.now()+wait;
@@ -53,11 +55,19 @@ async function verifiedClaims(token){
    'QA1_LIVE_JWT_ISSUER_AUDIENCE_OR_EXPIRY_INVALID');
  const projectRoles=claims['urn:zitadel:iam:org:project:'+PROJECT+':roles'];
  require_(!projectRoles || typeof projectRoles==='object','QA1_LIVE_ROLES_INVALID');
- require_(!projectRoles?.autodev_operator?.[ORG], 'QA1_ACCOUNT_HAS_AUTODEV_OPERATOR_ROLE');
+ if(MODE==='operator'){
+  require_(typeof projectRoles?.autodev_operator?.[ORG]==='string' &&
+    projectRoles.autodev_operator[ORG].length>0,'PROOF_OPERATOR_ROLE_MISSING');
+ }else{
+  require_(!projectRoles?.autodev_operator?.[ORG], 'QA1_ACCOUNT_HAS_AUTODEV_OPERATOR_ROLE');
+ }
  return claims;
 }
 async function main(){
- require_(typeof PASS==='string'&&PASS.length>0,'QA1_PASSWORD_SECRET_MISSING');
+ require_(typeof PASS==='string'&&PASS.length>0,
+  MODE==='operator'?'PROOF_OPERATOR_PASSWORD_UNAVAILABLE':'QA1_PASSWORD_SECRET_MISSING');
+ require_(typeof USER==='string'&&USER.length>0,
+  MODE==='operator'?'PROOF_OPERATOR_LOGIN_UNAVAILABLE':'QA1_LOGIN_UNAVAILABLE');
  const browser=await chromium.launch({headless:true});
  const context=await browser.newContext({
   ignoreHTTPSErrors:false,serviceWorkers:'block',acceptDownloads:false,
@@ -90,7 +100,7 @@ async function main(){
   require_(pkce?.client===CLIENT && pkce?.challenge==='S256' &&
    pkce?.redirect===SITE+'/auth/callback' && pkce?.scope.includes(PROJECT),
    'QA1_PKCE_APPLICATION_MISMATCH');
-  console.log('AUTODEV_QA1_REAL_ZITADEL_PKCE=PASS');
+  console.log(MODE==='operator'?'PROOF_OPERATOR_REAL_ZITADEL_PKCE=PASS':'AUTODEV_QA1_REAL_ZITADEL_PKCE=PASS');
 
   const username=await field(page,[
    'input[autocomplete="username"]','input[name="loginName"]',
@@ -136,7 +146,57 @@ async function main(){
   // If the ID token does contain email, it must match the real test account.
   // Some access tokens do not include email even when the OAuth login succeeded.
   if(typeof claims.email==='string')require_(claims.email.toLowerCase()===USER,'QA1_SUBJECT_EMAIL_MISMATCH');
-  console.log('AUTODEV_QA1_SIGNED_ACCESS_TOKEN_NO_OPERATOR_ROLE=PASS');
+  console.log(MODE==='operator'?'PROOF_OPERATOR_SIGNED_ACCESS_TOKEN=PASS':'AUTODEV_QA1_SIGNED_ACCESS_TOKEN_NO_OPERATOR_ROLE=PASS');
+  // The PWA's existing Caddy reverse-proxy forwards this exact route to the
+  // private Railway Controller. No Controller public domain or extra token.
+  const route=SITE+'/v1/autodev/proof-cycle';
+  const requestHeaders={'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'};
+  const anonymous=await context.request.get(route,{
+   headers:{'Origin':SITE,'Accept':'application/json'},
+   maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(anonymous.status()===403,'PROOF_ANONYMOUS_HTTP_NOT_403');
+  const anonymousBody=await anonymous.json().catch(()=>null);
+  require_(anonymousBody?.code==='NOT_AUTHORIZED','PROOF_ANONYMOUS_DENIAL_NOT_CONTROLLER');
+  const answer=await context.request.get(route,{
+   headers:requestHeaders,maxRedirects:0,failOnStatusCode:false,timeout:20000,
+  });
+  const proof=await answer.json().catch(()=>null);
+  require_((answer.headers()['cache-control']||'').includes('no-store'),
+   'PROOF_RESPONSE_CACHE_UNSAFE');
+  if(MODE==='operator'){
+   require_(answer.status()===200,'PROOF_OPERATOR_HTTP_NOT_200');
+   require_(proof?.schemaVersion===1 && proof?.readOnly===true &&
+    proof?.source==='github_proof_cycle' &&
+    proof?.repository==='qdip-ai/qdip-core' &&
+    proof?.canMerge===false && proof?.mergeReason==='NOT_EVALUATED',
+    'PROOF_OPERATOR_RESPONSE_CONTRACT_INVALID');
+   require_(Array.isArray(proof.items) && typeof proof.coverage==='object' &&
+    ['Kernel','SDK','MCP','AutoDev','Yara'].every(x=>proof.coverage[x]),
+    'PROOF_PRODUCT_COVERAGE_INVALID');
+   require_(proof.items.every(item=>
+    typeof item.id==='string' && typeof item.repository==='string' &&
+    typeof item.url==='string' && item.url.startsWith('https://github.com/') &&
+    item.canMerge===false && Array.isArray(item.evidence) &&
+    typeof item.verification==='string'),
+    'PROOF_EVIDENCE_IDENTITY_INVALID');
+   require_(proof.items.length>0 || proof.partial===true,'PROOF_EMPTY_UNEXPLAINED');
+   const invalidScope=await context.request.get(route+'?repository=attacker/example&page=1',{
+    headers:requestHeaders,maxRedirects:0,failOnStatusCode:false,timeout:15000,
+   });
+   require_(invalidScope.status()===400,'PROOF_UNSCOPED_REPOSITORY_NOT_400');
+   console.log('PROOF_OPERATOR_REAL_ZITADEL_HTTP_200_AND_SCOPE_400=PASS');
+   console.log('AUTODEV_PROOF_CYCLE_OPERATOR_E2E=PASS');
+   return;
+  }
+  require_(answer.status()===403 && proof?.code==='NOT_AUTHORIZED',
+   'PROOF_ROLELESS_HTTP_NOT_403');
+  const wrongOrigin=await context.request.get(route,{
+   headers:{...requestHeaders,Origin:'https://attacker.invalid'},
+   maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(wrongOrigin.status()===403,'PROOF_CROSS_ORIGIN_HTTP_NOT_403');
+  console.log('PROOF_ANONYMOUS_ROLELESS_CROSS_ORIGIN_HTTP_403=PASS');
 
   const denied=await context.request.get(SITE+'/v1/autodev/monitor',{
    headers:{'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'},
@@ -159,6 +219,7 @@ async function main(){
 main().catch(err=>{
  const stage=err instanceof Error&&/^[A-Z0-9_]{5,100}$/.test(err.message)
    ?err.message:'QA1_BROWSER_FAILURE_REDACTED';
- console.error('AUTODEV_QA1_LIVE_NEGATIVE_ZITADEL_E2E=FAIL:'+stage);
+ console.error((MODE==='operator'?'AUTODEV_PROOF_CYCLE_OPERATOR_E2E=FAIL:':
+ 'AUTODEV_QA1_LIVE_NEGATIVE_ZITADEL_E2E=FAIL:')+stage);
  process.exitCode=1;
 });
