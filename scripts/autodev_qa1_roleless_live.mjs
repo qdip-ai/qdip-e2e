@@ -162,6 +162,23 @@ async function main(){
    await username.press('Enter');
    password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],12000);
   }
+  if(!password){
+   const authUi=await page.evaluate(()=>({
+    host:location.host,
+    path:location.pathname,
+    visibleInputs:[...document.querySelectorAll('input')].filter(e=>
+     e.offsetWidth||e.offsetHeight||e.getClientRects().length).slice(0,10)
+     .map(e=>({type:e.type||'',name:e.name||'',autocomplete:e.autocomplete||''})),
+    visibleButtons:[...document.querySelectorAll('button')].filter(e=>
+     e.offsetWidth||e.offsetHeight||e.getClientRects().length).length,
+    providerHint:/google|microsoft|external|sso|identity provider/i.test(document.body?.innerText||''),
+    safeText:(document.body?.innerText||'').slice(0,350)
+     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,'[EMAIL]')
+     .replace(/https?:\/\/\S+/g,'[URL]')
+     .replace(/[A-Za-z0-9_\-]{24,}/g,'[REDACTED]'),
+   }));
+   console.error('PROOF_PASSWORD_UI_DIAG='+JSON.stringify(authUi));
+  }
   require_(Boolean(password),'QA1_PASSWORD_FORM_MISSING');
   await password.fill(PASS);
   await password.press('Enter');
