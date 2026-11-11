@@ -74,6 +74,17 @@ async function main(){
   viewport:{width:390,height:844},
  });
  try{
+  // Assert the actual Railway PWA → private Controller route even if Zitadel
+  // subsequently fails before presenting a sign-in form.
+  const route=SITE+'/v1/autodev/proof-cycle';
+  const publicRead=await context.request.get(route,{
+   headers:{'Origin':SITE,'Accept':'application/json'},
+   maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(publicRead.status()===403,'PROOF_ANONYMOUS_PROXY_HTTP_NOT_403');
+  const publicBody=await publicRead.json().catch(()=>null);
+  require_(publicBody?.code==='NOT_AUTHORIZED','PROOF_ANONYMOUS_PROXY_NOT_CONTROLLER');
+  console.log('PROOF_RAILWAY_CADDY_CONTROLLER_ANONYMOUS_HTTP_403=PASS');
   const page=await context.newPage();
   page.setDefaultTimeout(12000);
   const response=await page.goto(SITE,{waitUntil:'domcontentloaded',timeout:30000});
@@ -82,6 +93,15 @@ async function main(){
   await entry.waitFor({state:'visible',timeout:15000});
   require_(!(await entry.isDisabled()),'QA1_ZITADEL_SIGNIN_DISABLED');
   let pkce=null;
+  let authorizeStatus=null;
+  page.on('response', response=>{
+   try{
+    const url=new URL(response.url());
+    if(url.origin===ISSUER && url.pathname==='/oauth/v2/authorize'){
+     authorizeStatus=response.status();
+    }
+   }catch{}
+  });
   page.on('request', request=>{
    try{
     const url=new URL(request.url());
@@ -113,6 +133,11 @@ async function main(){
    const diag=await page.evaluate(()=>({
     path:location.pathname,
     host:location.host,
+    title:document.title,
+    readyState:document.readyState,
+    visibleTextLength:(document.body?.innerText||'').length,
+    errorTextHint:/error|invalid|not found|unauthorized|unavailable/i.test(document.body?.innerText||''),
+
     inputs:[...document.querySelectorAll('input')].slice(0,12).map(e=>({
      type:e.type||'',name:e.name||'',autocomplete:e.autocomplete||'',
      placeholder:e.getAttribute('placeholder')||'',
@@ -121,7 +146,7 @@ async function main(){
     iframes:document.querySelectorAll('iframe').length,
     buttons:document.querySelectorAll('button').length,
    }));
-   console.error('PROOF_PUBLIC_LOGIN_DOM_DIAG='+JSON.stringify(diag));
+   console.error('PROOF_PUBLIC_LOGIN_DOM_DIAG='+JSON.stringify({...diag,authorizeStatus}));
   }
   require_(Boolean(username),'QA1_LOGIN_FORM_MISSING');
   await username.fill(USER);
@@ -165,7 +190,6 @@ async function main(){
   console.log(MODE==='operator'?'PROOF_OPERATOR_SIGNED_ACCESS_TOKEN=PASS':'AUTODEV_QA1_SIGNED_ACCESS_TOKEN_NO_OPERATOR_ROLE=PASS');
   // The PWA's existing Caddy reverse-proxy forwards this exact route to the
   // private Railway Controller. No Controller public domain or extra token.
-  const route=SITE+'/v1/autodev/proof-cycle';
   const requestHeaders={'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'};
   const anonymous=await context.request.get(route,{
    headers:{'Origin':SITE,'Accept':'application/json'},
