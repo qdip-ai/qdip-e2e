@@ -159,7 +159,14 @@ async function main(){
   await username.fill(USER);
   let password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],1000);
   if(!password){
-   await username.press('Enter');
+   // The pre-existing operator credential uses Google federation through
+   // Zitadel. Submit Google's documented 'Next' action, not an Enter key
+   // intended for Zitadel's native login form. Do not bypass MFA/captcha.
+   if(MODE==='operator'&&new URL(page.url()).hostname==='accounts.google.com'){
+    await page.getByRole('button',{name:/^Next$/i}).click({timeout:12000});
+   }else{
+    await username.press('Enter');
+   }
    password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],12000);
   }
   if(!password){
