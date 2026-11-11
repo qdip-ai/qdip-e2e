@@ -256,7 +256,8 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
-  await page.goto(SITE,{waitUntil:'domcontentloaded'});
+  // The PWA shows 'access-denied' before it revokes the local OIDC session.
+  // Reloading after revocation legitimately shows the login state instead.
   await page.waitForSelector('.live-monitor__warning',{timeout:18000});
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
   console.log('AUTODEV_QA1_NO_FAKE_RUNS_OR_COMMANDS=PASS');
