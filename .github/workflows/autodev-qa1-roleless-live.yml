@@ -1,6 +1,11 @@
-name: AutoDev QA1 real Zitadel no-operator E2E
+name: AutoDev proof-cycle protected route E2E
 on:
   workflow_dispatch:
+  push:
+    branches: ['test/autodev-proof-cycle-694']
+    paths:
+      - 'scripts/autodev_qa1_roleless_live.mjs'
+      - '.github/workflows/autodev-qa1-roleless-live.yml'
 permissions:
   contents: read
 concurrency:
@@ -39,7 +44,7 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.56.1
           npx playwright install --with-deps chromium
-      - name: Real QA1 login to AutoDev and 403 on live Control API
+      - name: Real QA1 denied by proof-cycle and monitor at Railway
         env:
           QDIP_AUTODEV_QA1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
           CI: 'true'

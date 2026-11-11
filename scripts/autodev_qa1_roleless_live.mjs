@@ -7,7 +7,8 @@
 import { chromium } from '@playwright/test';
 import { createPublicKey, verify } from 'node:crypto';
 
-const SITE='https://autodev-mission-control-pwa-staging.up.railway.app';
+// Existing canonical domain for the same staging Railway PWA and registered redirect.
+const SITE='https://autodev.qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const PROJECT='394565917515719957';
 const ORG='368555767923594379';
@@ -64,6 +65,16 @@ async function main(){
   viewport:{width:390,height:844},
  });
  try{
+  // Real PWA reverse proxy -> private Railway Controller; read-only requests.
+  const proofRoute=SITE+'/v1/autodev/proof-cycle';
+  const anonymous=await context.request.get(proofRoute,{
+   headers:{Accept:'application/json'},maxRedirects:0,
+   failOnStatusCode:false,timeout:15000,
+  });
+  require_(anonymous.status()===403,'PROOF_ANONYMOUS_HTTP_NOT_403');
+  require_((await anonymous.json().catch(()=>null))?.code==='NOT_AUTHORIZED',
+   'PROOF_ANONYMOUS_DENIAL_NOT_CONTROLLER');
+  console.log('PROOF_RAILWAY_ANONYMOUS_HTTP_403=PASS');
   const page=await context.newPage();
   page.setDefaultTimeout(12000);
   const response=await page.goto(SITE,{waitUntil:'domcontentloaded',timeout:30000});
@@ -111,10 +122,10 @@ async function main(){
   try{
    await page.waitForURL(url=>url.origin===SITE,{timeout:42000});
    await page.waitForFunction(()=>{
-     for(let i=0;i<sessionStorage.length;i++){
-       const key=sessionStorage.key(i);
+     for(let i=0;i<localStorage.length;i++){
+       const key=localStorage.key(i);
        if(key?.startsWith('oidc.user:')){
-        try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+        try{const user=JSON.parse(localStorage.getItem(key)||'{}');
           if(typeof user.access_token==='string'&&user.access_token.length>0)return true;}catch{}
        }
      }
@@ -122,10 +133,10 @@ async function main(){
    },null,{timeout:18000});
   }catch{throw Error('QA1_REAL_LOGIN_MFA_OR_CALLBACK_BLOCKED');}
   const token=await page.evaluate(()=>{
-   for(let i=0;i<sessionStorage.length;i++){
-    const key=sessionStorage.key(i);
+   for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
     if(key?.startsWith('oidc.user:')){
-     try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+     try{const user=JSON.parse(localStorage.getItem(key)||'{}');
       if(typeof user.access_token==='string')return user.access_token;}catch{}
     }
    }
@@ -138,8 +149,27 @@ async function main(){
   if(typeof claims.email==='string')require_(claims.email.toLowerCase()===USER,'QA1_SUBJECT_EMAIL_MISMATCH');
   console.log('AUTODEV_QA1_SIGNED_ACCESS_TOKEN_NO_OPERATOR_ROLE=PASS');
 
+  const proofDenied=await context.request.get(proofRoute,{
+   headers:{Authorization:'Bearer '+token,Accept:'application/json'},
+   maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(proofDenied.status()===403 &&
+   (await proofDenied.json().catch(()=>null))?.code==='NOT_AUTHORIZED',
+   'PROOF_ROLELESS_HTTP_NOT_403');
+  require_((proofDenied.headers()['cache-control']||'').includes('no-store'),
+   'PROOF_DENIAL_CACHE_UNSAFE');
+  const wrongOrigin=await context.request.get(proofRoute,{
+   headers:{Authorization:'Bearer '+token,Origin:'https://attacker.invalid',
+    Accept:'application/json'},
+   maxRedirects:0,failOnStatusCode:false,timeout:15000,
+  });
+  require_(wrongOrigin.status()===403 &&
+   (await wrongOrigin.json().catch(()=>null))?.code==='FORBIDDEN',
+   'PROOF_WRONG_ORIGIN_NOT_FORBIDDEN');
+  console.log('PROOF_RAILWAY_ROLELESS_AND_ORIGIN_HTTP_403=PASS');
+
   const denied=await context.request.get(SITE+'/v1/autodev/monitor',{
-   headers:{'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'},
+   headers:{'Authorization':'Bearer '+token,'Accept':'application/json'},
    maxRedirects:0,failOnStatusCode:false,timeout:15000,
   });
   require_(denied.status()===403,'QA1_NO_OPERATOR_HTTP_NOT_403');
@@ -147,7 +177,8 @@ async function main(){
   require_(body?.code==='NOT_AUTHORIZED','QA1_NO_OPERATOR_DENIAL_NOT_BACKEND');
   require_((denied.headers()['cache-control']||'').includes('no-store'),'QA1_DENIAL_CACHE_UNSAFE');
   console.log('AUTODEV_QA1_REAL_NO_OPERATOR_API_403=PASS');
-  await page.goto(SITE,{waitUntil:'domcontentloaded'});
+  // PWA revokes an unauthorized session; after reload it correctly renders
+  // login, so check the denial before a navigation changes the UI state.
   await page.waitForSelector('.live-monitor__warning',{timeout:18000});
   require_((await page.locator('.mission-home').count())===0,'QA1_FIXTURE_DATA_LEAKED_TO_DENIED_USER');
   console.log('AUTODEV_QA1_NO_FAKE_RUNS_OR_COMMANDS=PASS');
