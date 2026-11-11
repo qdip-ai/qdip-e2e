@@ -107,6 +107,22 @@ async function main(){
    'input[name="loginname"]','input[name="username"]',
    'input[name="email"]','input[type="email"]','input[type="text"]'
   ]);
+  if(!username){
+   // Public login DOM only. Never print URL query, form values, credentials,
+   // cookies, tokens, PKCE state, full body text, or screenshots.
+   const diag=await page.evaluate(()=>({
+    path:location.pathname,
+    host:location.host,
+    inputs:[...document.querySelectorAll('input')].slice(0,12).map(e=>({
+     type:e.type||'',name:e.name||'',autocomplete:e.autocomplete||'',
+     placeholder:e.getAttribute('placeholder')||'',
+     visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length),
+    })),
+    iframes:document.querySelectorAll('iframe').length,
+    buttons:document.querySelectorAll('button').length,
+   }));
+   console.error('PROOF_PUBLIC_LOGIN_DOM_DIAG='+JSON.stringify(diag));
+  }
   require_(Boolean(username),'QA1_LOGIN_FORM_MISSING');
   await username.fill(USER);
   let password=await field(page,['input[autocomplete="current-password"]','input[type="password"]'],1000);
