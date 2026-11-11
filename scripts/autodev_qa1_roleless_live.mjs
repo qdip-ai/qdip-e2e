@@ -139,6 +139,10 @@ async function main(){
     readyState:document.readyState,
     visibleTextLength:(document.body?.innerText||'').length,
     errorTextHint:/error|invalid|not found|unauthorized|unavailable/i.test(document.body?.innerText||''),
+    safeErrorExcerpt:(document.body?.innerText||'').slice(0,400)
+     .replace(/https?:\/\/\S+/g,'[URL]')
+     .replace(/[A-Za-z0-9_\-]{24,}/g,'[REDACTED]')
+     .slice(0,240),
 
     inputs:[...document.querySelectorAll('input')].slice(0,12).map(e=>({
      type:e.type||'',name:e.name||'',autocomplete:e.autocomplete||'',
