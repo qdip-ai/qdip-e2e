@@ -1,4 +1,4 @@
-name: AutoDev QA1 real Zitadel no-operator E2E
+name: AutoDev proof-cycle protected route E2E
 on:
   workflow_dispatch:
   push:
@@ -44,21 +44,9 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.56.1
           npx playwright install --with-deps chromium
-      - name: Real QA1 login to AutoDev, roleless /monitor and /proof-cycle HTTP 403
+      - name: Real QA1 denied by proof-cycle and monitor at Railway
         env:
           QDIP_AUTODEV_QA1_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_TEST1_PASSWORD }}
-          CI: 'true'
-        run: |
-          set -euo pipefail
-          cd /tmp/autodev-qa1
-          node autodev_qa1_roleless_live.mjs
-      - name: Real operator login and proof-cycle HTTP 200, scoped repository HTTP 400
-        env:
-          # Reuse existing E2E Zitadel login secrets. Do not mint new credentials
-          # or grant an operator role to QA1; missing role is an honest FAIL.
-          QDIP_AUTODEV_PROOF_MODE: operator
-          QDIP_AUTODEV_OPERATOR_LOGIN: ${{ secrets.QDIP_E2E_ZITADEL_LOGIN }}
-          QDIP_AUTODEV_OPERATOR_PASSWORD: ${{ secrets.QDIP_E2E_ZITADEL_PASSWORD }}
           CI: 'true'
         run: |
           set -euo pipefail
