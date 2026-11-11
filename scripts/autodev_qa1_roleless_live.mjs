@@ -78,11 +78,13 @@ async function main(){
   // subsequently fails before presenting a sign-in form.
   const route=SITE+'/v1/autodev/proof-cycle';
   const publicRead=await context.request.get(route,{
-   headers:{'Origin':SITE,'Accept':'application/json'},
+   headers:{'Accept':'application/json'},
    maxRedirects:0,failOnStatusCode:false,timeout:15000,
   });
   require_(publicRead.status()===403,'PROOF_ANONYMOUS_PROXY_HTTP_NOT_403');
   const publicBody=await publicRead.json().catch(()=>null);
+  if(publicBody?.code!=='NOT_AUTHORIZED')
+   console.error('PROOF_PUBLIC_READ_CODE='+String(publicBody?.code||'NON_JSON'));
   require_(publicBody?.code==='NOT_AUTHORIZED','PROOF_ANONYMOUS_PROXY_NOT_CONTROLLER');
   console.log('PROOF_RAILWAY_CADDY_CONTROLLER_ANONYMOUS_HTTP_403=PASS');
   const page=await context.newPage();
@@ -190,9 +192,9 @@ async function main(){
   console.log(MODE==='operator'?'PROOF_OPERATOR_SIGNED_ACCESS_TOKEN=PASS':'AUTODEV_QA1_SIGNED_ACCESS_TOKEN_NO_OPERATOR_ROLE=PASS');
   // The PWA's existing Caddy reverse-proxy forwards this exact route to the
   // private Railway Controller. No Controller public domain or extra token.
-  const requestHeaders={'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'};
+  const requestHeaders={'Authorization':'Bearer '+token,'Accept':'application/json'};
   const anonymous=await context.request.get(route,{
-   headers:{'Origin':SITE,'Accept':'application/json'},
+   headers:{'Accept':'application/json'},
    maxRedirects:0,failOnStatusCode:false,timeout:15000,
   });
   require_(anonymous.status()===403,'PROOF_ANONYMOUS_HTTP_NOT_403');
@@ -235,11 +237,13 @@ async function main(){
    headers:{...requestHeaders,Origin:'https://attacker.invalid'},
    maxRedirects:0,failOnStatusCode:false,timeout:15000,
   });
-  require_(wrongOrigin.status()===403,'PROOF_CROSS_ORIGIN_HTTP_NOT_403');
+  require_(wrongOrigin.status()===403 &&
+   (await wrongOrigin.json().catch(()=>null))?.code==='FORBIDDEN',
+   'PROOF_CROSS_ORIGIN_HTTP_NOT_FORBIDDEN');
   console.log('PROOF_ANONYMOUS_ROLELESS_CROSS_ORIGIN_HTTP_403=PASS');
 
   const denied=await context.request.get(SITE+'/v1/autodev/monitor',{
-   headers:{'Authorization':'Bearer '+token,'Origin':SITE,'Accept':'application/json'},
+   headers:{'Authorization':'Bearer '+token,'Accept':'application/json'},
    maxRedirects:0,failOnStatusCode:false,timeout:15000,
   });
   require_(denied.status()===403,'QA1_NO_OPERATOR_HTTP_NOT_403');
