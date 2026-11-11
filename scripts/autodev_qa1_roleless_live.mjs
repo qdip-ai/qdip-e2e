@@ -7,7 +7,8 @@
 import { chromium } from '@playwright/test';
 import { createPublicKey, verify } from 'node:crypto';
 
-const SITE='https://autodev-mission-control-pwa-staging.up.railway.app';
+// Canonical domain of the *same* Railway staging PWA; registered OIDC callback.
+const SITE='https://autodev.qdip.ai';
 const ISSUER='https://mentality-rmwj0i.eu1.zitadel.cloud';
 const PROJECT='394565917515719957';
 const ORG='368555767923594379';
@@ -168,10 +169,10 @@ async function main(){
   try{
    await page.waitForURL(url=>url.origin===SITE,{timeout:42000});
    await page.waitForFunction(()=>{
-     for(let i=0;i<sessionStorage.length;i++){
-       const key=sessionStorage.key(i);
+     for(let i=0;i<localStorage.length;i++){
+       const key=localStorage.key(i);
        if(key?.startsWith('oidc.user:')){
-        try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+        try{const user=JSON.parse(localStorage.getItem(key)||'{}');
           if(typeof user.access_token==='string'&&user.access_token.length>0)return true;}catch{}
        }
      }
@@ -179,10 +180,10 @@ async function main(){
    },null,{timeout:18000});
   }catch{throw Error('QA1_REAL_LOGIN_MFA_OR_CALLBACK_BLOCKED');}
   const token=await page.evaluate(()=>{
-   for(let i=0;i<sessionStorage.length;i++){
-    const key=sessionStorage.key(i);
+   for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
     if(key?.startsWith('oidc.user:')){
-     try{const user=JSON.parse(sessionStorage.getItem(key)||'{}');
+     try{const user=JSON.parse(localStorage.getItem(key)||'{}');
       if(typeof user.access_token==='string')return user.access_token;}catch{}
     }
    }
