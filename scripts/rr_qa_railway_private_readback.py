@@ -239,7 +239,14 @@ def scenario_readback_from_ci(response: dict, organization_id: str) -> tuple[str
     """Use the same existing Railway private function for a sealed CVaR response."""
     if (
         os.environ.get("GITHUB_REPOSITORY") != "qdip-ai/qdip-e2e"
-        or os.environ.get("GITHUB_REF") != "refs/heads/feat/rr-e2e-01-standalone"
+        or not (
+            os.environ.get("GITHUB_REF") == "refs/heads/feat/rr-e2e-01-standalone"
+            or (
+                os.environ.get("GITHUB_REF") == "refs/heads/main"
+                and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                and os.environ.get("GITHUB_ACTOR") == "TarasGez"
+            )
+        )
         or not os.environ.get("GITHUB_RUN_ID")
     ):
         raise PrivateReadbackBlocked("RR_PRIVATE_READBACK_TRUSTED_BRANCH_REQUIRED")
