@@ -16,6 +16,7 @@ from scripts.rr_qa_railway_private_readback import (
     PrivateReadbackBlocked,
     RailwayReadback,
     readback_from_ci,
+    scenario_readback_from_ci,
 )
 
 ORG = "79320f9e-ab38-49a6-b02c-fe2b896b66aa"
@@ -171,6 +172,32 @@ class TestPrivateReadback(unittest.TestCase):
         client.gql = gql
         with self.assertRaisesRegex(PrivateReadbackBlocked, "RECORD_MISMATCH"):
             client.await_result("deployment", ORG)
+
+    def test_scenario_readback_allows_owner_manual_main_only(self):
+        base = {
+            "GITHUB_REPOSITORY": "qdip-ai/qdip-e2e",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_ACTOR": "TarasGez",
+            "RR_QA_RAILWAY_TOKEN": "x" * 32,
+        }
+        with patch.dict(os.environ, base, clear=True):
+            with patch.object(RailwayReadback, "verify", return_value=(FOREIGN, "foreign-execution")) as verify:
+                self.assertEqual(scenario_readback_from_ci({"execution_id": "e"}, ORG), (FOREIGN, "foreign-execution"))
+                verify.assert_called_once_with({"execution_id": "e"}, mode="scenario", organization_id=ORG)
+        for override in (
+            {"GITHUB_EVENT_NAME": "push"},
+            {"GITHUB_ACTOR": "untrusted"},
+            {"GITHUB_REF": "refs/pull/123/merge"},
+            {"GITHUB_REPOSITORY": "other/repo"},
+            {"GITHUB_RUN_ID": ""},
+        ):
+            with patch.dict(os.environ, {**base, **override}, clear=True):
+                with patch.object(RailwayReadback, "verify") as verify:
+                    with self.assertRaisesRegex(PrivateReadbackBlocked, "TRUSTED_BRANCH"):
+                        scenario_readback_from_ci({"execution_id": "e"}, ORG)
+                    verify.assert_not_called()
 
     def test_untrusted_ref_never_receives_railway_token(self):
         env = {
