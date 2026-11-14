@@ -89,6 +89,14 @@ async function login(context){
     locationPath:h.location?new URL(h.location,BASE).pathname:null,setCookieNames:names};
   }catch{}
  });
+ // Controller denial class: only a fixed-shape error CODE (e.g. NOT_AUTHORIZED), never a body or token.
+ page.on('response',async r=>{
+  try{const u=new URL(r.url());
+   if(u.origin!==BASE||u.pathname!=='/v1/autodev/monitor'||r.status()<400)return;
+   let code=null;try{const b=await r.json();if(b&&typeof b.code==='string'&&/^[A-Z_]{3,40}$/.test(b.code))code=b.code;}catch{}
+   (out.monitorDenials??=[]).push({status:r.status(),code});
+  }catch{}
+ });
  const button=page.locator('button.live-monitor__login').first();
  await button.waitFor({state:'visible',timeout:20000});
  await button.click();
