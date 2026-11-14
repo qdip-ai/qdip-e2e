@@ -99,7 +99,24 @@ async function login(context){
  await pass.press('Enter');                                        // one attempt, never retried
  try{await page.waitForURL(url=>url.origin===BASE,{timeout:45000});}
  catch{throw Error('OPERATOR_REAL_LOGIN_OR_CALLBACK_BLOCKED');}
- await page.locator('nav.bottom-nav').waitFor({state:'visible',timeout:30000}).catch(()=>{throw Error('OPERATOR_NOT_AUTHORIZED_BY_CONTROLLER');});
+ try{await page.locator('nav.bottom-nav').waitFor({state:'visible',timeout:30000});}
+ catch{
+  // Booleans and a route only; no page text, cookie or token.
+  out.postLogin=await page.evaluate(()=>({
+   hash:location.hash.split('?')[0],
+   loginButton:!!document.querySelector('button.live-monitor__login'),
+   status:document.querySelector('.live-monitor__status,.live-monitor__status-icon')?.className||null,
+   denied:/Доступ заборонено|Access denied/.test(document.body.innerText),
+   unavailable:/недоступн|unavailable|Unavailable/.test(document.body.innerText),
+   stale:!!document.querySelector('.live-monitor__stale'),
+   nav:!!document.querySelector('nav.bottom-nav')}));
+  const sessionProbe=await page.evaluate(async()=>{
+   const s=await fetch('/auth/session',{cache:'no-store',credentials:'same-origin'}).then(r=>r.status).catch(()=>0);
+   const m=await fetch('/v1/autodev/monitor',{cache:'no-store',credentials:'same-origin'}).then(r=>r.status).catch(()=>0);
+   return {session:s,monitor:m};});
+  out.postLogin.http=sessionProbe;
+  throw Error(out.postLogin.denied||sessionProbe.monitor===403?'OPERATOR_ACCESS_DENIED_BY_CONTROLLER':'OPERATOR_APP_NOT_READY');
+ }
  return page;
 }
 
