@@ -78,6 +78,17 @@ async function login(context){
  page.setDefaultTimeout(20000);
  const start=await page.goto(BASE+ENTRY,{waitUntil:'domcontentloaded',timeout:30000});
  check(start?.status()===200,'PWA_HTTP_NOT_200');
+ // Callback diagnostics: status, error code, redirect path and cookie NAMES only. Never values.
+ page.on('response',async r=>{
+  try{const u=new URL(r.url());
+   if(u.origin!==BASE||u.pathname!=='/auth/callback')return;
+   const h=await r.allHeaders();
+   const names=(h['set-cookie']||'').split('\n').map(c=>c.split('=')[0].trim()).filter(Boolean);
+   out.callback={status:r.status(),error:u.searchParams.get('error')||null,
+    hasCode:u.searchParams.has('code'),queryKeys:[...u.searchParams.keys()].sort(),
+    locationPath:h.location?new URL(h.location,BASE).pathname:null,setCookieNames:names};
+  }catch{}
+ });
  const button=page.locator('button.live-monitor__login').first();
  await button.waitFor({state:'visible',timeout:20000});
  await button.click();
