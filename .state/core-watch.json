@@ -13,7 +13,7 @@
         "suite_fingerprint": "8981d34a25a9d9b5fd42a2e10a7ccb480a33647446e2f622708b298a31785af3",
         "suite_sha": "125b2b98d12b01b738c4aa9c7ddc78826040ca66"
       },
-      "seen_sha": "c7a921023b0c5b829e14557526fd3e3a6f46f5b0",
+      "seen_sha": "f6ca5342a02d868895b666aa3589dbc8a0c637a4",
       "status": "RR_PLUGIN_NOT_MERGED"
     },
     "feat/rr-plugin-computation-ownership": {
