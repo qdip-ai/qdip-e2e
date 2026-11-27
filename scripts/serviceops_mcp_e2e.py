@@ -79,14 +79,14 @@ def run_so():
                 access_log=False)
 
 
-def wait_http(process, url, cert):
+def wait_http(process, url, cert, health_path):
     import httpx
     with httpx.Client(verify=cert, timeout=1, trust_env=False) as client:
         for _ in range(100):
             if process.poll() is not None:
                 raise RuntimeError("service terminated")
             try:
-                if client.get(url + "/openapi.json").status_code == 200:
+                if client.get(url + health_path).status_code == 200:
                     return
             except httpx.HTTPError:
                 pass
@@ -153,6 +153,7 @@ def scenario(core_path, so_path, mcp_path):
             "application_id": APP, "owner_client_id": CLIENT, "status": "active",
             "expires_at": (datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
             "capabilities": [{"capability_id": CAPABILITY, "capability_version": "1"}]}).inserted_id
+        print("SO_MCP_PHASE=MONGO_SEEDED", flush=True)
         core = ServiceOpsCore(env["SERVICEOPS_DB_PATH"])
         try:
             for name, count in (("a", 1), ("b", 2)):
@@ -170,6 +171,8 @@ def scenario(core_path, so_path, mcp_path):
             plans.start_trial(core, "tenant-b", "fixture")
         finally:
             core.close()
+
+        print("SO_MCP_PHASE=SQLITE_SEEDED", flush=True)
 
         def token(subject, admin=False):
             now = int(time.time())
@@ -197,14 +200,18 @@ def scenario(core_path, so_path, mcp_path):
                     env=dict(env, PYTHONPATH=str(source)), stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL)
                 processes.append(p)
-                wait_http(p, CORE_URL if mode == "core" else SO_URL, str(cert))
+                wait_http(p, CORE_URL if mode == "core" else SO_URL, str(cert),
+                          "/health" if mode == "core" else "/readyz")
+                print(f"SO_MCP_PHASE={mode.upper()}_READY", flush=True)
             with httpx.Client(verify=str(cert), timeout=15, trust_env=False) as http:
                 def activate(name, enabled):
+                    print("SO_MCP_PHASE=ACTIVATION", flush=True)
                     response = http.put(SO_URL+"/api/v1/mcp/customer-connection", headers=headers(name),
                                         json={"enabled": enabled})
                     assert response.status_code == 200 and response.json() == {"enabled": enabled}
 
                 def pay():
+                    print("SO_MCP_PHASE=PAID_PLAN", flush=True)
                     response = http.post(SO_URL+"/api/v1/admin/organizations/tenant-a/plan",
                         headers={"Authorization": "Bearer "+token("9999", admin=True)},
                         json={"action": "paid", "plan": "start", "agreement_reference": "synthetic",
@@ -212,6 +219,7 @@ def scenario(core_path, so_path, mcp_path):
                     assert response.status_code == 200 and response.json()["state"] == "paid"
 
                 def check(name, allowed, count=0, audience="both"):
+                    print("SO_MCP_PHASE=PROTOCOL_" + ("ALLOW" if allowed else "DENY"), flush=True)
                     subprocess.run(["node", "test/e2e-serviceops-customer.mjs", name,
                         str(int(allowed)), str(count), audience], cwd=mcp_path, env=env, check=True)
 
@@ -254,4 +262,11 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2 and sys.argv[1] == "so":
         run_so()
     else:
-        scenario(*(Path(x).resolve() for x in sys.argv[1:]))
+        try:
+            scenario(*(Path(x).resolve() for x in sys.argv[1:]))
+        except Exception as exc:
+            kind = type(exc).__name__
+            if kind not in {"AssertionError", "RuntimeError", "CalledProcessError", "ImportError", "ModuleNotFoundError", "ValueError", "TypeError", "KeyError", "OperationalError", "CoreError", "ConnectError"}:
+                kind = "OTHER"
+            print("SO_MCP_ERROR_CLASS=" + kind, flush=True)
+            raise
