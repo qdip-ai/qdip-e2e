@@ -20,6 +20,7 @@ ALLOWED = {
     "observatory-unit", "observatory-build", "browser-install", "browser-e2e",
     "sdk-install", "sdk-admission-restart", "sdk-admission", "sdk-e2e", "sdk-negative", "sdk383-fenced-revoke", "rr-auth-revocation", "test-report",
     "rr-actor-unit", "rr-actor-ruff", "core-quality", "observatory-format", "rr-replay-load",
+    "serviceops-install", "mcp-build", "serviceops-mcp-e2e",
 }
 
 def main() -> int:
