@@ -5,13 +5,14 @@ import { createApp } from '../dist/app.js';
 import { loadConfig, requiredAuthorizationScopes } from '../dist/config.js';
 import { validateClaims } from '../dist/auth.js';
 
-const [name, flag, count, audience] = process.argv.slice(2);
+const [name, flag, count, audience, provider = "chatgpt"] = process.argv.slice(2);
+assert(["chatgpt", "claude"].includes(provider));
 assert(['a','b'].includes(name));
 const allowed = flag === '1';
 const org = 'tenant-' + name;
 const foreign = 'tenant-' + (name === 'a' ? 'b' : 'a');
 const config = loadConfig(process.env);
-const token = 'fixture-customer-' + name + '-token';
+const token = 'fixture-customer-' + name + (provider === 'claude' ? '-claude' : '') + '-token';
 const app = createApp(config, {
   async verifyAccessToken(value) {
     // Synthetic identity provider boundary only; real claims normalization.
@@ -20,7 +21,7 @@ const app = createApp(config, {
       iss: process.env.ZITADEL_ISSUER,
       sub: name === 'a' ? '9001' : '9002',
       aud: audience === 'missing' ? ['100'] : ['100','202'],
-      client_id: '123456', exp: Math.floor(Date.now()/1000)+600,
+      client_id: provider === 'claude' ? '123457' : '123456', exp: Math.floor(Date.now()/1000)+600,
       scope: requiredAuthorizationScopes(config).join(' ')
     };
     return {...validateClaims(claims, config), token:value};

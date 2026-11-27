@@ -287,7 +287,7 @@ jobs:
       github.event.repository.private == false &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        github.head_ref == 'test/serviceops-customer-mcp') ||
+        (github.head_ref == 'test/serviceops-customer-mcp' || github.head_ref == 'test/serviceops-mcp-connection-proof')) ||
        (github.event_name == 'workflow_dispatch' && inputs.rr_contract_mode == 'serviceops-customer-mcp'))
     runs-on: ubuntu-24.04
     timeout-minutes: 18
@@ -303,7 +303,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qdip-ai/qdip-core
-          ref: ${{ github.event_name == 'pull_request' && 'bf7794d351e9dadeae677e92d9106eec8230bd2c' || inputs.backend_ref }}
+          ref: ${{ github.event_name == 'pull_request' && '4d7f8c235da76b61e27f2db1bf9c197e1418d273' || inputs.backend_ref }}
           token: ${{ secrets.QDIP_READ_TOKEN }}
           path: backend
           persist-credentials: false
@@ -311,7 +311,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qdip-ai/qdip-serviceops
-          ref: ${{ github.event_name == 'pull_request' && '6192bf6d314f0d11ae1b804880338ed2ca244cff' || inputs.serviceops_ref }}
+          ref: ${{ github.event_name == 'pull_request' && '47989bf8d1c9a6cc43454c1c667625f6e887c180' || inputs.serviceops_ref }}
           token: ${{ secrets.QDIP_READ_TOKEN }}
           path: serviceops
           persist-credentials: false

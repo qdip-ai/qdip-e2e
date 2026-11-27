@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 ISSUER = "https://identity.example.invalid"
 PROJECT, MCP_PROJECT, EXTERNAL_ORG = "202", "100", "456"
-APP, OWNER, CLIENT, AGENT = "301", "9000", "8000", "123456"
+APP, OWNER, CLIENT, AGENT, CLAUDE = "301", "9000", "8000", "123456", "123457"
 SUBJECTS = {"a": "9001", "b": "9002"}
 PLUGIN = "qdip-serviceops"
 CAPABILITY = "serviceops.assignment.propose"
@@ -44,11 +44,12 @@ def run_core():
     def identity_provider(request):
         from urllib.parse import parse_qs
         token = parse_qs(request.content.decode()).get("token", [""])[0]
-        subject = next((value for name, value in SUBJECTS.items()
-                        if token == f"fixture-customer-{name}-token"), None)
+        subject, agent = next(((value, client) for name, value in SUBJECTS.items()
+                               for suffix, client in (("", AGENT), ("-claude", CLAUDE))
+                               if token == f"fixture-customer-{name}{suffix}-token"), (None, None))
         now = int(time.time())
         return httpx.Response(200, json={"active": bool(subject), "sub": subject,
-            "iss": ISSUER, "aud": [PROJECT, MCP_PROJECT], "client_id": AGENT,
+            "iss": ISSUER, "aud": [PROJECT, MCP_PROJECT], "client_id": agent,
             "token_type": "Bearer", "iat": now-10, "exp": now+600, "scope": "openid"})
 
     async def verify(token, **kwargs):
@@ -127,10 +128,10 @@ def scenario(core_path, so_path, mcp_path):
             SERVICEOPS_DB_PATH=str(tmp / "serviceops.sqlite"), SERVICEOPS_OIDC_ISSUER=ISSUER,
             SERVICEOPS_OIDC_AUDIENCE=PROJECT, SERVICEOPS_OIDC_CLIENT_ID=CLIENT,
             SERVICEOPS_QDIP_GATEWAY_URL=CORE_URL, SERVICEOPS_QDIP_CALLER_KEY=key,
-            SERVICEOPS_MCP_CHATGPT_CLIENT_ID=AGENT,
+            SERVICEOPS_MCP_CHATGPT_CLIENT_ID=AGENT, SERVICEOPS_MCP_CLAUDE_CLIENT_ID=CLAUDE,
             MCP_RESOURCE_URL="https://mcp.example.invalid/mcp", MCP_OAUTH_PROFILE="zitadel_project_roles",
             MCP_ZITADEL_PROJECT_ID=MCP_PROJECT, MCP_ZITADEL_ORGANIZATION_ID=EXTERNAL_ORG,
-            MCP_ALLOWED_CLIENT_IDS=AGENT, QDIP_GATEWAY_URL=CORE_URL, QDIP_API_KEY=key,
+            MCP_ALLOWED_CLIENT_IDS=AGENT+","+CLAUDE, QDIP_GATEWAY_URL=CORE_URL, QDIP_API_KEY=key,
             MCP_SERVICEOPS_ORIGIN=SO_URL)
         # Unique synthetic database name; refuse to overwrite any existing records.
         mongo = MongoClient(MONGO, serverSelectionTimeoutMS=5000)
@@ -153,6 +154,10 @@ def scenario(core_path, so_path, mcp_path):
             "application_id": APP, "owner_client_id": CLIENT, "status": "active",
             "expires_at": (datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
             "capabilities": [{"capability_id": CAPABILITY, "capability_version": "1"}]}).inserted_id
+        second = grants.find_one({"_id": grant})
+        second.pop("_id")
+        second["agent_client_id"] = CLAUDE
+        grants.insert_one(second)
         print("SO_MCP_PHASE=MONGO_SEEDED", flush=True)
         core = ServiceOpsCore(env["SERVICEOPS_DB_PATH"])
         try:
@@ -218,31 +223,63 @@ def scenario(core_path, so_path, mcp_path):
                               "paid_ends_on": (datetime.now(plans.TZ).date()+timedelta(days=30)).isoformat()})
                     assert response.status_code == 200 and response.json()["state"] == "paid"
 
-                def check(name, allowed, count=0, audience="both"):
+                def check(name, allowed, count=0, audience="both", provider="chatgpt"):
                     print("SO_MCP_PHASE=PROTOCOL_" + ("ALLOW" if allowed else "DENY"), flush=True)
                     subprocess.run(["node", "test/e2e-serviceops-customer.mjs", name,
-                        str(int(allowed)), str(count), audience], cwd=mcp_path, env=env, check=True)
+                        str(int(allowed)), str(count), audience, provider], cwd=mcp_path, env=env, check=True)
+
+                def status_for(name, chatgpt, claude):
+                    response = http.get(SO_URL+"/api/v1/mcp/customer-status", headers=headers(name))
+                    assert response.status_code == 200
+                    clients = response.json()["clients"]
+                    for provider, expected in (("chatgpt", chatgpt), ("claude", claude)):
+                        proof = clients[provider]
+                        assert proof["state"] == expected
+                        if expected == "verified":
+                            assert int(time.time()) < proof["verified_until"] <= int(time.time()) + 300
+                        else:
+                            assert proof["verified_until"] is None
 
                 pay()
+                status_for("a", "blocked", "blocked")
                 check("a", False)
                 activate("a", True)
                 activate("b", True)
+                status_for("a", "unverified", "unverified")
+                status_for("b", "unverified", "unverified")
                 check("a", True, 1)
+                status_for("a", "verified", "unverified")
+                status_for("b", "unverified", "unverified")
+                check("a", True, 1, provider="claude")
+                status_for("a", "verified", "verified")
                 check("b", True, 2)
+                status_for("b", "verified", "unverified")
+                foreign_headers = {**headers("a"), "X-Organization-ID": "tenant-b"}
+                assert http.get(SO_URL+"/api/v1/mcp/customer-status", headers=foreign_headers).status_code == 403
                 check("a", False, audience="missing")
                 activate("a", False)
+                status_for("a", "blocked", "blocked")
                 check("a", False)
                 activate("a", True)
+                status_for("a", "unverified", "unverified")
                 expire("paid_ends_at", "tenant-a")
+                status_for("a", "blocked", "blocked")
                 check("a", False)
                 pay()
+                status_for("a", "unverified", "unverified")
                 check("a", True, 1)
+                check("a", True, 1, provider="claude")
+                status_for("a", "verified", "verified")
                 grants.update_one({"_id": grant}, {"$set": {"status": "revoked"}})
+                status_for("a", "blocked", "verified")
                 check("a", False, audience="grant-denied")
                 grants.update_one({"_id": grant}, {"$set": {"status": "active"}})
+                status_for("a", "unverified", "verified")
                 expire("trial_ends_at", "tenant-b")
+                status_for("b", "blocked", "blocked")
                 check("b", False)
                 check("a", True, 1)
+                status_for("a", "verified", "verified")
                 print("SERVICEOPS_MCP_CUSTOMER_E2E=PASS")
         finally:
             for p in reversed(processes):
