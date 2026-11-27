@@ -1,11 +1,29 @@
 // Copied into the pinned MCP checkout's test directory by the existing runner.
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createApp } from '../dist/app.js';
 import { loadConfig, requiredAuthorizationScopes } from '../dist/config.js';
 import { validateClaims } from '../dist/auth.js';
 
 const [name, flag, count, audience, provider = "chatgpt"] = process.argv.slice(2);
+if (name === 'metadata') {
+  const app = createApp(loadConfig(process.env));
+  const server = createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url, 'https://mcp.qdip.ai');
+      assert(['/.well-known/oauth-protected-resource/mcp', '/healthz'].includes(url.pathname));
+      assert.equal(req.method, 'GET');
+      const result = await app.fetch(new Request(url, { method: 'GET', headers: req.headers }));
+      res.writeHead(result.status, Object.fromEntries(result.headers));
+      res.end(Buffer.from(await result.arrayBuffer()));
+    } catch { res.writeHead(500); res.end(); }
+  });
+  server.listen(18445, '127.0.0.1');
+  await new Promise(resolve => server.once('close', resolve));
+  await app.close();
+  process.exit(0);
+}
 assert(["chatgpt", "claude"].includes(provider));
 assert(['a','b'].includes(name));
 const allowed = flag === '1';
