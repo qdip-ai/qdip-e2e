@@ -23,6 +23,9 @@ PLUGIN = "qdip-serviceops"
 CAPABILITY = "serviceops.assignment.propose"
 ORG = "aaaa0000-aaaa-4000-8000-aaaaaaaaaaaa"
 CORE_URL, SO_URL = "https://127.0.0.1:18443", "https://127.0.0.1:18444"
+MCP_METADATA = "/.well-known/oauth-protected-resource/mcp"
+METADATA_ORIGIN = "http://127.0.0.1:18445"
+MCP_RESOURCE = "https://mcp.qdip.ai/mcp"
 MONGO = "mongodb://127.0.0.1:27019/qdip_mcp_customer_e2e?replicaSet=rrtest&directConnection=true"
 
 
@@ -64,30 +67,48 @@ def run_core():
 
 
 def run_so():
+    import httpx
     import uvicorn
     from cryptography.hazmat.primitives import serialization
     from types import SimpleNamespace
     from serviceops_api import auth
-    from serviceops_api.app import app
+    from serviceops_api.app import app, http_client
 
     public = serialization.load_pem_public_key(Path(os.environ["E2E_JWT_PUBLIC"]).read_bytes())
     # Provider JWKS is the only substituted dependency; actual JWT signature,
     # audience, issuer, membership and plan enforcement remain unchanged.
     auth._keys = lambda issuer: SimpleNamespace(
         get_signing_key_from_jwt=lambda token: SimpleNamespace(key=public))
+    # Redirect only the fixed public metadata URL to the real isolated MCP
+    # handler. This is test DNS routing, not a mocked metadata response.
+    def route_metadata(request):
+        if request.url.host == "mcp.qdip.ai":
+            assert str(request.url) == "https://mcp.qdip.ai" + MCP_METADATA
+            assert request.method == "GET"
+            assert "Authorization" not in request.headers and "X-API-Key" not in request.headers
+            request.url = httpx.URL(METADATA_ORIGIN + MCP_METADATA)
+            request.headers["Host"] = "mcp.qdip.ai"
+
+    def isolated_http():
+        with httpx.Client(verify=os.environ["E2E_CERT"], trust_env=False,
+                          event_hooks={"request": [route_metadata]},
+                          timeout=10, follow_redirects=False) as client:
+            yield client
+
+    app.dependency_overrides[http_client] = isolated_http
     uvicorn.run(app, host="127.0.0.1", port=18444, lifespan="off",
                 ssl_certfile=os.environ["E2E_CERT"], ssl_keyfile=os.environ["E2E_TLS_KEY"],
                 access_log=False)
 
 
-def wait_http(process, url, cert, health_path):
+def wait_http(process, url, cert, health_path, headers=None):
     import httpx
     with httpx.Client(verify=cert, timeout=1, trust_env=False) as client:
         for _ in range(100):
             if process.poll() is not None:
                 raise RuntimeError("service terminated")
             try:
-                if client.get(url + health_path).status_code == 200:
+                if client.get(url + health_path, headers=headers).status_code == 200:
                     return
             except httpx.HTTPError:
                 pass
@@ -129,7 +150,8 @@ def scenario(core_path, so_path, mcp_path):
             SERVICEOPS_OIDC_AUDIENCE=PROJECT, SERVICEOPS_OIDC_CLIENT_ID=CLIENT,
             SERVICEOPS_QDIP_GATEWAY_URL=CORE_URL, SERVICEOPS_QDIP_CALLER_KEY=key,
             SERVICEOPS_MCP_CHATGPT_CLIENT_ID=AGENT, SERVICEOPS_MCP_CLAUDE_CLIENT_ID=CLAUDE,
-            MCP_RESOURCE_URL="https://mcp.example.invalid/mcp", MCP_OAUTH_PROFILE="zitadel_project_roles",
+            SERVICEOPS_MCP_CORE_AUDIENCE=PROJECT,
+            MCP_RESOURCE_URL=MCP_RESOURCE, MCP_OAUTH_PROFILE="zitadel_project_roles",
             MCP_ZITADEL_PROJECT_ID=MCP_PROJECT, MCP_ZITADEL_ORGANIZATION_ID=EXTERNAL_ORG,
             MCP_ALLOWED_CLIENT_IDS=AGENT+","+CLAUDE, QDIP_GATEWAY_URL=CORE_URL, QDIP_API_KEY=key,
             MCP_SERVICEOPS_ORIGIN=SO_URL)
@@ -208,7 +230,40 @@ def scenario(core_path, so_path, mcp_path):
                 wait_http(p, CORE_URL if mode == "core" else SO_URL, str(cert),
                           "/health" if mode == "core" else "/readyz")
                 print(f"SO_MCP_PHASE={mode.upper()}_READY", flush=True)
+            metadata_process = subprocess.Popen(
+                ["node", "test/e2e-serviceops-customer.mjs", "metadata"],
+                cwd=mcp_path, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            processes.append(metadata_process)
+            metadata_headers = {"Host": "mcp.qdip.ai"}
+            wait_http(metadata_process, METADATA_ORIGIN, str(cert), "/healthz", headers=metadata_headers)
+            print("SO_MCP_PHASE=SETUP_METADATA_READY", flush=True)
             with httpx.Client(verify=str(cert), timeout=15, trust_env=False) as http:
+                setup_url = SO_URL + "/api/v1/mcp/customer-setup"
+                # The actual MCP host guard must still reject an incorrect host.
+                assert http.get(METADATA_ORIGIN + "/healthz").status_code == 403
+
+                def check_setup(name):
+                    metadata = http.get(METADATA_ORIGIN + MCP_METADATA, headers=metadata_headers)
+                    assert metadata.status_code == 200
+                    public = metadata.json()
+                    assert public["resource"] == MCP_RESOURCE
+                    assert public["authorization_servers"] == [ISSUER]
+                    assert f"urn:zitadel:iam:org:project:id:{PROJECT}:aud" in public["scopes_supported"]
+                    assert f"urn:zitadel:iam:org:project:id:{MCP_PROJECT}:aud" in public["scopes_supported"]
+                    response = http.get(setup_url, headers=headers(name))
+                    assert response.status_code == 200
+                    assert response.headers["Cache-Control"] == "no-store"
+                    assert response.json() == {
+                        "server_url": MCP_RESOURCE,
+                        "client_ids": {"chatgpt": AGENT, "claude": CLAUDE},
+                        "scopes": public["scopes_supported"],
+                    }
+
+                assert http.get(setup_url, headers=headers("a")).status_code == 403
+                foreign = {**headers("a"), "X-Organization-ID": "tenant-b"}
+                assert http.get(setup_url, headers=foreign).status_code == 403
+                check_setup("b")
+                print("SO_MCP_PHASE=SETUP_PUBLIC_PARAMETERS", flush=True)
                 def activate(name, enabled):
                     print("SO_MCP_PHASE=ACTIVATION", flush=True)
                     response = http.put(SO_URL+"/api/v1/mcp/customer-connection", headers=headers(name),
@@ -241,6 +296,7 @@ def scenario(core_path, so_path, mcp_path):
                             assert proof["verified_until"] is None
 
                 pay()
+                check_setup("a")  # Read-only guide is allowed before activation.
                 status_for("a", "blocked", "blocked")
                 check("a", False)
                 activate("a", True)
@@ -280,6 +336,14 @@ def scenario(core_path, so_path, mcp_path):
                 check("b", False)
                 check("a", True, 1)
                 status_for("a", "verified", "verified")
+                assert http.get(setup_url, headers=headers("b")).status_code == 403
+                metadata_process.terminate()
+                metadata_process.wait(timeout=10)
+                processes.remove(metadata_process)
+                response = http.get(setup_url, headers=headers("a"))
+                assert response.status_code == 503
+                assert response.json()["detail"] == "MCP_SETUP_METADATA_UNAVAILABLE"
+                print("SERVICEOPS_MCP_SETUP_E2E=PASS")
                 print("SERVICEOPS_MCP_CUSTOMER_E2E=PASS")
         finally:
             for p in reversed(processes):

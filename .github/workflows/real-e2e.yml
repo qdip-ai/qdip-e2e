@@ -287,7 +287,7 @@ jobs:
       github.event.repository.private == false &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
-        (github.head_ref == 'test/serviceops-customer-mcp' || github.head_ref == 'test/serviceops-mcp-connection-proof')) ||
+        github.head_ref == 'test/156-serviceops-mcp-setup') ||
        (github.event_name == 'workflow_dispatch' && inputs.rr_contract_mode == 'serviceops-customer-mcp'))
     runs-on: ubuntu-24.04
     timeout-minutes: 18
@@ -303,7 +303,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qdip-ai/qdip-core
-          ref: ${{ github.event_name == 'pull_request' && '4d7f8c235da76b61e27f2db1bf9c197e1418d273' || inputs.backend_ref }}
+          ref: ${{ github.event_name == 'pull_request' && '2989f529b72bd8157a9c422c94bf27679d2a637b' || inputs.backend_ref }}
           token: ${{ secrets.QDIP_READ_TOKEN }}
           path: backend
           persist-credentials: false
@@ -311,7 +311,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qdip-ai/qdip-serviceops
-          ref: ${{ github.event_name == 'pull_request' && '47989bf8d1c9a6cc43454c1c667625f6e887c180' || inputs.serviceops_ref }}
+          ref: ${{ github.event_name == 'pull_request' && '28b0188fd6e46b5001a52228fec5a72136dac82f' || inputs.serviceops_ref }}
           token: ${{ secrets.QDIP_READ_TOKEN }}
           path: serviceops
           persist-credentials: false
@@ -337,6 +337,10 @@ jobs:
           python suite/scripts/safe_stage.py --timeout 900 --cwd backend backend-install -- bash -c "python -m pip install -r requirements-platform.txt && python -m pip install '.[dev]' ./packages/qdip_remote_sdk"
           python suite/scripts/safe_stage.py --timeout 300 --cwd serviceops serviceops-install -- python -m pip install .
           python suite/scripts/safe_stage.py --timeout 300 --cwd mcp mcp-build -- bash -c "npm ci && npm run build"
+      - name: Run focused ServiceOps regressions and build
+        run: |
+          python suite/scripts/safe_stage.py --timeout 120 --cwd serviceops serviceops-mcp-regression -- python -m unittest -v tests.test_mcp_customer
+          python suite/scripts/safe_stage.py --timeout 300 --cwd serviceops/web serviceops-web-build -- bash -c "npm ci && npm test && npm run build"
       - name: Start existing isolated native Mongo
         run: |
           bash suite/scripts/install_mongo_native.sh
