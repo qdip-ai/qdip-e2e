@@ -87,7 +87,7 @@ def run_so():
             assert request.method == "GET"
             assert "Authorization" not in request.headers and "X-API-Key" not in request.headers
             request.url = httpx.URL(METADATA_ORIGIN + MCP_METADATA)
-            request.headers["Host"] = "127.0.0.1:18445"
+            request.headers["Host"] = "mcp.qdip.ai"
 
     def isolated_http():
         with httpx.Client(verify=os.environ["E2E_CERT"], trust_env=False,
@@ -101,14 +101,14 @@ def run_so():
                 access_log=False)
 
 
-def wait_http(process, url, cert, health_path):
+def wait_http(process, url, cert, health_path, headers=None):
     import httpx
     with httpx.Client(verify=cert, timeout=1, trust_env=False) as client:
         for _ in range(100):
             if process.poll() is not None:
                 raise RuntimeError("service terminated")
             try:
-                if client.get(url + health_path).status_code == 200:
+                if client.get(url + health_path, headers=headers).status_code == 200:
                     return
             except httpx.HTTPError:
                 pass
@@ -234,13 +234,16 @@ def scenario(core_path, so_path, mcp_path):
                 ["node", "test/e2e-serviceops-customer.mjs", "metadata"],
                 cwd=mcp_path, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             processes.append(metadata_process)
-            wait_http(metadata_process, METADATA_ORIGIN, str(cert), "/healthz")
+            metadata_headers = {"Host": "mcp.qdip.ai"}
+            wait_http(metadata_process, METADATA_ORIGIN, str(cert), "/healthz", headers=metadata_headers)
             print("SO_MCP_PHASE=SETUP_METADATA_READY", flush=True)
             with httpx.Client(verify=str(cert), timeout=15, trust_env=False) as http:
                 setup_url = SO_URL + "/api/v1/mcp/customer-setup"
+                # The actual MCP host guard must still reject an incorrect host.
+                assert http.get(METADATA_ORIGIN + "/healthz").status_code == 403
 
                 def check_setup(name):
-                    metadata = http.get(METADATA_ORIGIN + MCP_METADATA)
+                    metadata = http.get(METADATA_ORIGIN + MCP_METADATA, headers=metadata_headers)
                     assert metadata.status_code == 200
                     public = metadata.json()
                     assert public["resource"] == MCP_RESOURCE
