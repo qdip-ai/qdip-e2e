@@ -20,6 +20,7 @@ ALLOWED = {
     "observatory-unit", "observatory-build", "browser-install", "browser-e2e",
     "sdk-install", "sdk-admission-restart", "sdk-admission", "sdk-e2e", "sdk-negative", "sdk383-fenced-revoke", "rr-auth-revocation", "test-report",
     "rr-actor-unit", "rr-actor-ruff", "core-quality", "observatory-format", "rr-replay-load",
+    "serviceops-install", "mcp-build", "serviceops-mcp-e2e",
 }
 
 def main() -> int:
@@ -203,6 +204,19 @@ def main() -> int:
         )
         print("QDIP_RECOVERY_LAST_PHASE=" + (phases[-1] if phases else "UNKNOWN"))
         print("QDIP_RECOVERY_ERROR_CLASS=" + (kinds[-1] if kinds else "UNKNOWN"))
+    if args.stage == "serviceops-mcp-e2e" and path.exists():
+        # Only fixed labels from the synthetic independent scenario may leave
+        # the private runner. Never print raw logs, exceptions or source.
+        source = path.read_text(encoding="utf-8", errors="replace")
+        phases = re.findall(r"^SO_MCP_PHASE=(MONGO_SEEDED|SQLITE_SEEDED|CORE_READY|SO_READY|ACTIVATION|PAID_PLAN|PROTOCOL_ALLOW|PROTOCOL_DENY)$", source, re.MULTILINE)
+        classes = re.findall(r"^SO_MCP_ERROR_CLASS=(AssertionError|RuntimeError|CalledProcessError|ImportError|ModuleNotFoundError|ValueError|TypeError|KeyError|OperationalError|CoreError|ConnectError|OTHER)$", source, re.MULTILINE)
+        print("SO_MCP_LAST_PHASE=" + (phases[-1] if phases else "UNKNOWN"))
+        if status != "PASS":
+            print("SO_MCP_ERROR_CLASS=" + (classes[-1] if classes else "UNKNOWN"))
+        elif source.count("SERVICEOPS_MCP_CUSTOMER_E2E=PASS") != 1:
+            status = "FAIL"
+        else:
+            print("SERVICEOPS_MCP_CUSTOMER_E2E=PASS")
     print(f"QDIP_STAGE_{args.stage.upper().replace('-', '_')}={status}")
     return 0 if status == "PASS" else 1
 

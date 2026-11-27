@@ -4,6 +4,12 @@ run-name: QDIP E2E ${{ github.event.client_payload.backend_sha || inputs.backend
 on:
   push:
     branches: ['fix/rr-sdk-admission-syspath']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/serviceops_mcp_e2e.py'
+      - 'scripts/serviceops_mcp_e2e.mjs'
+      - '.github/workflows/real-e2e.yml'
   repository_dispatch:
     types: [qdip-core-updated, rr-pr-ready]
   workflow_dispatch:
@@ -31,7 +37,18 @@ on:
           - legacy
           - rr-plugin-v1
           - rr-oidc-session-v1
+          - serviceops-customer-mcp
         default: rr-oidc-session-v1
+      serviceops_ref:
+        description: "ServiceOps immutable source SHA (MCP customer mode)"
+        type: string
+        required: false
+        default: main
+      mcp_ref:
+        description: "MCP immutable source SHA (MCP customer mode)"
+        type: string
+        required: false
+        default: dev
 
 permissions:
   contents: read
@@ -42,7 +59,7 @@ concurrency:
 
 jobs:
   integration:
-    if: github.event.repository.private == false
+    if: github.event.repository.private == false && github.event_name != 'pull_request' && inputs.rr_contract_mode != 'serviceops-customer-mcp'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
@@ -263,3 +280,70 @@ jobs:
           E2E_JOB_STATUS: ${{ needs.integration.result }}
           E2E_PHASES_PATH: ${{ runner.temp }}/statuses/qdip-stage-results.jsonl
         run: python scripts/report_run.py
+
+
+  serviceops-customer-mcp:
+    if: >-
+      github.event.repository.private == false &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.head_ref == 'test/serviceops-customer-mcp') ||
+       (github.event_name == 'workflow_dispatch' && inputs.rr_contract_mode == 'serviceops-customer-mcp'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout independent suite
+        uses: actions/checkout@v4
+        with:
+          path: suite
+          persist-credentials: false
+      - name: Checkout pinned Core
+        uses: actions/checkout@v4
+        with:
+          repository: qdip-ai/qdip-core
+          ref: ${{ github.event_name == 'pull_request' && 'bf7794d351e9dadeae677e92d9106eec8230bd2c' || inputs.backend_ref }}
+          token: ${{ secrets.QDIP_READ_TOKEN }}
+          path: backend
+          persist-credentials: false
+      - name: Checkout pinned ServiceOps
+        uses: actions/checkout@v4
+        with:
+          repository: qdip-ai/qdip-serviceops
+          ref: ${{ github.event_name == 'pull_request' && '6192bf6d314f0d11ae1b804880338ed2ca244cff' || inputs.serviceops_ref }}
+          token: ${{ secrets.QDIP_READ_TOKEN }}
+          path: serviceops
+          persist-credentials: false
+      - name: Checkout pinned MCP
+        uses: actions/checkout@v4
+        with:
+          repository: qdip-ai/qdip-mcp
+          ref: ${{ github.event_name == 'pull_request' && 'b0622b829e3033649ded5540ee52b996750690d7' || inputs.mcp_ref }}
+          token: ${{ secrets.QDIP_READ_TOKEN }}
+          path: mcp
+          persist-credentials: false
+      - name: Record exact source SHAs
+        run: |
+          for repo in backend serviceops mcp suite; do printf '%s=' "$repo"; git -C "$repo" rev-parse HEAD; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Install existing product packages (redacted)
+        run: |
+          python suite/scripts/safe_stage.py --timeout 900 --cwd backend backend-install -- bash -c "python -m pip install -r requirements-platform.txt && python -m pip install '.[dev]' ./packages/qdip_remote_sdk"
+          python suite/scripts/safe_stage.py --timeout 300 --cwd serviceops serviceops-install -- python -m pip install .
+          python suite/scripts/safe_stage.py --timeout 300 --cwd mcp mcp-build -- bash -c "npm ci && npm run build"
+      - name: Start existing isolated native Mongo
+        run: |
+          bash suite/scripts/install_mongo_native.sh
+          bash suite/scripts/start_mongo_native.sh
+      - name: Run actual MCP to ServiceOps to Core authorization
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}/serviceops
+        run: |
+          cp suite/scripts/serviceops_mcp_e2e.mjs mcp/test/e2e-serviceops-customer.mjs
+          python suite/scripts/safe_stage.py --timeout 240 serviceops-mcp-e2e -- python suite/scripts/serviceops_mcp_e2e.py backend serviceops mcp
