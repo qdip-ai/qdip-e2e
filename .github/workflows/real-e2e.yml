@@ -311,7 +311,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: qdip-ai/qdip-serviceops
-          ref: ${{ github.event_name == 'pull_request' && '09f6f6eeceaceeff8578d91ea63bb678f1b429c0' || inputs.serviceops_ref }}
+          ref: ${{ github.event_name == 'pull_request' && '6192bf6d314f0d11ae1b804880338ed2ca244cff' || inputs.serviceops_ref }}
           token: ${{ secrets.QDIP_READ_TOKEN }}
           path: serviceops
           persist-credentials: false
