@@ -148,6 +148,31 @@ def main() -> int:
             if committed:
                 request["committed"] = committed
             cases.append((f"random_{n}", request, None, None))
+        # Smart Pricing: floor = best margin without X - best margin with X forced at revenue 0.
+        pricing = [("price_floor_roadmap_330", [option("y", "ry", 0, 120, 18000), option("x", "rx", 0, 120, 0, cost=15000)], 33000),
+                   ("price_floor_idle_capacity", [option("x", "rx", 0, 120, 0, cost=15000)], 15000),
+                   ("price_floor_committed_kept", [option("c", "rc", 0, 120, 100), option("x1", "rx", 0, 120, 0, cost=1000),
+                                                   option("x2", "rx", 120, 240, 0, cost=3000)], 3000)]
+        for name, opts, expected_floor in pricing:
+            committed = ["rc"] if any(o["order"] == "rc" for o in opts) else []
+            without = {"model": "profit_options_v1", "options": [o for o in opts if o["order"] != "rx"]}
+            forced = {"model": "profit_options_v1", "options": opts, "committed": committed + ["rx"]}
+            if committed:
+                without["committed"] = committed
+            values = []
+            for req in (without, forced):
+                if not req["options"]:
+                    values.append(0)
+                    continue
+                status, body = http("POST", f"{BASE}/{CAPABILITY}/invoke", {"input": req})
+                result = (body or {}).get("execution_result") or {}
+                margin, _ = selected_margin(req, result)
+                values.append(margin if status == 200 and result.get("backend_status") == "OPTIMAL"
+                              and margin == oracle(req) else None)
+            floor = None if None in values else values[0] - values[1]
+            ok = floor == expected_floor
+            failures += not ok
+            print(json.dumps({"case": name, "floor": floor, "expected": expected_floor, "pass": ok}), flush=True)
         for name, request, expected_status, expected_ids in cases:
             status, body = http("POST", f"{BASE}/{CAPABILITY}/invoke", {"input": request})
             result = (body or {}).get("execution_result") or {}
