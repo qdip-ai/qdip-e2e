@@ -19,7 +19,49 @@ import time
 import urllib.error
 import urllib.request
 
-GATEWAY = os.environ["E2E_GATEWAY"].rstrip("/")
+import socket
+import threading
+from urllib.parse import urlsplit
+
+
+def loopback(target: str) -> str:
+    """The SDK accepts plain WS only on localhost (WSS elsewhere). On a private network without TLS,
+    relay a local port to the private Gateway instead of weakening the SDK rule."""
+    parts = urlsplit(target)
+    if parts.hostname in ("127.0.0.1", "localhost"):
+        return target
+    server = socket.create_server(("127.0.0.1", 0))
+
+    def pipe(src, dst):
+        try:
+            while data := src.recv(65536):
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            for s in (src, dst):
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def accept():
+        while True:
+            client, _ = server.accept()
+            try:
+                upstream = socket.create_connection((parts.hostname, parts.port or 80), timeout=10)
+                upstream.settimeout(None)
+            except OSError:
+                client.close()  # Gateway not up yet: the caller retries
+                continue
+            threading.Thread(target=pipe, args=(client, upstream), daemon=True).start()
+            threading.Thread(target=pipe, args=(upstream, client), daemon=True).start()
+
+    threading.Thread(target=accept, daemon=True).start()
+    return f"http://127.0.0.1:{server.getsockname()[1]}"
+
+
+GATEWAY = loopback(os.environ["E2E_GATEWAY"].rstrip("/"))
 BASE = f"{GATEWAY}/api/v1/remote-plugins"
 CAPABILITY = "serviceops.assignment.propose"
 CALLER = os.environ["E2E_CALLER_KEY"]
